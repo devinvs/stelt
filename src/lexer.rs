@@ -24,15 +24,23 @@ lazy_static! {
         // Operators
         m.insert("+", Token::Plus);
         m.insert("-", Token::Sub);
-        m.insert("*", Token::Times);
+        m.insert("*", Token::Mul);
         m.insert("/", Token::Div);
         m.insert("%", Token::Mod);
         m.insert("**", Token::Pow);
-        m.insert("=", Token::Equal);
+        m.insert("=", Token::Assign);
+        m.insert("==", Token::Equal);
+        m.insert("!=", Token::NotEqual);
         m.insert("->", Token::Arrow);
-        m.insert("_", Token::Underscore);
         m.insert("::", Token::Concat);
         m.insert("|", Token::Bar);
+        m.insert("||", Token::Or);
+        m.insert("&&", Token::And);
+        m.insert("&", Token::BitAnd);
+        m.insert("!", Token::Not);
+        m.insert("~", Token::BitNot);
+        m.insert("^", Token::BitXor);
+        m.insert(".", Token::Dot);
 
         // Separators
         m.insert("(", Token::LParen);
@@ -51,6 +59,10 @@ lazy_static! {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Token {
+    // EOF
+    EOF,
+
+    // Keywords
     Def,
     Type,
     Let,
@@ -67,16 +79,26 @@ pub enum Token {
 
     // Operators
     Plus,
-    Times,
+    Mul,
     Sub,
     Div,
     Mod,
     Pow,
+    Assign,
     Equal,
+    NotEqual,
+    Or,
+    And,
+    BitAnd,
+    Not,
+    BitNot,
+    BitXor,
+    LTE,
+    GTE,
+    Dot,
 
     // Fancy stuff maybe?
     Arrow,
-    Underscore,
     Concat,
     Bar,
 
@@ -122,7 +144,7 @@ pub struct Lexer {
 }
 
 impl Lexer {
-    pub fn lex(&mut self, input: &str) -> Vec<Token> {
+    pub fn lex(&mut self, input: &str) -> TokenStream {
         let mut tokens = Vec::new();
         let mut chars = input.chars().peekable();
 
@@ -211,16 +233,49 @@ impl Lexer {
                 }
                 // Some fancy double char operators???
                 '*' if next.is_some() && *next.unwrap() == '*' => {
+                    self.push_token(&mut tokens, &mut stack);
                     chars.next().unwrap();
                     tokens.push(Token::Pow);
                 }
                 ':' if next.is_some() && *next.unwrap() == ':' => {
+                    self.push_token(&mut tokens, &mut stack);
                     chars.next().unwrap();
                     tokens.push(Token::Concat);
                 }
                 '-' if next.is_some() && *next.unwrap() == '>' => {
+                    self.push_token(&mut tokens, &mut stack);
                     chars.next().unwrap();
                     tokens.push(Token::Arrow);
+                }
+                '|' if next.is_some() && *next.unwrap() == '|' => {
+                    self.push_token(&mut tokens, &mut stack);
+                    chars.next().unwrap();
+                    tokens.push(Token::Or);
+                }
+                '&' if next.is_some() && *next.unwrap() == '&' => {
+                    self.push_token(&mut tokens, &mut stack);
+                    chars.next().unwrap();
+                    tokens.push(Token::And);
+                }
+                '=' if next.is_some() && *next.unwrap() == '=' => {
+                    self.push_token(&mut tokens, &mut stack);
+                    chars.next().unwrap();
+                    tokens.push(Token::Equal);
+                }
+                '!' if next.is_some() && *next.unwrap() == '=' => {
+                    self.push_token(&mut tokens, &mut stack);
+                    chars.next().unwrap();
+                    tokens.push(Token::NotEqual);
+                }
+                '<' if next.is_some() && *next.unwrap() == '=' => {
+                    self.push_token(&mut tokens, &mut stack);
+                    chars.next().unwrap();
+                    tokens.push(Token::LTE);
+                }
+                '>' if next.is_some() && *next.unwrap() == '=' => {
+                    self.push_token(&mut tokens, &mut stack);
+                    chars.next().unwrap();
+                    tokens.push(Token::GTE);
                 }
                 // Separators
                 ',' | '(' | ')' | '[' | ']' | '{' | '}' => {
@@ -229,7 +284,7 @@ impl Lexer {
                 }
 
                 // Single char Operators
-                '+' | '-' | '*' | '/' | '%' | '<' | '>' | '=' | '|' => {
+                '+' | '-' | '*' | '/' | '%' | '<' | '>' | '=' | '|' | '&' | '^' | '!' | '~' | '.' => {
                     self.push_token(&mut tokens, &mut stack);
                     tokens.push(MAP.get(c.to_string().as_str()).unwrap().clone());
                 }
@@ -239,8 +294,14 @@ impl Lexer {
                 }
             }
         }
+        self.push_token(&mut tokens, &mut stack);
 
-        tokens
+        tokens.push(Token::EOF);
+
+        TokenStream {
+            tokens,
+            curr: 0
+        }
     }
 
     fn push_token(&mut self, tokens: &mut Vec<Token>, stack: &mut String) {
@@ -258,4 +319,15 @@ impl Lexer {
             stack.clear();
         }
     }
+}
+
+#[derive(Debug)]
+pub struct TokenStream {
+    tokens: Vec<Token>,
+    curr: usize
+}
+
+impl TokenStream {
+    pub fn adv(&mut self) { self.curr += 1 }
+    pub fn peek(&self) -> &Token { &self.tokens[self.curr] }
 }

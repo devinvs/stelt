@@ -1,0 +1,123 @@
+// A program is a list of declarations
+program := <decl> <program'>
+program' := <decl>
+          | epsilon
+
+decl := def <ident> = <expression>      // def declaration for compile time expr
+      | type //TODO:AHAHAHAHAH          // type declaration for type defs
+      | <ident> ( <argslist> ) = <exprblock>  // Function declaration
+
+
+typedecl := type <ident> <typedecl'>
+typedecl' := ( <typeor> )
+           | epsilon
+
+typeor := <typedecl> <typeor'>
+typeor' := | <typedecl>
+         | epsilon
+
+typeand := <field> <typeand'>
+typeand' := , <typeand>
+          | epsilon
+
+field := <ident> <typefunc>
+
+typefunc := <typecoll> <typefunc'>
+typefunc' := -> <typefunc>
+           | epsilon
+
+typecoll := <typebase>
+          | ( <typebase> <typecoll'> )
+          | [ <typebase> <typecoll'> ]
+
+typecoll' := , <typebase>
+           | epsilon
+
+typebase := <ident>
+          | <builtin>
+          | ( <typefunc> )
+
+
+// list of expressions for function decl
+exprblock := <expression>
+           | { <exprlist> }
+
+exprlist := <expression> <exprlist>
+          | epsilon
+
+// Heres all the stuff for our expressions
+expression := let <ident> = <orexpr>
+            | <orexpr>
+
+orexpr := <andexpr> <orexpr'>
+orexpr' := || <orexpr>
+             | epsilon
+
+andexpr := <bitor> <andexpr'>
+andexpr' := && <andexpr>
+          | epsilon
+
+bitor := <bitxor> <bitor'>
+bitor' := | <bitor>
+        | epsilon
+
+bitxor := <bitand> <bitxor'>
+bitxor' := ^ <bitxor>
+         | epsilon
+
+bitand := <eqexpr> <bitand'>
+bitand' := & <bitand>
+         | epsilon
+
+eqexpr := <relexpr> <eqexpr'>
+eqexpr' := == <eqexpr>
+         | != <eqexpr>
+         | epsilon
+
+relexpr := <concexpr> <relexpr'>
+relexpr' := < <relexpr>
+          | > <relexpr>
+          | <= <relexpr>
+          | >= <relexpr>
+          | epsilon
+
+concexpr := <addexpr> <concexpr'>
+concexpr' := :: <concexpr>
+
+
+addexpr := <mulexpr> <addexpr'>
+addexpr' := + <addexpr>
+          | - <addexpr>
+          | epsilon
+
+mulexpr := <powexpr> <mulexpr'>
+mulexpr' := * <mulexpr>
+          | / <mulexpr>
+          | % <mulexpr>
+          | epsilon
+
+powexpr := <unary> <powexpr'>
+powexpr' := ** <powexpr>
+          | epsilon
+
+unary := ! <unary>
+       | ~ <unary>
+       | + <unary>
+       | - <unary>
+       | <postfix>
+
+postfix := <primary> <postfix'>
+postfix' := [ <expression> ]  ; this might be on its way out...
+          | ( <argslist> )
+          | . <ident>
+          | epsilon
+
+primary := ident
+           | constant
+           | string
+           | ( <expression> )
+
+argslist := <concexpr> <argslist'>
+argslist' := , <argslist>
+           | epsilon
+
