@@ -1,0 +1,58 @@
+trait Eq<a> {
+    type eq = (a, a) -> bool
+    type neq = (a, a) -> bool
+
+    neq(x, y) = !eq(x, y)
+} 
+
+impl Eq for list<a> {
+    eq(x::xs, y::ys) = x==y && eq(xs, ys)
+}
+
+type list<a> = Nil | Cons(a, List<a>)
+type maybe<a> = None | Some(a)
+
+type a = F | G
+
+
+type b = (F, G)
+type c = u32
+
+type vec<a> = list<a>
+
+- name
+- args
+- vals
+
+
+trait Map<f> {
+    type map = (f<a>, a -> b) -> f<b>
+}
+
+impl Map for list {
+    map([], f) = []
+    map(x::xs, f) = f(x)::map(xs, f)
+}
+
+// should transform into
+type list_map = (list<a>, list<a> -> b) -> list<b>
+list_map([], f) = []
+list_map(x::xs, f) = f(x)::list_map(xs, f)
+
+impl Map for maybe {
+    map(None, f) = None
+    map(Some(a), f) = Some(f(a))
+}
+
+// should transform into
+type maybe_map = (Maybe<a>, Maybe<a> -> b) -> Maybe<b>
+maybe_map(None, f) = None
+maybe_map(Some(x), f) = Some(f(x))
+
+
+// lambdas?
+
+def add = (a, b) => a+b
+a => a+1
+
+

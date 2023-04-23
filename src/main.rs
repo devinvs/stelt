@@ -2,20 +2,26 @@ use std::fs::File;
 use std::io::Read;
 
 use stelt::Lexer;
-use stelt::parser::Program;
+use stelt::Program;
 
 fn main() {
-    let path = "./test.st";
+    compile("./test.st");
+}
 
-    let mut f = File::open(path).unwrap();
-    let mut s = String::new();
+fn compile(path: &str) {
+    // Read File
+    let mut file = File::open(path).unwrap();
+    let mut buf = String::with_capacity(file.metadata().unwrap().len() as usize);
+    file.read_to_string(&mut buf).unwrap();
 
-    f.read_to_string(&mut s).unwrap();
-
+    // Lex
     let mut lexer = Lexer::default();
-    let mut tokens = lexer.lex(&s);
-    println!("{:?}", tokens);
+    let mut tokens = lexer.lex(&buf);
 
-    let tree = Program::parse(&mut tokens);
-    println!("{:#?}", tree);
+    // Parse
+    let program = Program::parse(&mut tokens);
+    eprintln!("{:#?}", program);
+
+    // Output Code
+    //program.compile();
 }

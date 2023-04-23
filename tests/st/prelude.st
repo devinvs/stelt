@@ -1,5 +1,5 @@
 // builtin types
-type bool = False | True
+type bool = True | False
 
 type maybe<a> = None | Some(a)
 
@@ -56,11 +56,3 @@ impl Map for maybe {
     map(None, f) = None
     map(Some(a), f) = Some(f(a))
 }
-
-
-type str = list<char>
-
-type append: (string, string) -> string
-
-append([], s) = s
-append(c::cs, s) = c::append(cs, s)

@@ -1,0 +1,56 @@
+Scratch space:
+
+type <name> ( ... )
+
+def <name> = <value>
+
+<name> (  ) = <value>
+
+<name> (  ) = {  }
+
+
+::::::::::GRAMMAR::::::::::
+
+<def> := def <ident> = <expr>
+
+<expr> := <constant>
+<expr> := let <identifier> = <expr>
+<expr> := <identifier>
+<expr> := <identifier> ( <exprlist> )
+<expr> := <expr> <binop> <expr>
+<expr> := <prefixop> <expr>
+<expr> := <expr> <postfixop>
+<expr> := <expr> :: <expr>
+<expr> := ( <expr> )
+<expr> := { <exprlist> }
+
+<typedecl> := type <typename>
+<typedecl> := type <typename> ( <typedefs> )
+<typedecl> := type <typename> ( <functypedef> )
+
+<functypedef> := <typename> -> <typename>
+<functypedef> := (<typenames>) -> <typename>
+
+<typedefs> := <typenames> -> <typename>
+<typedefs> := <namedtypedef>, <typedefs>
+
+<namedtypedef> := <identifier> <typedef>
+
+<typename> := <identifier>
+<typename> := <identifier> < <identlist> >
+
+<conctypedef> := <builtintype>
+<conctypedef> := <builtintype>
+
+<typedef> := <ident> <typedef>
+<typedef> := <builtintype>
+<typedef> := <typedecl>
+<typedef> := <typename>
+
+<func> := <ident> ( <patterns> ) = <expr>
+
+<patterns> := <pattern> <patterns>
+<patterns> := epsilon
+
+<pattern> := <identifier>
+<pattern> := <identifier> ( <pattern> )

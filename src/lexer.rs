@@ -10,6 +10,9 @@ lazy_static! {
         m.insert("def", Token::Def);
         m.insert("let", Token::Let);
         m.insert("type", Token::Type);
+        m.insert("trait", Token::Trait);
+        m.insert("impl", Token::Impl);
+        m.insert("for", Token::For);
 
         // Built types
         m.insert("u8", Token::U8);
@@ -20,6 +23,7 @@ lazy_static! {
         m.insert("i16", Token::I16);
         m.insert("i32", Token::I32);
         m.insert("i64", Token::I64);
+        m.insert("str", Token::Str);
 
         // Operators
         m.insert("+", Token::Plus);
@@ -52,6 +56,7 @@ lazy_static! {
         m.insert("<", Token::LArrow);
         m.insert(">", Token::RArrow);
         m.insert(",", Token::Comma);
+        m.insert(":", Token::Colon);
 
         m
     };
@@ -66,6 +71,9 @@ pub enum Token {
     Def,
     Type,
     Let,
+    Trait,
+    Impl,
+    For,
 
     // Builtin Types
     U8,
@@ -76,6 +84,7 @@ pub enum Token {
     I16,
     I32,
     I64,
+    Str,
 
     // Operators
     Plus,
@@ -112,6 +121,7 @@ pub enum Token {
     LCurly,
     RCurly,
     Comma,
+    Colon,
 
     Num(u64),
     Char(char),
@@ -135,6 +145,9 @@ impl Token {
 
     pub fn isnum(&self) -> bool { if let Token::Num(_) = self { true } else { false } }
     pub fn isident(&self) -> bool { if let Token::Ident(_) = self { true } else { false } }
+    pub fn ident(&self) -> &String {
+        if let Token::Ident(i) = self {i} else {panic!("NO IDENT??!?!")}
+    }
 }
 
 #[derive(Default)]
@@ -202,6 +215,7 @@ impl Lexer {
                 // Enter a string literal
                 '"' => {
                     self.push_token(&mut tokens, &mut stack);
+                    self.in_string = true;
                 }
                 // Char Literal
                 '\'' if stack.is_empty() => {
@@ -278,7 +292,7 @@ impl Lexer {
                     tokens.push(Token::GTE);
                 }
                 // Separators
-                ',' | '(' | ')' | '[' | ']' | '{' | '}' => {
+                ',' | '(' | ')' | '[' | ']' | '{' | '}' | ':' => {
                     self.push_token(&mut tokens, &mut stack);
                     tokens.push(MAP.get(c.to_string().as_str()).unwrap().clone());
                 }
