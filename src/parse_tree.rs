@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 #[derive(Debug)]
-pub struct ProgramTree {
+pub struct ParseTree {
     pub traits: HashMap<String, Trait>,
-    pub impls: HashMap<String, Vec<(String, Type)>>,
+    pub impls: Vec<Impl>,
     pub types: HashMap<String, DataDecl>,
     pub typedefs: HashMap<String, Type>,
     pub funcs: HashMap<String, Vec<FunctionDef>>,
@@ -15,6 +15,13 @@ pub struct Trait {
     pub name: String,
     pub var: String,
     pub types: HashMap<String, Type>,
+    pub funcs: HashMap<String, Vec<FunctionDef>>
+}
+
+#[derive(Debug)]
+pub struct Impl {
+    pub trait_name: String,
+    pub for_type: Type,
     pub funcs: HashMap<String, Vec<FunctionDef>>
 }
 
@@ -76,6 +83,9 @@ pub enum Expression {
 
     /// Assign a pattern to an expression
     Let(Pattern, Box<Expression>),
+
+    /// If conditional statment
+    If(Box<Expression>, Box<Expression>, Box<Expression>),
     
     /// Test a list of patterns against an expression, returning the expression that matches
     Match(Box<Expression>, Vec<(Pattern, Expression)>),
@@ -85,12 +95,13 @@ pub enum Expression {
     Call(Box<Expression>, Vec<Expression>),
 
     /// A lambda expression with pattern args and an expression body
-    Lambda(Vec<Pattern>, Box<Expression>),
+    Lambda(Pattern, Box<Expression>),
 
     // Constant Fields
     Num(u64),    // A Number Literal
     Str(String), // A String Literal
-    EmptyList
+    EmptyList,
+    Unit
 }
 
 #[derive(Debug, PartialEq, Clone)]

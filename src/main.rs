@@ -16,10 +16,22 @@ fn compile(path: &str) {
 
     // Lex
     let mut lexer = Lexer::default();
-    let mut tokens = lexer.lex(&buf);
+    let mut tokens = match lexer.lex(&buf) {
+        Ok(t) => t,
+        Err(e) => {
+            e.pprint(&buf);
+            std::process::exit(1);
+        }
+    };
 
     // Parse
-    let program = Program::parse(&mut tokens);
+    let program = match Program::parse(&mut tokens) {
+        Ok(p) => p,
+        Err(e) => {
+            e.pprint(&buf);
+            std::process::exit(1);
+        }
+    };
     eprintln!("{:#?}", program);
 
     // Output Code
