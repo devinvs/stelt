@@ -3,6 +3,7 @@ use std::io::Read;
 
 use stelt::Lexer;
 use stelt::Program;
+use stelt::MIRTree;
 
 fn main() {
     compile("./test.st");
@@ -32,7 +33,9 @@ fn compile(path: &str) {
             std::process::exit(1);
         }
     };
-    eprintln!("{:#?}", program);
+
+    let mir = MIRTree::from(program);
+    eprintln!("{mir:#?}");
 
     // Output Code
     //program.compile();

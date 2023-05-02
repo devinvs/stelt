@@ -62,11 +62,34 @@ pub enum Type {
     Str,
 }
 
+impl Type {
+    pub fn name(&self) -> String {
+        match self {
+            Self::U8 => "u8".into(),
+            Self::U16 => "u16".into(),
+            Self::U32 => "u32".into(),
+            Self::U64 => "u64".into(),
+            Self::I8 => "i8".into(),
+            Self::I16 => "i16".into(),
+            Self::I32 => "i32".into(),
+            Self::I64 => "i64".into(),
+            Self::Str => "str".into(),
+            Self::Ident(s) => s.clone(),
+            Self::Unit => "()".into(),
+            Self::List(a) => format!("[{}]", a.name()),
+            Self::Arrow(a, b) => format!("{}->{}", a.name(), b.name()),
+            Self::Generic(a, b) => format!("{}<{}>", b.name(), a.iter().map(|t| t.name()).collect::<Vec<_>>().join(",")),
+            Self::Tuple(ts) => format!("({})", ts.iter().map(Type::name).collect::<Vec<_>>().join(",")),
+            Self::ForAll(_, b) => b.name(),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct FunctionDef {
     pub name: String,
     pub args: Pattern,
-    pub body: Vec<Expression>
+    pub body: Expression
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -79,10 +102,10 @@ pub enum Expression {
     Tuple(Vec<Expression>),
 
     /// A list of expressions
-    List(Vec<Expression>),
+    ExprList(Vec<Expression>),
 
     /// Assign a pattern to an expression
-    Let(Pattern, Box<Expression>),
+    Let(Pattern, Box<Expression>, Box<Expression>),
 
     /// If conditional statment
     If(Box<Expression>, Box<Expression>, Box<Expression>),

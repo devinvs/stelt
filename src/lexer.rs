@@ -520,7 +520,8 @@ impl Lexer {
                 }
                 ' ' | '\t' => {
                     self.push_token(&mut tokens, &mut stack);
-                    self.end += 1;
+                    self.start += 1;
+                    self.end = self.start;
                 },
                 _ => {
                     self.end += 1;

@@ -253,18 +253,8 @@ impl FunctionDef {
         let args = Pattern::parse(t)?;
 
         t.assert(Token::Assign)?;
-        
-        let mut body = Vec::new();
-        if t.consume(Token::LCurly) {
 
-            while !t.test(Token::RCurly) {
-                body.push(Expression::parse(t)?);
-            }
-
-            t.assert(Token::RCurly)?;
-        } else {
-            body.push(Expression::parse(t)?);
-        }
+        let body = Expression::parse(t)?;
 
         return Ok(FunctionDef {name, args, body})
     }
@@ -366,28 +356,59 @@ impl Type {
 
 
 impl Expression {
+    pub fn parse_list_scoped(t: &mut TokenStream) -> Result<Vec<Expression>, SteltError> {
+        let mut exprs = vec![];
+        while !t.test(Token::RCurly) {
+            let e = match Self::parse(t)? {
+                Self::Let(pat, val, _) => {
+                    let rest = Self::parse_list_scoped(t)?;
+                    let body = match rest.len() {
+                        0 => Expression::Unit,
+                        1 => rest.into_iter().next().unwrap(),
+                        _ => Self::ExprList(rest)
+                    };
+
+                    Self::Let(pat, val, Box::new(body))
+                }
+                a => a
+            };
+
+            exprs.push(e);
+        }
+
+        Ok(exprs)
+    }
+
+    pub fn parse_list(t: &mut TokenStream) -> Result<Self, SteltError> {
+        t.assert(Token::LCurly)?;
+        let exprs = Self::parse_list_scoped(t)?;
+        t.assert(Token::RCurly)?;
+
+        match exprs.len() {
+            0 => Ok(Expression::Unit),
+            1 => Ok(exprs.into_iter().next().unwrap()),
+            _ => Ok(Self::ExprList(exprs))
+        }
+    }
+
     pub fn parse(t: &mut TokenStream) -> Result<Self, SteltError> {
-        // Start with let expression
-        if t.consume(Token::Let) {
+        if t.test(Token::LCurly) {
+            Self::parse_list(t)
+        } else if t.consume(Token::Let) {
             let pat = Pattern::parse(t)?;
 
             t.assert(Token::Assign)?;
 
-            Ok(Self::Let(pat, Box::new(Self::lambda(t)?)))
+            Ok(Self::Let(pat, Box::new(Self::lambda(t)?), Box::new(Self::Unit)))
         } else if t.consume(Token::If) {
             let cond = Self::parse(t)?;
 
-            t.assert(Token::LCurly)?;
 
-            let then = Self::parse(t)?;
+            let then = Self::parse_list(t)?;
 
-            t.assert(Token::RCurly)?;
             t.assert(Token::Else)?;
-            t.assert(Token::LCurly)?;
 
-            let else_ = Self::parse(t)?;
-
-            t.assert(Token::RCurly)?;
+            let else_ = Self::parse_list(t)?;
 
             Ok(Self::If(Box::new(cond), Box::new(then), Box::new(else_)))
         } else if t.consume(Token::Match) {
@@ -740,8 +761,15 @@ impl Expression {
                 t.assert(Token::RBrace)?;
                 Ok(Self::EmptyList)
             }
-            a => {
-                panic!("PrimaryExpr: Expected identifier, constant, or expression, found: {:?}", a)
+            Some(a) => {
+                //panic!("PrimaryExpr: Expected identifier, constant, or expression, found: {:?}", a);
+                Err(SteltError {
+                    line: a.line, start: a.start, end: a.start+1, msg: format!("Expected expression, found {:?}", a.token)
+                })
+            }
+            None => {
+                Err(SteltError {
+                    line: 0, start: 0, end: 0, msg: "Expected expression".into() })
             }
         }
     }
@@ -1045,7 +1073,8 @@ fn test_parse_expression() {
         Expression::parse(&mut s_to_stream("let x = 5")).unwrap(),
         Expression::Let(
             Pattern::Var("x".into()),
-            Box::new(Expression::Num(5))
+            Box::new(Expression::Num(5)),
+            Box::new(Expression::Unit)
         )
     );
 
