@@ -73,7 +73,7 @@ impl ParseTree {
                         Some(a) => {
                             return Err(SteltError {
                                 line: a.line, start: a.start, end: a.end,
-                                msg: format!("Expected colon or equals, found {:?}", a.token)
+                                msg: format!("Expected colon or equals, found '{}'", a.token.name())
                             })
                         }
                         None => {
@@ -100,10 +100,9 @@ impl ParseTree {
                     }
                 }
                 Some(a) => {
-                    eprintln!("{me:?}\n");
                     return Err(SteltError {
                         line: a.line, start: a.start, end: a.end,
-                        msg: format!("Unexpected token in declaration: {:?}", a.token)
+                        msg: format!("Unexpected token in declaration: '{}'", a.token.name())
                     })
                 }
                 None => break
@@ -155,7 +154,7 @@ impl Trait { fn parse(t: &mut TokenStream) -> Result<Self, SteltError> { t.asser
                 Some(a) => {
                     return Err(SteltError {
                         line: a.line, start: a.start, end: a.end,
-                        msg: format!("Unexpected token in trait: {:?}", a.token)
+                        msg: format!("Unexpected token in trait: '{}'", a.token.name())
                     })
                 }
                 None => {
@@ -341,7 +340,7 @@ impl Type {
             Some(a) => {
                 return Err(SteltError {
                     line: a.line, start: a.start, end: a.end,
-                    msg: format!("Unexpected token in type: {:?}", a.token)
+                    msg: format!("Unexpected token in type: '{}'", a.token.name())
                 })
             }
             None => {
@@ -764,7 +763,7 @@ impl Expression {
             Some(a) => {
                 //panic!("PrimaryExpr: Expected identifier, constant, or expression, found: {:?}", a);
                 Err(SteltError {
-                    line: a.line, start: a.start, end: a.start+1, msg: format!("Expected expression, found {:?}", a.token)
+                    line: a.line, start: a.start, end: a.start+1, msg: format!("Expected expression, found '{}'", a.token.name())
                 })
             }
             None => {

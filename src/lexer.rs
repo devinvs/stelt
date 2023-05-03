@@ -82,6 +82,10 @@ impl Lexeme {
     fn test(&self, t: Token) -> bool {
         self.token == t
     }
+
+    fn name(&self) -> String {
+        self.token.name()
+    }
 }
 
 pub type TokenStream = Peekable<std::vec::IntoIter<Lexeme>>;
@@ -117,13 +121,13 @@ impl LexemeFeed for TokenStream {
             } else {
                 Err(SteltError {
                     line: l.line, start: l.start, end: l.end,
-                    msg: format!("Expected {:?}, found {:?}", t, l.token)
+                    msg: format!("Expected '{}', found '{}'", t.name(), l.token.name())
                 })
             }
         } else {
             Err(SteltError {
                 line: 0, start: 0, end: 0,
-                msg: format!("Expected {:?}, found EOF", t)
+                msg: format!("Expected '{}', found EOF", t.name())
             })
         }
     }
@@ -138,7 +142,7 @@ impl LexemeFeed for TokenStream {
             } else {
                 Err(SteltError {
                     line: l.line, start: l.start, end: l.end,
-                    msg: format!("Expected identifier, found {:?}", l.token)
+                    msg: format!("Expected identifier, found '{}'", l.token.name())
                 })
             }
         } else {
@@ -152,9 +156,6 @@ impl LexemeFeed for TokenStream {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Token {
-    // EOF
-    EOF,
-
     // Keywords
     Def,
     Type,
@@ -222,23 +223,63 @@ pub enum Token {
 }
 
 impl Token {
-    pub fn isdef(&self) -> bool { self==&Token::Def }
-    pub fn istype(&self) -> bool { self==&Token::Type }
-    pub fn islet(&self) -> bool { self==&Token::Let }
-
-    pub fn isu8(&self) -> bool { self==&Token::U8 }
-    pub fn isu16(&self) -> bool { self==&Token::U16 }
-    pub fn isu32(&self) -> bool { self==&Token::U32 }
-    pub fn isu64(&self) -> bool { self==&Token::U64 }
-    pub fn isi8(&self) -> bool { self==&Token::I8 }
-    pub fn isi16(&self) -> bool { self==&Token::I16 }
-    pub fn isi32(&self) -> bool { self==&Token::I32 }
-    pub fn isi64(&self) -> bool { self==&Token::I64 }
-
-    pub fn isnum(&self) -> bool { if let Token::Num(_) = self { true } else { false } }
-    pub fn isident(&self) -> bool { if let Token::Ident(_) = self { true } else { false } }
-    pub fn ident(&self) -> &String {
-        if let Token::Ident(i) = self {i} else {panic!("NO IDENT??!?!")}
+    pub fn name(&self) -> String {
+        match self {
+            Self::Def => "def",
+            Self::Type => "type",
+            Self::Let => "let",
+            Self::Trait => "trait",
+            Self::Impl => "impl",
+            Self::For => "for",
+            Self::If => "if",
+            Self::Else => "else",
+            Self::Match => "match",
+            Self::U8 => "u8",
+            Self::U16 => "u16",
+            Self::U32 => "u32",
+            Self::U64 => "u64",
+            Self::I8 => "i8",
+            Self::I16 => "i16",
+            Self::I32 => "i32",
+            Self::I64 => "i64",
+            Self::Str => "str",
+            Self::Plus => "+",
+            Self::Mul => "*",
+            Self::Sub => "-",
+            Self::Div => "/",
+            Self::Mod => "%",
+            Self::Pow => "**",
+            Self::Assign => "=",
+            Self::Equal => "==",
+            Self::NotEqual => "!=",
+            Self::Or => "||",
+            Self::And => "&&",
+            Self::BitAnd => "&",
+            Self::Not => "!",
+            Self::BitNot => "~",
+            Self::BitXor => "^",
+            Self::LTE => "<=",
+            Self::GTE => ">=",
+            Self::Dot => ".",
+            Self::Question => "?",
+            Self::Arrow => "->",
+            Self::Concat => "::",
+            Self::Bar => "|",
+            Self::LArrow => "<",
+            Self::RArrow => ">",
+            Self::LParen => "(",
+            Self::RParen => ")",
+            Self::LBrace => "[",
+            Self::RBrace => "]",
+            Self::LCurly => "{",
+            Self::RCurly => "}",
+            Self::Comma => ",",
+            Self::Colon => ":",
+            Self::Num(n) => return n.to_string(),
+            Self::Char(c) => return c.to_string(),
+            Self::String(s) => s,
+            Self::Ident(s) => s,
+        }.into()
     }
 }
 
