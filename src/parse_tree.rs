@@ -40,7 +40,7 @@ pub struct TypeCons {
 }
 
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum Type {
     ForAll(Vec<String>, Box<Type>),
     Generic(Vec<Type>, Box<Type>),
@@ -48,7 +48,6 @@ pub enum Type {
     Tuple(Vec<Type>),
     List(Box<Type>),
     Ident(String),
-    Unit,
 
     // Builtins
     U8,
@@ -60,6 +59,11 @@ pub enum Type {
     I32,
     I64,
     Str,
+    Unit,
+
+    // Type variable used for parsing. Only present in ir.
+    // DOES NOT PARSE
+    Var(usize)
 }
 
 impl Type {
@@ -81,6 +85,7 @@ impl Type {
             Self::Generic(a, b) => format!("{}<{}>", b.name(), a.iter().map(|t| t.name()).collect::<Vec<_>>().join(",")),
             Self::Tuple(ts) => format!("({})", ts.iter().map(Type::name).collect::<Vec<_>>().join(",")),
             Self::ForAll(_, b) => b.name(),
+            _ => panic!()
         }
     }
 }
@@ -109,7 +114,7 @@ pub enum Expression {
 
     /// If conditional statment
     If(Box<Expression>, Box<Expression>, Box<Expression>),
-    
+
     /// Test a list of patterns against an expression, returning the expression that matches
     Match(Box<Expression>, Vec<(Pattern, Expression)>),
 
