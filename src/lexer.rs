@@ -384,7 +384,7 @@ impl Lexer {
                         msg: "Expected char literal".to_string()
                     })?;
 
-                    if val == '\\' {
+                    let (c,n) = if val == '\\' {
                         let escape = chars.next().ok_or(SteltError {
                             range: Some(Range::line(self.line, self.start, self.start+1)),
                             msg: "Expected escape character".to_string()
@@ -395,6 +395,8 @@ impl Lexer {
                                 'f' => char::from_u32(12).unwrap(),
                                 'r' => '\r',
                                 't' => '\t',
+                                'n' => '\n',
+                                '\'' => '\'',
                                 'v' => char::from_u32(11).unwrap(),
                                 '\\' => '\\',
                                 '"' => '"',
@@ -405,26 +407,23 @@ impl Lexer {
                                     msg: "Invalid escape sequence".to_string()
                                 })
                             };
-                        tokens.push(Lexeme {
-                            token: Token::Char(new_c),
-                            range: Range::line(self.line, self.start, self.start+4)
-                        });
-                        self.start += 4;
-                        self.end += 4;
+                        (new_c, 3)
                     } else {
-                        tokens.push(Lexeme {
-                            token: Token::Char(val),
-                            range: Range::line(self.line, self.start, self.end+3)
-                        });
-                        self.start += 3;
-                        self.end += 3;
-                    }
+                        (val, 2)
+                    };
 
                     if let Some('\'') = chars.next() {} else {
                         return Err(SteltError {
                             range: Some(Range::line(self.line, self.start, self.end)),
                             msg: "Expected closing ' for string literal".to_string() });
                     }
+
+                    tokens.push(Lexeme {
+                        token: Token::Char(c),
+                        range: Range::line(self.line, self.start, self.start+1+n)
+                    });
+                    self.start += n + 1;
+                    self.end = self.start;
                 }
                 // Some fancy double char operators???
                 '*' if next.is_some() && *next.unwrap() == '*' => {
@@ -555,6 +554,15 @@ impl Lexer {
                 }
             }
         }
+
+        if self.in_string {
+            return Err(SteltError {
+                range: None,
+                msg: format!("Unclosed string literal: expected \"")
+            });
+        }
+
+
         self.push_token(&mut tokens, &mut stack);
 
         Ok(tokens.into_iter().peekable())

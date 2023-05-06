@@ -130,6 +130,9 @@ pub enum Expression {
     /// Can be a global function, a lambda, or a constructor
     Call(Box<Expression>, Box<Expression>, Range),
 
+    /// Get the member of a struct
+    Member(Box<Expression>, String, Range),
+
     /// A lambda expression with pattern args and an expression body
     Lambda(Pattern, Box<Expression>, Range),
 
@@ -147,6 +150,7 @@ impl Expression {
             Expression::Num(_, r) => r,
             Expression::Lambda(_, _, r) => r,
             Expression::Call(_, _, r) => r,
+            Expression::Member(_, _, r) => r,
             Expression::Match(_, _, r) => r,
             Expression::If(_, _, _, r) => r,
             Expression::Let(_, _, _, r) => r,

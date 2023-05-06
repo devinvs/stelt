@@ -144,6 +144,9 @@ pub enum MIRExpression {
     /// Can be a global function, a lambda, or a constructor
     Call(Box<MIRExpression>, Box<MIRExpression>, Range),
 
+    /// Get the member of a struct
+    Member(Box<MIRExpression>, String, Range),
+
     /// A lambda expression with pattern args and an expression body
     Lambda1(String, Box<MIRExpression>, Range),
 
@@ -172,6 +175,20 @@ impl MIRExpression {
                 Box::new(MIRExpression::from(*args, cons)),
                 r
             ),
+            Expression::Member(t, variant, r) => {
+                if let Expression::Identifier(t, r) = *t {
+                    if cons.contains_key(&format!("{t}.{variant}")) {
+                        MIRExpression::Call(
+                            Box::new(MIRExpression::Identifier(format!("{t}.{variant}"), r)), 
+                            Box::new(MIRExpression::Unit(r)),
+                            r)
+                    } else {
+                        MIRExpression::Member(Box::new(MIRExpression::Identifier(t, r)), variant, r)
+                    }
+                } else {
+                    MIRExpression::Member(Box::new(MIRExpression::from(*t, cons)), variant, r)
+                }
+            }
             Expression::Lambda(pat, body, lamrange) => {
                 match pat.trans_cons(cons) {
                     Pattern::Var(s, _) => Self::Lambda1(s, Box::new(MIRExpression::from(*body, cons)), lamrange),
@@ -225,6 +242,7 @@ impl MIRExpression {
             Self::Match(_, _, r) => r,
             Self::Call(_, _, r) => r,
             Self::Lambda1(_, _, r) => r,
+            Self::Member(_, _, r) => r,
         }.clone()
     }
 }

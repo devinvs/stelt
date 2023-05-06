@@ -784,6 +784,17 @@ impl Expression {
 
     fn postfix(t: &mut TokenStream) -> Result<Self, SteltError> {
         let primary = Self::primary(t)?;
+        let primary = if let Self::Identifier(i, r) = primary {
+            let i = match i.as_str() {
+                "None" => "Maybe.None",
+                "Some" => "Maybe.Some",
+                a => a,
+            }.to_string();
+
+            Self::Identifier(i, r)
+        } else {
+            primary
+        };
         Self::postfix_post(t, primary)
     }
 
@@ -793,8 +804,10 @@ impl Expression {
             let r = primary.range().add(t.range());
             Ok(Self::Call(Box::new(primary), Box::new(t), r))
         } else if t.consume(Token::Dot).is_some() {
-            let call = Self::postfix(t)?;
-            match call {
+            // Either a struct member or a function call
+
+            let next = Self::postfix(t)?;
+            match next {
                 Self::Call(f, args, r2) => {
                     let r = primary.range().add(r2);
                     let args = match *args {
@@ -805,6 +818,10 @@ impl Expression {
                         a => a
                     };
                     Ok(Self::Call(f, Box::new(args), r))
+                }
+                Self::Identifier(member, r2) => {
+                    let r = primary.range().add(r2);
+                    Ok(Self::Member(Box::new(primary), member, r))
                 }
                 _ => {panic!("expected call")}
             }
@@ -832,7 +849,7 @@ impl Expression {
                 Ok(Self::Num(n, range))
             }
             Some(Lexeme {token: Token::Ident(i), range, ..}) => {
-                Ok(Self::Identifier(i.clone(), range))
+                Ok(Self::Identifier(i, range))
             }
             Some(Lexeme {token: Token::LParen, ..}) => {
                 let e = Expression::parse(t)?;
@@ -843,7 +860,7 @@ impl Expression {
                 if let Some(r) = t.consume(Token::RBrace) {
                     let r = r.add(range);
                     return Ok(Self::Call(
-                        Box::new(Self::Identifier("Nil".to_string(), r)),
+                        Box::new(Self::Identifier("List.Nil".to_string(), r)),
                         Box::new(Self::Unit(r)),
                         r
                     ));
@@ -876,14 +893,14 @@ impl Expression {
     fn cons_from_es(es: &[Self], r: Range) -> Self {
         if es.is_empty() {
             return Self::Call(
-                Box::new(Self::Identifier("Nil".to_string(), r)),
+                Box::new(Self::Identifier("List.Nil".to_string(), r)),
                 Box::new(Self::Unit(r)),
                 r
             );
         }
 
         Self::Call(
-            Box::new(Self::Identifier("Cons".to_string(), r)),
+            Box::new(Self::Identifier("List.Cons".to_string(), r)),
             Box::new(Self::Tuple(vec![es[0].clone(), Self::cons_from_es(&es[1..], r)], r)),
             r
         )
@@ -940,7 +957,7 @@ impl Pattern {
             let r = a.range().add(b.range());
 
             Ok(Self::Cons(
-                "Cons".into(),
+                "List.Cons".into(),
                 Box::new(Pattern::Tuple(vec![a, b], r)),
                 r
             ))
@@ -955,7 +972,7 @@ impl Pattern {
                 let r = t.assert(Token::RBrace)?;
                 let r = range.add(r);
                 Ok(Pattern::Cons(
-                    "Nil".to_string(),
+                    "List.Nil".to_string(),
                     Box::new(Self::Unit(r)),
                     r
                 ))
@@ -968,10 +985,34 @@ impl Pattern {
             }
             Some(Lexeme {token: Token::Ident(i), range, ..}) => {
                 // either variable or constructor...
-                if t.test(Token::LParen) {
-                    let pat = Pattern::parse(t)?;
-                    let range = range.add(pat.range());
-                    Ok(Pattern::Cons(i, Box::new(pat), range))
+                if t.consume(Token::Dot).is_some() {
+                    let range = range.add(t.range()?);
+                    let var = t.ident()?;
+
+                    let args = if t.test(Token::LParen) {
+                        Pattern::parse(t)?
+                    } else {
+                        Pattern::Unit(range)
+                    };
+
+                    let range = range.add(args.range());
+                    Ok(Pattern::Cons(format!("{i}.{var}"), Box::new(args), range))
+
+                } else if i=="None" {
+                    Ok(Pattern::Cons(
+                        "Maybe.None".to_string(),
+                        Box::new(Self::Unit(range)),
+                        range
+                    ))
+                } else if i=="Some" {
+                    let args = Pattern::parse(t)?;
+                    let range = range.add(args.range());
+
+                    Ok(Pattern::Cons(
+                        "Maybe.Some".to_string(),
+                        Box::new(args),
+                        range
+                    ))
                 } else {
                     Ok(Pattern::Var(i, range))
                 }

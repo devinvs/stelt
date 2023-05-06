@@ -58,11 +58,11 @@ impl SteltError {
         let num_lines = s.lines().count();
 
         let line_nums: Vec<usize> = if let Some(range) = self.range {
-            (range.l0-2..range.l1+1)
+            (range.l0.saturating_sub(2)..range.l1+1)
                 .filter(|n| *n<num_lines)
                 .collect()
         } else {
-            (num_lines-2..num_lines)
+            (num_lines.saturating_sub(2)..num_lines)
                 .filter(|n| *n<num_lines)
                 .collect()
         };
