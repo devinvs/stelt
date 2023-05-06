@@ -5,6 +5,7 @@ use crate::lexer::TokenStream;
 use crate::lexer::LexemeFeed;
 use crate::lexer::Lexeme;
 use crate::SteltError;
+use crate::error::Range;
 
 use crate::parse_tree::{
     ParseTree,
@@ -41,18 +42,18 @@ impl ParseTree {
                 }
                 Some(Lexeme {token: Token::Type, ..}) => {
                     // Either a typedecl or datadecl
-                    t.assert(Token::Type)?;
+                    let r = t.assert(Token::Type)?;
 
                     let name = t.ident()?;
 
                     // generic args for forall type
                     let mut args = Vec::new();
-                    if t.consume(Token::LArrow) {
+                    if t.consume(Token::LArrow).is_some() {
 
                         let arg = t.ident()?;
                         args.push(arg);
 
-                        while t.consume(Token::Comma) {
+                        while t.consume(Token::Comma).is_some() {
 
                             let arg = t.ident()?;
                             args.push(arg);
@@ -63,22 +64,23 @@ impl ParseTree {
 
                     match t.next() {
                         Some(Lexeme {token: Token::Assign, ..}) => {
-                            let ty = DataDecl::parse(t, args)?;
+                            let ty = DataDecl::parse(t, args, r)?;
                             me.types.insert(name, ty);
                         }
                         Some(Lexeme {token: Token::Colon, ..}) => {
                             let ty = Type::parse(t)?;
-                            me.typedefs.insert(name, Type::ForAll(args, Box::new(ty)));
+                            let r = r.add(ty.range());
+                            me.typedefs.insert(name, Type::ForAll(args, Box::new(ty), r));
                         }
                         Some(a) => {
                             return Err(SteltError {
-                                line: a.line, start: a.start, end: a.end,
+                                range: Some(a.range),
                                 msg: format!("Expected colon or equals, found '{}'", a.token.name())
                             })
                         }
                         None => {
                             return Err(SteltError {
-                                line: 0, start: 0, end: 0,
+                                range: None,
                                 msg: format!("Expected colon or equals, found EOF")
                             })
                         }
@@ -91,8 +93,9 @@ impl ParseTree {
                     me.defs.insert(name, expr);
                 }
                 Some(Lexeme {token: Token::Ident(_), ..}) => {
+                    let range = t.range()?;
                     let name = t.ident()?;
-                    let func = FunctionDef::parse(t, name)?;
+                    let func = FunctionDef::parse(t, name, range)?;
                     if let Some(f) = me.funcs.get_mut(&func.name) {
                         f.push(func);
                     } else {
@@ -101,7 +104,7 @@ impl ParseTree {
                 }
                 Some(a) => {
                     return Err(SteltError {
-                        line: a.line, start: a.start, end: a.end,
+                        range: Some(a.range),
                         msg: format!("Unexpected token in declaration: '{}'", a.token.name())
                     })
                 }
@@ -113,7 +116,7 @@ impl ParseTree {
     }
 }
 impl Trait { fn parse(t: &mut TokenStream) -> Result<Self, SteltError> { t.assert(Token::Trait)?;
-
+        let mut r = t.range()?;
         let name = t.ident()?;
 
         t.assert(Token::LArrow)?;
@@ -129,7 +132,8 @@ impl Trait { fn parse(t: &mut TokenStream) -> Result<Self, SteltError> { t.asser
 
         loop {
             match t.next() {
-                Some(Lexeme {token: Token::RCurly, ..}) => {
+                Some(Lexeme {token: Token::RCurly, range, ..}) => {
+                    r = r.add(range);
                     break;
                 },
                 Some(Lexeme {token: Token::Type, ..}) => {
@@ -142,9 +146,9 @@ impl Trait { fn parse(t: &mut TokenStream) -> Result<Self, SteltError> { t.asser
                     let ty = Type::parse(t)?;
                     types.insert(name, ty);
                 }
-                Some(Lexeme {token: Token::Ident(_), ..}) => {
+                Some(Lexeme {token: Token::Ident(_), range, ..}) => {
                     let name = t.ident()?;
-                    let func = FunctionDef::parse(t, name)?;
+                    let func = FunctionDef::parse(t, name, range)?;
                     if let Some(f) = funcs.get_mut(&func.name) {
                         f.push(func);
                     } else {
@@ -153,13 +157,13 @@ impl Trait { fn parse(t: &mut TokenStream) -> Result<Self, SteltError> { t.asser
                 }
                 Some(a) => {
                     return Err(SteltError {
-                        line: a.line, start: a.start, end: a.end,
+                        range: Some(a.range),
                         msg: format!("Unexpected token in trait: '{}'", a.token.name())
                     })
                 }
                 None => {
                     return Err(SteltError {
-                        line: 0, start: 0, end: 0,
+                        range: None,
                         msg: format!("Unexpected EOF in trait")
                     })
                 }
@@ -171,13 +175,14 @@ impl Trait { fn parse(t: &mut TokenStream) -> Result<Self, SteltError> { t.asser
             var,
             types,
             funcs,
+            range: r
         })
     }
 }
 
 impl Impl {
     fn parse(t: &mut TokenStream) -> Result<Self, SteltError> {
-        t.assert(Token::Impl)?;
+        let r = t.assert(Token::Impl)?;
 
         let trait_name = t.ident()?;
 
@@ -191,8 +196,9 @@ impl Impl {
 
         // Emit impl functions
         while !t.test(Token::RCurly) {
+            let r = t.range()?;
             let name = t.ident()?;
-            let func = FunctionDef::parse(t, name)?;
+            let func = FunctionDef::parse(t, name, r)?;
 
             if let Some(f) = funcs.get_mut(&func.name) {
                 f.push(func);
@@ -200,50 +206,53 @@ impl Impl {
                 funcs.insert(func.name.clone(), vec![func]);
             }
         }
-        t.assert(Token::RCurly)?;
+        let r2 = t.assert(Token::RCurly)?;
 
         Ok(Impl {
             trait_name,
             for_type: var,
-            funcs
+            funcs,
+            range: r.add(r2)
         })
     }
 }
 
 impl DataDecl {
-    fn parse(t: &mut TokenStream, args: Vec<String>) -> Result<Self, SteltError> {
+    fn parse(t: &mut TokenStream, args: Vec<String>, mut r: Range) -> Result<Self, SteltError> {
         let mut cons = Vec::new();
-        cons.push(TypeCons::parse(t)?);
+        let con = TypeCons::parse(t)?;
+        r = r.add(con.range);
+        cons.push(con);
 
-        while t.consume(Token::Bar) {
-            cons.push(TypeCons::parse(t)?);
+        while t.consume(Token::Bar).is_some() {
+            let con = TypeCons::parse(t)?;
+            r = r.add(con.range);
+            cons.push(con);
         }
 
-        Ok(Self { cons, args })
+        Ok(Self { cons, args, range: r })
     }
 }
 
 impl TypeCons {
     fn parse(t: &mut TokenStream) -> Result<Self, SteltError> {
+        let r = t.range()?;
         let name = t.ident()?;
 
-        let mut args = Vec::new();
-        if t.consume(Token::LParen) {
-            args.push(Type::parse(t)?);
+        let args = if t.test(Token::LParen) {
+            Type::parse(t)?
+        } else {
+            Type::Unit(r)
+        };
 
-            while t.consume(Token::Comma) {
-                args.push(Type::parse(t)?);
-            }
-
-            t.assert(Token::RParen)?;
-        }
-
-        Ok(Self { name, args })
+        let r = r.add(args.range());
+        Ok(Self { name, args, range: r })
     }
 }
 
 impl FunctionDef {
-    fn parse(t: &mut TokenStream, name: String) -> Result<Self, SteltError> {
+    fn parse(t: &mut TokenStream, name: String, r: Range) -> Result<Self, SteltError> {
+        // Force function def to start with open paren, but don't consume
         if !t.test(Token::LParen) {
             // Guaranteed to error
             t.assert(Token::LParen)?;
@@ -255,7 +264,8 @@ impl FunctionDef {
 
         let body = Expression::parse(t)?;
 
-        return Ok(FunctionDef {name, args, body})
+        let r = r.add(body.range());
+        return Ok(FunctionDef {name, args, body, range: r})
     }
 }
 
@@ -263,44 +273,49 @@ impl Type {
     fn parse(t: &mut TokenStream) -> Result<Self, SteltError> {
         let cont = Self::parse_tuple(t)?;
 
-        if t.consume(Token::Arrow) {
+        if t.consume(Token::Arrow).is_some() {
             let end = Self::parse_tuple(t)?;
 
-            Ok(Self::Arrow(Box::new(cont), Box::new(end)))
+            let r = cont.range().add(end.range());
+            Ok(Self::Arrow(Box::new(cont), Box::new(end), r))
         } else {
             Ok(cont)
         }
     }
 
     fn parse_tuple(t: &mut TokenStream) -> Result<Self, SteltError> {
-        if t.consume(Token::LParen) {
-            if t.consume(Token::RParen) {
+        if let Some(r) = t.consume(Token::LParen) {
+            if let Some(r2) = t.consume(Token::RParen) {
                 // Not a tuple, an empty type
-                return Ok(Self::Unit);
+                return Ok(Self::Unit(r.add(r2)));
             }
 
             let mut inner = vec![Self::parse(t)?];
 
             // Parse comma separated fields
-            while t.consume(Token::Comma) {
+            while t.consume(Token::Comma).is_some() {
                 inner.push(Self::parse(t)?);
             }
 
-            t.assert(Token::RParen)?;
-            
-            Ok(Self::Tuple(inner))
+            let r2 = t.assert(Token::RParen)?;
+
+            if inner.len() == 1 {
+                Ok(inner.pop().unwrap())
+            } else {
+                Ok(Self::Tuple(inner, r.add(r2)))
+            }
         } else {
             Ok(Self::parse_list(t)?)
         }
     }
 
     fn parse_list(t: &mut TokenStream) -> Result<Self, SteltError> {
-        if t.consume(Token::LBrace) {
+        if let Some(r) = t.consume(Token::LBrace) {
             let inner = Self::parse(t)?;
 
-            t.assert(Token::RBrace)?;
+            let r2 = t.assert(Token::RBrace)?;
 
-            Ok(Self::List(Box::new(inner)))
+            Ok(Self::List(Box::new(inner), r.add(r2)))
         } else {
             Ok(Self::parse_generic(t)?)
         }
@@ -309,17 +324,18 @@ impl Type {
     fn parse_generic(t: &mut TokenStream) -> Result<Self, SteltError> {
         let base = Self::parse_base(t)?;
 
-        if t.consume(Token::LArrow) {
+        if t.consume(Token::LArrow).is_some() {
             let mut vars = Vec::new();
             vars.push(Self::parse(t)?);
 
-            while t.consume(Token::Comma) {
+            while t.consume(Token::Comma).is_some() {
                 vars.push(Self::parse(t)?);
             }
 
-            t.assert(Token::RArrow)?;
+            let r2 = t.assert(Token::RArrow)?;
             
-            Ok(Self::Generic(vars, Box::new(base)))
+            let r = base.range().add(r2);
+            Ok(Self::Generic(vars, Box::new(base), r))
         } else {
             Ok(base)
         }
@@ -327,25 +343,25 @@ impl Type {
 
     fn parse_base(t: &mut TokenStream) -> Result<Self, SteltError> {
         Ok(match t.next() {
-            Some(Lexeme {token: Token::Ident(i), ..}) => Self::Ident(i),
-            Some(Lexeme {token: Token::U8, ..}) => Self::U8,
-            Some(Lexeme {token: Token::U16, ..}) => Self::U16,
-            Some(Lexeme {token: Token::U32, ..}) => Self::U32,
-            Some(Lexeme {token: Token::U64, ..}) => Self::U64,
-            Some(Lexeme {token: Token::I8, ..}) => Self::I8,
-            Some(Lexeme {token: Token::I16, ..}) => Self::I16,
-            Some(Lexeme {token: Token::I32, ..}) => Self::I32,
-            Some(Lexeme {token: Token::I64, ..}) => Self::I64,
-            Some(Lexeme {token: Token::Str, ..}) => Self::Str,
+            Some(Lexeme {token: Token::Ident(i), range, ..}) => Self::Ident(i, range),
+            Some(Lexeme {token: Token::U8, range, ..}) => Self::U8(range),
+            Some(Lexeme {token: Token::U16, range, ..}) => Self::U16(range),
+            Some(Lexeme {token: Token::U32, range, ..}) => Self::U32(range),
+            Some(Lexeme {token: Token::U64, range, ..}) => Self::U64(range),
+            Some(Lexeme {token: Token::I8, range, ..}) => Self::I8(range),
+            Some(Lexeme {token: Token::I16, range, ..}) => Self::I16(range),
+            Some(Lexeme {token: Token::I32, range, ..}) => Self::I32(range),
+            Some(Lexeme {token: Token::I64, range, ..}) => Self::I64(range),
+            Some(Lexeme {token: Token::Str, range, ..}) => Self::Str(range),
             Some(a) => {
                 return Err(SteltError {
-                    line: a.line, start: a.start, end: a.end,
+                    range: Some(a.range),
                     msg: format!("Unexpected token in type: '{}'", a.token.name())
                 })
             }
             None => {
                 return Err(SteltError {
-                    line: 0, start: 0, end: 0,
+                    range: None,
                     msg: format!("Unexpected EOF in type")
                 })
             }
@@ -359,15 +375,19 @@ impl Expression {
         let mut exprs = vec![];
         while !t.test(Token::RCurly) {
             let e = match Self::parse(t)? {
-                Self::Let(pat, val, _) => {
+                Self::Let(pat, val, _, r) => {
                     let rest = Self::parse_list_scoped(t)?;
                     let body = match rest.len() {
-                        0 => Expression::Unit,
+                        0 => Expression::Unit(r),
                         1 => rest.into_iter().next().unwrap(),
-                        _ => Self::ExprList(rest)
+                        _ => {
+                            let mut r = rest[0].range();
+                            r = rest.iter().fold(r, |r1, e| r1.add(e.range()));
+                            Self::ExprList(rest, r)
+                        }
                     };
 
-                    Self::Let(pat, val, Box::new(body))
+                    Self::Let(pat, val, Box::new(body), r)
                 }
                 a => a
             };
@@ -379,29 +399,31 @@ impl Expression {
     }
 
     pub fn parse_list(t: &mut TokenStream) -> Result<Self, SteltError> {
-        t.assert(Token::LCurly)?;
+        let r = t.assert(Token::LCurly)?;
         let exprs = Self::parse_list_scoped(t)?;
-        t.assert(Token::RCurly)?;
+        let r2 = t.assert(Token::RCurly)?;
 
         match exprs.len() {
-            0 => Ok(Expression::Unit),
+            0 => Ok(Expression::Unit(r.add(r2))),
             1 => Ok(exprs.into_iter().next().unwrap()),
-            _ => Ok(Self::ExprList(exprs))
+            _ => Ok(Self::ExprList(exprs, r.add(r2)))
         }
     }
 
     pub fn parse(t: &mut TokenStream) -> Result<Self, SteltError> {
         if t.test(Token::LCurly) {
             Self::parse_list(t)
-        } else if t.consume(Token::Let) {
+        } else if let Some(r) = t.consume(Token::Let) {
             let pat = Pattern::parse(t)?;
 
             t.assert(Token::Assign)?;
 
-            Ok(Self::Let(pat, Box::new(Self::lambda(t)?), Box::new(Self::Unit)))
-        } else if t.consume(Token::If) {
-            let cond = Self::parse(t)?;
+            let lam = Self::lambda(t)?;
 
+            let r = r.add(lam.range());
+            Ok(Self::Let(pat, Box::new(lam), Box::new(Self::Unit(Range::new(0, 0, 0, 0))), r))
+        } else if let Some(r) = t.consume(Token::If) {
+            let cond = Self::parse(t)?;
 
             let then = Self::parse_list(t)?;
 
@@ -409,8 +431,9 @@ impl Expression {
 
             let else_ = Self::parse_list(t)?;
 
-            Ok(Self::If(Box::new(cond), Box::new(then), Box::new(else_)))
-        } else if t.consume(Token::Match) {
+            let r = r.add(else_.range());
+            Ok(Self::If(Box::new(cond), Box::new(then), Box::new(else_), r))
+        } else if let Some(r) = t.consume(Token::Match) {
             let match_ = Self::parse(t)?;
 
             t.assert(Token::LCurly)?;
@@ -421,16 +444,16 @@ impl Expression {
 
             let mut cases = vec![(pat, e)];
 
-            while t.consume(Token::Comma) {
+            while t.consume(Token::Comma).is_some() {
                 let pat = Pattern::parse(t)?;
                 t.assert(Token::Colon)?;
                 let e = Self::parse(t)?;
                 cases.push((pat, e));
             }
 
-            t.assert(Token::RCurly)?;
+            let r2 =t.assert(Token::RCurly)?;
 
-            Ok(Self::Match(Box::new(match_), cases))
+            Ok(Self::Match(Box::new(match_), cases, r.add(r2)))
         } else {
             Ok(Self::lambda(t)?)
         }
@@ -439,34 +462,37 @@ impl Expression {
     pub fn lambda(t: &mut TokenStream) -> Result<Self, SteltError> {
         let tup = Self::tuple(t)?;
 
-        if t.consume(Token::Arrow) {
+        if t.consume(Token::Arrow).is_some() {
             let pat = tup.to_lambda_pattern();
             let e = Self::parse(t)?;
-            Ok(Self::Lambda(pat, Box::new(e)))
+            let r = pat.range().add(e.range());
+            Ok(Self::Lambda(pat, Box::new(e), r))
         } else {
             Ok(tup)
         }
     }
 
     pub fn tuple(t: &mut TokenStream) -> Result<Self, SteltError> {
-        if t.consume(Token::LParen) {
-            if t.consume(Token::RParen) {
-                return Ok(Self::Unit);
+        if let Some(r) = t.consume(Token::LParen) {
+            if let Some(r2) = t.consume(Token::RParen) {
+                return Ok(Self::Unit(r.add(r2)));
             }
 
             let mut es = Vec::new();
-            es.push(Self::parse(t)?);
+            let e = Self::parse(t)?;
+            es.push(e);
 
-            while t.consume(Token::Comma) {
+
+            while t.consume(Token::Comma).is_some() {
                 es.push(Self::parse(t)?);
             }
 
-            t.assert(Token::RParen)?;
+            let r2 = t.assert(Token::RParen)?;
 
             let e = if es.len() == 1 {
                 es.into_iter().next().unwrap()
             } else {
-                Self::Tuple(es)
+                Self::Tuple(es, r.add(r2))
             };
 
             // allow postfix expressions on tuples
@@ -479,11 +505,13 @@ impl Expression {
     pub fn orexpr(t: &mut TokenStream) -> Result<Self, SteltError> {
         let and = Self::andexpr(t)?;
 
-        if t.consume(Token::Or) {
+        if let Some(r) = t.consume(Token::Or) {
             let end = Self::orexpr(t)?;
+            let r2 = and.range().add(end.range());
             Ok(Self::Call(
-                Box::new(Self::Identifier("or".into())),
-                vec![and, end]
+                Box::new(Self::Identifier("or".into(), r)),
+                Box::new(Self::Tuple(vec![and, end], r2)),
+                r2
             ))
         } else {
             Ok(and)
@@ -493,11 +521,13 @@ impl Expression {
     fn andexpr(t: &mut TokenStream) -> Result<Self, SteltError> {
         let bitor = Self::bitorexpr(t)?;
 
-        if t.consume(Token::And) {
+        if let Some(r) = t.consume(Token::And) {
             let end = Self::andexpr(t)?;
+            let r2 = bitor.range().add(end.range());
             Ok(Self::Call(
-                Box::new(Self::Identifier("and".into())),
-                vec![bitor, end]
+                Box::new(Self::Identifier("and".into(), r)),
+                Box::new(Self::Tuple(vec![bitor, end], r2)),
+                r2
             ))
         } else {
             Ok(bitor)
@@ -507,11 +537,13 @@ impl Expression {
     fn bitorexpr(t: &mut TokenStream) -> Result<Self, SteltError> {
         let xor = Self::bitxorexpr(t)?;
 
-        if t.consume(Token::Bar) {
+        if let Some(r) = t.consume(Token::Bar) {
             let end = Self::bitorexpr(t)?;
+            let r2 = xor.range().add(end.range());
             Ok(Self::Call(
-                Box::new(Self::Identifier("bitor".into())),
-                vec![xor, end]
+                Box::new(Self::Identifier("bitor".into(), r)),
+                Box::new(Self::Tuple(vec![xor, end], r2)),
+                r2
             ))
         } else {
             Ok(xor)
@@ -521,11 +553,13 @@ impl Expression {
     fn bitxorexpr(t: &mut TokenStream) -> Result<Self, SteltError> {
         let and = Self::bitandexpr(t)?;
 
-        if t.consume(Token::BitXor) {
+        if let Some(r) = t.consume(Token::BitXor) {
             let end = Self::bitxorexpr(t)?;
+            let r2 = and.range().add(end.range());
             Ok(Self::Call(
-                Box::new(Self::Identifier("bitxor".into())),
-                vec![and, end]
+                Box::new(Self::Identifier("bitxor".into(), r)),
+                Box::new(Self::Tuple(vec![and, end], r2)),
+                r2
             ))
         } else {
             Ok(and)
@@ -535,11 +569,13 @@ impl Expression {
     fn bitandexpr(t: &mut TokenStream) -> Result<Self, SteltError> {
         let eq = Self::eqexpr(t)?;
 
-        if t.consume(Token::BitAnd) {
+        if let Some(r) = t.consume(Token::BitAnd) {
             let end = Self::bitandexpr(t)?;
+            let r2 = eq.range().add(end.range());
             Ok(Self::Call(
-                Box::new(Self::Identifier("bitand".into())),
-                vec![eq, end]
+                Box::new(Self::Identifier("bitand".into(), r)),
+                Box::new(Self::Tuple(vec![eq, end], r2)),
+                r2
             ))
         } else {
             Ok(eq)
@@ -549,17 +585,21 @@ impl Expression {
     fn eqexpr(t: &mut TokenStream) -> Result<Self, SteltError> {
         let rel = Self::relexpr(t)?;
 
-        if t.consume(Token::NotEqual) {
+        if let Some(r) = t.consume(Token::NotEqual) {
             let end = Self::eqexpr(t)?;
+            let r2 = rel.range().add(end.range());
             Ok(Self::Call(
-                Box::new(Self::Identifier("neq".into())),
-                vec![rel, end]
+                Box::new(Self::Identifier("neq".into(), r)),
+                Box::new(Self::Tuple(vec![rel, end], r2)),
+                r2
             ))
-        } else if t.consume(Token::Equal) {
+        } else if let Some(r) = t.consume(Token::Equal) {
             let end = Self::eqexpr(t)?;
+            let r2 = rel.range().add(end.range());
             Ok(Self::Call(
-                Box::new(Self::Identifier("eq".into())),
-                vec![rel, end]
+                Box::new(Self::Identifier("eq".into(), r)),
+                Box::new(Self::Tuple(vec![rel, end], r2)),
+                r2
             ))
         } else {
             Ok(rel)
@@ -569,32 +609,40 @@ impl Expression {
     fn relexpr(t: &mut TokenStream) -> Result<Self, SteltError> {
         let conc = Self::concexpr(t)?;
 
-        if t.consume(Token::LArrow) {
+        if let Some(r) = t.consume(Token::LArrow) {
             let end = Self::relexpr(t)?;
+            let r2 = conc.range().add(end.range());
             Ok(Self::Call(
-                Box::new(Self::Identifier("lt".into())),
-                vec![conc, end]
+                Box::new(Self::Identifier("lt".into(), r)),
+                Box::new(Self::Tuple(vec![conc, end], r2)),
+                r2
             ))
         }
-        else if t.consume(Token::RArrow) {
+        else if let Some(r) = t.consume(Token::RArrow) {
             let end = Self::relexpr(t)?;
+            let r2 = conc.range().add(end.range());
             Ok(Self::Call(
-                Box::new(Self::Identifier("gt".into())),
-                vec![conc, end]
+                Box::new(Self::Identifier("gt".into(), r)),
+                Box::new(Self::Tuple(vec![conc, end], r2)),
+                r2
             ))
         }
-        else if t.consume(Token::LTE) {
+        else if let Some(r) = t.consume(Token::LTE) {
             let end = Self::relexpr(t)?;
+            let r2 = conc.range().add(end.range());
             Ok(Self::Call(
-                Box::new(Self::Identifier("leq".into())),
-                vec![conc, end]
+                Box::new(Self::Identifier("leq".into(), r)),
+                Box::new(Self::Tuple(vec![conc, end], r2)),
+                r2
             ))
         }
-        else if t.consume(Token::GTE) {
+        else if let Some(r) = t.consume(Token::GTE) {
             let end = Self::relexpr(t)?;
+            let r2 = conc.range().add(end.range());
             Ok(Self::Call(
-                Box::new(Self::Identifier("geq".into())),
-                vec![conc, end]
+                Box::new(Self::Identifier("geq".into(), r)),
+                Box::new(Self::Tuple(vec![conc, end], r2)),
+                r2
             ))
         }
         else {
@@ -605,11 +653,13 @@ impl Expression {
     fn concexpr(t: &mut TokenStream) -> Result<Self, SteltError> {
         let add = Self::addexpr(t)?;
 
-        if t.consume(Token::Concat) {
+        if let Some(r) = t.consume(Token::Concat) {
             let end = Self::concexpr(t)?;
+            let r2 = add.range().add(end.range());
             Ok(Self::Call(
-                Box::new(Self::Identifier("Cons".into())),
-                vec![add, end]
+                Box::new(Self::Identifier("Cons".into(), r)),
+                Box::new(Self::Tuple(vec![add, end], r2)),
+                r2
             ))
         } else {
             Ok(add)
@@ -619,17 +669,21 @@ impl Expression {
     fn addexpr(t: &mut TokenStream) -> Result<Self, SteltError> {
         let mul = Self::mulexpr(t)?;
 
-        if t.consume(Token::Plus) {
+        if let Some(r) = t.consume(Token::Plus) {
             let end = Self::addexpr(t)?;
+            let r2 = mul.range().add(end.range());
             Ok(Self::Call(
-                Box::new(Self::Identifier("add".into())),
-                vec![mul, end]
+                Box::new(Self::Identifier("add".into(), r)),
+                Box::new(Self::Tuple(vec![mul, end], r2)),
+                r2
             ))
-        } else if t.consume(Token::Sub) {
+        } else if let Some(r) = t.consume(Token::Sub) {
             let end = Self::addexpr(t)?;
+            let r2 = mul.range().add(end.range());
             Ok(Self::Call(
-                Box::new(Self::Identifier("sub".into())),
-                vec![mul, end]
+                Box::new(Self::Identifier("sub".into(), r)),
+                Box::new(Self::Tuple(vec![mul, end], r2)),
+                r2
             ))
         } else {
             Ok(mul)
@@ -639,23 +693,29 @@ impl Expression {
     fn mulexpr(t: &mut TokenStream) -> Result<Self, SteltError> {
         let pow = Self::powexpr(t)?;
 
-        if t.consume(Token::Mul) {
+        if let Some(r) = t.consume(Token::Mul) {
             let end = Self::mulexpr(t)?;
+            let r2 = pow.range().add(end.range());
             Ok(Self::Call(
-                Box::new(Self::Identifier("mul".into())),
-                vec![pow, end]
+                Box::new(Self::Identifier("mul".into(), r)),
+                Box::new(Self::Tuple(vec![pow, end], r2)),
+                r2
             ))
-        } else if t.consume(Token::Div) {
+        } else if let Some(r) = t.consume(Token::Div) {
             let end = Self::mulexpr(t)?;
+            let r2 = pow.range().add(end.range());
             Ok(Self::Call(
-                Box::new(Self::Identifier("div".into())),
-                vec![pow, end]
+                Box::new(Self::Identifier("div".into(), r)),
+                Box::new(Self::Tuple(vec![pow, end], r2)),
+                r2
             ))
-        } else if t.consume(Token::Mod) {
+        } else if let Some(r) = t.consume(Token::Mod) {
             let end = Self::mulexpr(t)?;
+            let r2 = pow.range().add(end.range());
             Ok(Self::Call(
-                Box::new(Self::Identifier("mod".into())),
-                vec![pow, end]
+                Box::new(Self::Identifier("mod".into(), r)),
+                Box::new(Self::Tuple(vec![pow, end], r2)),
+                r2
             ))
         } else {
             Ok(pow)
@@ -665,11 +725,13 @@ impl Expression {
     fn powexpr(t: &mut TokenStream) -> Result<Self, SteltError> {
         let unary = Self::unary(t)?;
 
-        if t.consume(Token::Pow) {
+        if let Some(r) = t.consume(Token::Pow) {
             let end = Self::powexpr(t)?;
+            let r2 = unary.range().add(end.range());
             Ok(Self::Call(
-                Box::new(Self::Identifier("pow".into())),
-                vec![unary, end]
+                Box::new(Self::Identifier("pow".into(), r)),
+                Box::new(Self::Tuple(vec![unary, end], r2)),
+                r2
             ))
         } else {
             Ok(unary)
@@ -677,23 +739,29 @@ impl Expression {
     }
 
     fn unary(t: &mut TokenStream) -> Result<Self, SteltError> {
-        if t.consume(Token::Not) {
+        if let Some(r) = t.consume(Token::Not) {
             let un = Self::unary(t)?;
+            let r = r.add(un.range());
             Ok(Self::Call(
-                Box::new(Self::Identifier("not".into())),
-                vec![un]
+                Box::new(Self::Identifier("not".into(), r)),
+                Box::new(un),
+                r
             ))
-        } else if t.consume(Token::BitNot) {
+        } else if let Some(r) = t.consume(Token::BitNot) {
             let un = Self::unary(t)?;
+            let r = r.add(un.range());
             Ok(Self::Call(
-                Box::new(Self::Identifier("bitnot".into())),
-                vec![un]
+                Box::new(Self::Identifier("bitnot".into(), r)),
+                Box::new(un),
+                r
             ))
-        } else if t.consume(Token::Sub) {
+        } else if let Some(r) = t.consume(Token::Sub) {
             let un = Self::unary(t)?;
+            let r = r.add(un.range());
             Ok(Self::Call(
-                Box::new(Self::Identifier("neg".into())),
-                vec![un]
+                Box::new(Self::Identifier("neg".into(), r)),
+                Box::new(un),
+                r
             ))
         } else {
             Ok(Self::postfix(t)?)
@@ -706,34 +774,35 @@ impl Expression {
     }
 
     fn postfix_post(t: &mut TokenStream, primary: Expression) -> Result<Self, SteltError> {
-        if t.consume(Token::LParen) {
-                let al = if t.test(Token::RParen) {
-                    vec![]
-                } else {
-                    ArgList::parse(t)?
-                };
-
-                t.assert(Token::RParen)?;
-
-                Ok(Self::Call(Box::new(primary), al))
-        } else if t.consume(Token::Dot) {
-                let call = Self::postfix(t)?;
-                match call {
-                    Self::Call(f, mut args) => {
-                        args.insert(0, primary);
-                        Ok(Self::Call(f, args))
-                    }
-                    _ => {panic!("expected call")}
+        if t.test(Token::LParen) {
+            let t = Self::tuple(t)?;
+            let r = primary.range().add(t.range());
+            Ok(Self::Call(Box::new(primary), Box::new(t), r))
+        } else if t.consume(Token::Dot).is_some() {
+            let call = Self::postfix(t)?;
+            match call {
+                Self::Call(f, args, r2) => {
+                    let r = primary.range().add(r2);
+                    let args = match *args {
+                        Self::Tuple(mut es, r3) => {
+                            es.insert(0, primary);
+                            Self::Tuple(es, r3)
+                        },
+                        a => a
+                    };
+                    Ok(Self::Call(f, Box::new(args), r))
                 }
-
-        } else if t.consume(Token::Question) {
+                _ => {panic!("expected call")}
+            }
+        } else if t.consume(Token::Question).is_some() {
             let then = Expression::parse(t)?;
 
             t.assert(Token::Colon)?;
 
             let else_ = Expression::parse(t)?;
 
-            Ok(Self::If(Box::new(primary), Box::new(then), Box::new(else_)))
+            let r = primary.range().add(else_.range());
+            Ok(Self::If(Box::new(primary), Box::new(then), Box::new(else_), r))
         } else {
             Ok(primary)
         }
@@ -742,41 +811,43 @@ impl Expression {
 
     fn primary(t: &mut TokenStream) -> Result<Self, SteltError> {
         match t.next() {
-            Some(Lexeme {token: Token::String(s), ..}) => {
-                Ok(Self::Str(s))
+            Some(Lexeme {token: Token::String(s), range, ..}) => {
+                Ok(Self::Str(s, range))
             }
-            Some(Lexeme {token: Token::Num(n), ..}) => {
-                Ok(Self::Num(n))
+            Some(Lexeme {token: Token::Num(n), range, ..}) => {
+                Ok(Self::Num(n, range))
             }
-            Some(Lexeme {token: Token::Ident(i), ..}) => {
-                Ok(Self::Identifier(i.clone()))
+            Some(Lexeme {token: Token::Ident(i), range, ..}) => {
+                Ok(Self::Identifier(i.clone(), range))
             }
             Some(Lexeme {token: Token::LParen, ..}) => {
                 let e = Expression::parse(t)?;
                 t.assert(Token::RParen)?;
                 Ok(e)
             }
-            Some(Lexeme { token: Token::LBrace, ..}) => {
-                t.assert(Token::RBrace)?;
-                Ok(Self::EmptyList)
+            Some(Lexeme { token: Token::LBrace, range, ..}) => {
+                let r = t.assert(Token::RBrace)?;
+                Ok(Self::EmptyList(range.add(r)))
             }
             Some(a) => {
                 //panic!("PrimaryExpr: Expected identifier, constant, or expression, found: {:?}", a);
                 Err(SteltError {
-                    line: a.line, start: a.start, end: a.start+1, msg: format!("Expected expression, found '{}'", a.token.name())
+                    range: Some(a.range),
+                    msg: format!("Expected expression, found '{}'", a.token.name())
                 })
             }
             None => {
                 Err(SteltError {
-                    line: 0, start: 0, end: 0, msg: "Expected expression".into() })
+                    range: None,
+                    msg: "Expected expression".into() })
             }
         }
     }
 
     fn to_lambda_pattern(&self) -> Pattern {
         match self {
-            Self::Identifier(s) => Pattern::Var(s.clone()),
-            Self::Tuple(es) => Pattern::Tuple(es.iter().map(|e| e.to_lambda_pattern()).collect()),
+            Self::Identifier(s, r) => Pattern::Var(s.clone(), r.clone()),
+            Self::Tuple(es, r) => Pattern::Tuple(es.iter().map(|e| e.to_lambda_pattern()).collect(), r.clone()),
             _ => panic!("ahh")
         }
     }
@@ -785,26 +856,31 @@ impl Expression {
 
 impl Pattern {
     fn parse(t: &mut TokenStream) -> Result<Pattern, SteltError> {
-        if t.consume(Token::LParen) {
+        if let Some(mut r) = t.consume(Token::LParen) {
             // We are either the unit type or the tuple type
 
-            if t.consume(Token::RParen) {
-                return Ok(Pattern::Unit);
+            if let Some(r2) = t.consume(Token::RParen) {
+                return Ok(Pattern::Unit(r.add(r2)));
             }
 
             let mut pats = Vec::new();
-            pats.push(Pattern::parse_conc(t)?);
+            let pat = Pattern::parse_conc(t)?;
+            r = r.add(pat.range());
+            pats.push(pat);
 
-            while t.consume(Token::Comma) {
-                pats.push(Pattern::parse_conc(t)?);
+            while let Some(r2) = t.consume(Token::Comma) {
+                r = r.add(r2);
+                let pat = Pattern::parse_conc(t)?;
+                r = r.add(pat.range());
+                pats.push(pat);
             }
 
-            t.assert(Token::RParen)?;
+            r = r.add(t.assert(Token::RParen)?);
 
             if pats.len() == 1 {
                 Ok(pats.into_iter().next().unwrap())
             } else {
-                Ok(Pattern::Tuple(pats))
+                Ok(Pattern::Tuple(pats, r))
             }
         } else {
             Pattern::parse_conc(t)
@@ -814,12 +890,14 @@ impl Pattern {
     fn parse_conc(t: &mut TokenStream) -> Result<Pattern, SteltError> {
         let a = Self::parse_base(t)?;
 
-        if t.consume(Token::Concat) {
+        if t.consume(Token::Concat).is_some() {
             let b = Self::parse_base(t)?;
+            let r = a.range().add(b.range());
 
             Ok(Self::Cons(
                 "Cons".into(),
-                Box::new(Pattern::Tuple(vec![a, b]))
+                Box::new(Pattern::Tuple(vec![a, b], r)),
+                r
             ))
         } else {
             Ok(a)
@@ -828,540 +906,27 @@ impl Pattern {
 
     fn parse_base(t: &mut TokenStream) -> Result<Pattern, SteltError> {
         match t.next() {
-            Some(Lexeme {token: Token::LBrace, ..}) => {
-                t.assert(Token::RBrace)?;
-                Ok(Pattern::EmptyList)
+            Some(Lexeme {token: Token::LBrace, range, ..}) => {
+                let r = t.assert(Token::RBrace)?;
+                Ok(Pattern::EmptyList(range.add(r)))
             }
-            Some(Lexeme {token: Token::Num(n), ..}) => {
-                Ok(Pattern::Num(n))
+            Some(Lexeme {token: Token::Num(n), range, ..}) => {
+                Ok(Pattern::Num(n, range))
             }
-            Some(Lexeme {token: Token::String(s), ..}) => {
-                Ok(Pattern::Str(s))
+            Some(Lexeme {token: Token::String(s), range, ..}) => {
+                Ok(Pattern::Str(s, range))
             }
-            Some(Lexeme {token: Token::Ident(i), ..}) => {
+            Some(Lexeme {token: Token::Ident(i), range, ..}) => {
                 // either variable or constructor...
                 if t.test(Token::LParen) {
                     let pat = Pattern::parse(t)?;
-                    Ok(Pattern::Cons(i, Box::new(pat)))
+                    let range = range.add(pat.range());
+                    Ok(Pattern::Cons(i, Box::new(pat), range))
                 } else {
-                    Ok(Pattern::Var(i))
+                    Ok(Pattern::Var(i, range))
                 }
             }
             _ => panic!("unexpected token")
         }
     }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct ArgList;
-impl ArgList {
-    fn parse(t: &mut TokenStream) -> Result<Vec<Expression>, SteltError> {
-        let mut exprs = Vec::new();
-        exprs.push(Expression::parse(t)?);
-
-        while t.consume(Token::Comma) {
-            exprs.push(Expression::parse(t)?);
-        }
-
-        Ok(exprs)
-    }
-}
-
-// Tests
-#[allow(dead_code)]
-fn s_to_stream(s: &str) -> TokenStream {
-    use crate::Lexer;
-    let mut l = Lexer::default();
-    l.lex(s).unwrap()
-}
-
-#[test]
-fn test_parse_type() {
-    eprintln!("Test parsing builtin type");
-    assert_eq!(
-        Type::parse(&mut s_to_stream("u8")).unwrap(),
-        Type::U8
-    );
-    assert_eq!(
-        Type::parse(&mut s_to_stream("u16")).unwrap(),
-        Type::U16
-    );
-    assert_eq!(
-        Type::parse(&mut s_to_stream("u32")).unwrap(),
-        Type::U32
-    );
-    assert_eq!(
-        Type::parse(&mut s_to_stream("u64")).unwrap(),
-        Type::U64
-    );
-    assert_eq!(
-        Type::parse(&mut s_to_stream("i8")).unwrap(),
-        Type::I8
-    );
-    assert_eq!(
-        Type::parse(&mut s_to_stream("i16")).unwrap(),
-        Type::I16
-    );
-    assert_eq!(
-        Type::parse(&mut s_to_stream("i32")).unwrap(),
-        Type::I32
-    );
-    assert_eq!(
-        Type::parse(&mut s_to_stream("i64")).unwrap(),
-        Type::I64
-    );
-    assert_eq!(
-        Type::parse(&mut s_to_stream("()")).unwrap(),
-        Type::Unit
-    );
-
-    eprintln!("Test parsing list type");
-    assert_eq!(
-        Type::parse(&mut s_to_stream("[i64]")).unwrap(),
-        Type::List(Box::new(Type::I64))
-    );
-
-    eprintln!("Test parsing identifier type");
-    assert_eq!(
-        Type::parse(&mut s_to_stream("x")).unwrap(),
-        Type::Ident("x".to_string())
-    );
-
-    eprintln!("Test parsing tuple type");
-    assert_eq!(
-        Type::parse(&mut s_to_stream("(x, y)")).unwrap(),
-        Type::Tuple(vec![
-            Type::Ident("x".into()),
-            Type::Ident("y".into())
-        ])
-    );
-
-    assert_eq!(
-        Type::parse(&mut s_to_stream("(i32, [i32])")).unwrap(),
-        Type::Tuple(vec![
-            Type::I32,
-            Type::List(Box::new(Type::I32))
-        ])
-    );
-
-    assert_eq!(
-        Type::parse(&mut s_to_stream("[(x, y)]")).unwrap(),
-        Type::List(Box::new(Type::Tuple(vec![
-            Type::Ident("x".into()),
-            Type::Ident("y".into())
-        ])))
-    );
-
-    eprintln!("Test parsing arrow type");
-    assert_eq!(
-        Type::parse(&mut s_to_stream("u8 -> u8")).unwrap(),
-        Type::Arrow(
-            Box::new(Type::U8),
-            Box::new(Type::U8)
-        )
-    );
-    assert_eq!(
-        Type::parse(&mut s_to_stream("(u8, u8) -> [u8]")).unwrap(),
-        Type::Arrow(
-            Box::new(Type::Tuple(vec![
-                Type::U8,
-                Type::U8
-            ])),
-            Box::new(Type::List(Box::new(Type::U8)))
-        )
-    );
-
-    eprintln!("Test parsing generic type");
-    assert_eq!(
-        Type::parse(&mut s_to_stream("list<a>")).unwrap(),
-        Type::Generic(
-            vec![Type::Ident("a".into())], Box::new(Type::Ident("list".into())))
-    );
-
-    assert_eq!(
-        Type::parse(&mut s_to_stream("list<a, u8>")).unwrap(),
-        Type::Generic(
-            vec![
-                Type::Ident("a".into()),
-                Type::U8
-            ], Box::new(Type::Ident("list".into())))
-    );
-    
-}
-
-#[test]
-fn test_parse_expression() {
-    // Constants
-    eprintln!("Test parsing constant expression ");
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("5")).unwrap(),
-        Expression::Num(5)
-    );
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("\"s\"")).unwrap(),
-        Expression::Str("s".into())
-    );
-    
-    // Identifier
-    eprintln!("Test parsing identifier expression");
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("x")).unwrap(),
-        Expression::Identifier("x".into())
-    );
-
-    // Unit
-    eprintln!("Test parsing unit expression");
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("()")).unwrap(),
-        Expression::Unit
-    );
-
-    // Tuple
-    eprintln!("Test parsing tuple expression");
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("(x, 5)")).unwrap(),
-        Expression::Tuple(vec![
-            Expression::Identifier("x".into()),
-            Expression::Num(5),
-        ])
-    );
-
-    eprintln!("Test parsing tuples of tuples expression");
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("((a, b, c), (1, 2, 3))")).unwrap(),
-        Expression::Tuple(vec![
-            Expression::Tuple(vec![
-                Expression::Identifier("a".into()),
-                Expression::Identifier("b".into()), Expression::Identifier("c".into()), ]), Expression::Tuple(vec![
-                Expression::Num(1),
-                Expression::Num(2),
-                Expression::Num(3),
-            ])
-        ])
-    );
-
-    // Test parsing lambda expression
-    eprintln!("Test parsing lambda expression");
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("(x, y) -> x+y")).unwrap(),
-        Expression::Lambda(
-            Pattern::Tuple(vec![Pattern::Var("x".into()), Pattern::Var("y".into())]),
-            Box::new(Expression::Call(Box::new(Expression::Identifier("add".into())),
-            vec![Expression::Identifier("x".into()), Expression::Identifier("y".into())]))
-        )
-    );
-
-    // Test inline calling of lambda expression
-    eprintln!("Test calling lambda expression");
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("(x -> x)(5)")).unwrap(),
-        Expression::Call(
-            Box::new(
-                Expression::Lambda(
-                    Pattern::Var("x".into()),
-                    Box::new(Expression::Identifier("x".into())),
-                )
-            ),
-            vec![Expression::Num(5)]
-        )
-    );
-
-    // Let
-    eprintln!("Test parsing let expression");
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("let x = 5")).unwrap(),
-        Expression::Let(
-            Pattern::Var("x".into()),
-            Box::new(Expression::Num(5)),
-            Box::new(Expression::Unit)
-        )
-    );
-
-    // If
-    eprintln!("Test parsing if expression");
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("if a { x } else { y }")).unwrap(),
-        Expression::If(
-            Box::new(Expression::Identifier("a".into())),
-            Box::new(Expression::Identifier("x".into())),
-            Box::new(Expression::Identifier("y".into()))
-        )
-    );
-
-    // Match
-    eprintln!("Test parsing match expression");
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("match a { a: a, Cons(b): b }")).unwrap(),
-        Expression::Match(
-            Box::new(Expression::Identifier("a".into())),
-            vec![
-                (Pattern::Var("a".into()), Expression::Identifier("a".into())),
-                (Pattern::Cons("Cons".into(), Box::new(Pattern::Var("b".into()))), Expression::Identifier("b".into()))
-            ])
-    );
-
-    // Ternary operator BABY
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("a? x: y")).unwrap(),
-        Expression::If(
-            Box::new(Expression::Identifier("a".into())),
-            Box::new(Expression::Identifier("x".into())),
-            Box::new(Expression::Identifier("y".into()))
-        )
-    );
-
-    // Match expression
-
-    // orexpr
-    eprintln!("Test parsing or expression");
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("x || y")).unwrap(),
-        Expression::Call(
-            Box::new(Expression::Identifier("or".into())),
-            vec![Expression::Identifier("x".into()), Expression::Identifier("y".into())]
-        )
-    );
-    
-    eprintln!("Test parsing and expression");
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("x && y")).unwrap(),
-        Expression::Call(
-            Box::new(Expression::Identifier("and".into())),
-            vec![Expression::Identifier("x".into()), Expression::Identifier("y".into())]
-        )
-    );
-
-    eprintln!("Test parsing bitor expression");
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("x | y")).unwrap(),
-        Expression::Call(
-            Box::new(Expression::Identifier("bitor".into())),
-            vec![Expression::Identifier("x".into()), Expression::Identifier("y".into())]
-        )
-    );
-
-    eprintln!("Test parsing bitxor expression");
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("x ^ y")).unwrap(),
-        Expression::Call(
-            Box::new(Expression::Identifier("bitxor".into())),
-            vec![Expression::Identifier("x".into()), Expression::Identifier("y".into())]
-        )
-    );
-
-    eprintln!("Test parsing bitand expression");
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("x & y")).unwrap(),
-        Expression::Call(
-            Box::new(Expression::Identifier("bitand".into())),
-            vec![Expression::Identifier("x".into()), Expression::Identifier("y".into())]
-        )
-    );
-
-    eprintln!("Test parsing bitand expression");
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("x == y")).unwrap(),
-        Expression::Call(
-            Box::new(Expression::Identifier("eq".into())),
-            vec![Expression::Identifier("x".into()), Expression::Identifier("y".into())]
-        )
-    );
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("x != y")).unwrap(),
-        Expression::Call(
-            Box::new(Expression::Identifier("neq".into())),
-            vec![Expression::Identifier("x".into()), Expression::Identifier("y".into())]
-        )
-    );
-
-    eprintln!("Test parsing relative expression");
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("x < y")).unwrap(),
-        Expression::Call(
-            Box::new(Expression::Identifier("lt".into())),
-            vec![Expression::Identifier("x".into()), Expression::Identifier("y".into())]
-        )
-    );
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("x > y")).unwrap(),
-        Expression::Call(
-            Box::new(Expression::Identifier("gt".into())),
-            vec![Expression::Identifier("x".into()), Expression::Identifier("y".into())]
-        )
-    );
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("x <= y")).unwrap(),
-        Expression::Call(
-            Box::new(Expression::Identifier("leq".into())),
-            vec![Expression::Identifier("x".into()), Expression::Identifier("y".into())]
-        )
-    );
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("x >= y")).unwrap(),
-        Expression::Call(
-            Box::new(Expression::Identifier("geq".into())),
-            vec![Expression::Identifier("x".into()), Expression::Identifier("y".into())]
-        )
-    );
-
-    eprintln!("Test parsing concat expression");
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("x::y")).unwrap(),
-        Expression::Call(
-            Box::new(Expression::Identifier("Cons".into())),
-            vec![Expression::Identifier("x".into()), Expression::Identifier("y".into())]
-        )
-    );
-
-    eprintln!("Test parsing add expression");
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("x + y")).unwrap(),
-        Expression::Call(
-            Box::new(Expression::Identifier("add".into())),
-            vec![Expression::Identifier("x".into()), Expression::Identifier("y".into())]
-        )
-    );
-
-    eprintln!("Test parsing mul expression");
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("x * y")).unwrap(),
-        Expression::Call(
-            Box::new(Expression::Identifier("mul".into())),
-            vec![Expression::Identifier("x".into()), Expression::Identifier("y".into())]
-        )
-    );
-
-    eprintln!("Test parsing pow expression");
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("x ** y")).unwrap(),
-        Expression::Call(
-            Box::new(Expression::Identifier("pow".into())),
-            vec![Expression::Identifier("x".into()), Expression::Identifier("y".into())]
-        )
-    );
-
-    eprintln!("Test parsing unary expression");
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("!x")).unwrap(),
-        Expression::Call(
-            Box::new(Expression::Identifier("not".into())),
-            vec![Expression::Identifier("x".into())]
-        )
-    );
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("~x")).unwrap(),
-        Expression::Call(
-            Box::new(Expression::Identifier("bitnot".into())),
-            vec![Expression::Identifier("x".into())]
-        )
-    );
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("-x")).unwrap(),
-        Expression::Call(
-            Box::new(Expression::Identifier("neg".into())),
-            vec![Expression::Identifier("x".into())]
-        )
-    );
-
-    eprintln!("Test parsing postfix expression");
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("x(y)")).unwrap(),
-        Expression::Call(
-            Box::new(Expression::Identifier("x".into())),
-            vec![Expression::Identifier("y".into())]
-        )
-    );
-    assert_eq!(
-        Expression::parse(&mut s_to_stream("x.f(y)")).unwrap(),
-        Expression::Call(
-            Box::new(Expression::Identifier("f".into())),
-            vec![Expression::Identifier("x".into()), Expression::Identifier("y".into())]
-        )
-    );
-}
-
-#[test]
-fn test_parse_pattern() {
-    // Unit
-    eprintln!("Test parsing unit pattern");
-    assert_eq!(
-        Pattern::parse(&mut s_to_stream("()")).unwrap(),
-        Pattern::Unit
-    );
-
-    // Empty List
-    eprintln!("Test parsing empty list pattern");
-    assert_eq!(
-        Pattern::parse(&mut s_to_stream("[]")).unwrap(),
-        Pattern::EmptyList
-    );
-
-    // Constants
-    eprintln!("Test parsing constant pattern");
-    assert_eq!(
-        Pattern::parse(&mut s_to_stream("7")).unwrap(),
-        Pattern::Num(7)
-    );
-    assert_eq!(
-        Pattern::parse(&mut s_to_stream("\"hello\"")).unwrap(),
-        Pattern::Str("hello".into())
-    );
-
-    // Variable
-    eprintln!("Test parsing variable pattern");
-    assert_eq!(
-        Pattern::parse(&mut s_to_stream("a")).unwrap(),
-        Pattern::Var("a".into())
-    );
-
-    // Tuple
-    eprintln!("Test parsing tuple pattern");
-    assert_eq!(
-        Pattern::parse(&mut s_to_stream("(a, \"test\", [], 6)")).unwrap(),
-        Pattern::Tuple(vec![
-            Pattern::Var("a".into()),
-            Pattern::Str("test".into()),
-            Pattern::EmptyList,
-            Pattern::Num(6)
-        ])
-    );
-    assert_eq!(
-        Pattern::parse(&mut s_to_stream("(a)")).unwrap(),
-        Pattern::Var("a".into()),
-    );
-
-    // Constructor
-    eprintln!("Test parsing constructor pattern");
-    assert_eq!(
-        Pattern::parse(&mut s_to_stream("Cons(5, xs)")).unwrap(),
-        Pattern::Cons("Cons".into(), Box::new(Pattern::Tuple(vec![
-            Pattern::Num(5),
-            Pattern::Var("xs".into())
-        ])))
-    );
-
-    // Complicated
-    eprintln!("Test parsing complicated pattern");
-    assert_eq!(
-        Pattern::parse(&mut s_to_stream("(Cons(a, b), [])")).unwrap(),
-        Pattern::Tuple(vec![
-            Pattern::Cons("Cons".into(), Box::new(Pattern::Tuple(vec![
-                Pattern::Var("a".into()),
-                Pattern::Var("b".into())
-            ]))),
-            Pattern::EmptyList,
-        ])
-    );
-}
-
-#[test]
-fn test_parse_arglist() {
-    assert_eq!(
-        ArgList::parse(&mut s_to_stream("A, B, C")).unwrap(),
-        vec![
-            Expression::Identifier("A".into()),
-            Expression::Identifier("B".into()),
-            Expression::Identifier("C".into()),
-        ]
-    )
 }

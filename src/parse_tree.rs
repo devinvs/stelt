@@ -1,4 +1,7 @@
 use std::collections::HashMap;
+use std::collections::LinkedList as List;
+
+use crate::error::Range;
 
 #[derive(Debug)]
 pub struct ParseTree {
@@ -15,51 +18,55 @@ pub struct Trait {
     pub name: String,
     pub var: String,
     pub types: HashMap<String, Type>,
-    pub funcs: HashMap<String, Vec<FunctionDef>>
+    pub funcs: HashMap<String, Vec<FunctionDef>>,
+    pub range: Range,
 }
 
 #[derive(Debug)]
 pub struct Impl {
     pub trait_name: String,
     pub for_type: Type,
-    pub funcs: HashMap<String, Vec<FunctionDef>>
+    pub funcs: HashMap<String, Vec<FunctionDef>>,
+    pub range: Range,
 }
 
 #[derive(Debug)]
 /// The declaration of a new sum type with given name and constructors
 pub struct DataDecl {
     pub args: Vec<String>,
-    pub cons: Vec<TypeCons>
+    pub cons: Vec<TypeCons>,
+    pub range: Range,
 }
 
 #[derive(Debug)]
 /// A constructor for a single variant of a sum type
 pub struct TypeCons {
     pub name: String,
-    pub args: Vec<Type>
+    pub args: Type,
+    pub range: Range,
 }
 
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum Type {
-    ForAll(Vec<String>, Box<Type>),
-    Generic(Vec<Type>, Box<Type>),
-    Arrow(Box<Type>, Box<Type>),
-    Tuple(Vec<Type>),
-    List(Box<Type>),
-    Ident(String),
+    ForAll(Vec<String>, Box<Type>, Range),
+    Generic(Vec<Type>, Box<Type>, Range),
+    Arrow(Box<Type>, Box<Type>, Range),
+    Tuple(Vec<Type>, Range),
+    List(Box<Type>, Range),
+    Ident(String, Range),
 
     // Builtins
-    U8,
-    U16,
-    U32,
-    U64,
-    I8,
-    I16,
-    I32,
-    I64,
-    Str,
-    Unit,
+    U8(Range),
+    U16(Range),
+    U32(Range),
+    U64(Range),
+    I8(Range),
+    I16(Range),
+    I32(Range),
+    I64(Range),
+    Str(Range),
+    Unit(Range),
 
     // Type variable used for parsing. Only present in ir.
     // DOES NOT PARSE
@@ -67,26 +74,26 @@ pub enum Type {
 }
 
 impl Type {
-    pub fn name(&self) -> String {
+    pub fn range(&self) -> Range {
         match self {
-            Self::U8 => "u8".into(),
-            Self::U16 => "u16".into(),
-            Self::U32 => "u32".into(),
-            Self::U64 => "u64".into(),
-            Self::I8 => "i8".into(),
-            Self::I16 => "i16".into(),
-            Self::I32 => "i32".into(),
-            Self::I64 => "i64".into(),
-            Self::Str => "str".into(),
-            Self::Ident(s) => s.clone(),
-            Self::Unit => "()".into(),
-            Self::List(a) => format!("[{}]", a.name()),
-            Self::Arrow(a, b) => format!("{}->{}", a.name(), b.name()),
-            Self::Generic(a, b) => format!("{}<{}>", b.name(), a.iter().map(|t| t.name()).collect::<Vec<_>>().join(",")),
-            Self::Tuple(ts) => format!("({})", ts.iter().map(Type::name).collect::<Vec<_>>().join(",")),
-            Self::ForAll(_, b) => b.name(),
+            Self::ForAll(_, _, r) => r,
+            Self::Generic(_, _, r) => r,
+            Self::Arrow(_, _, r) => r,
+            Self::Tuple(_, r) => r,
+            Self::List(_, r) => r,
+            Self::Ident(_, r) => r,
+            Self::U8(r)
+            | Self::U16(r)
+            | Self::U32(r)
+            | Self::U64(r)
+            | Self::I8(r)
+            | Self::I16(r)
+            | Self::I32(r)
+            | Self::I64(r)
+            | Self::Str(r)
+            | Self::Unit(r) => r,
             _ => panic!()
-        }
+        }.clone()
     }
 }
 
@@ -94,54 +101,110 @@ impl Type {
 pub struct FunctionDef {
     pub name: String,
     pub args: Pattern,
-    pub body: Expression
+    pub body: Expression,
+    pub range: Range
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Expression {
     /// An identifier that we can evaluate.
     /// usually a variable that was defined previously
-    Identifier(String),
+    Identifier(String, Range),
 
     /// A tuple of expressions
-    Tuple(Vec<Expression>),
+    Tuple(Vec<Expression>, Range),
 
     /// A list of expressions
-    ExprList(Vec<Expression>),
+    ExprList(Vec<Expression>, Range),
 
     /// Assign a pattern to an expression
-    Let(Pattern, Box<Expression>, Box<Expression>),
+    Let(Pattern, Box<Expression>, Box<Expression>, Range),
 
     /// If conditional statment
-    If(Box<Expression>, Box<Expression>, Box<Expression>),
+    If(Box<Expression>, Box<Expression>, Box<Expression>, Range),
 
     /// Test a list of patterns against an expression, returning the expression that matches
-    Match(Box<Expression>, Vec<(Pattern, Expression)>),
+    Match(Box<Expression>, Vec<(Pattern, Expression)>, Range),
 
     /// Call the function with args
     /// Can be a global function, a lambda, or a constructor
-    Call(Box<Expression>, Vec<Expression>),
+    Call(Box<Expression>, Box<Expression>, Range),
 
     /// A lambda expression with pattern args and an expression body
-    Lambda(Pattern, Box<Expression>),
+    Lambda(Pattern, Box<Expression>, Range),
 
     // Constant Fields
-    Num(u64),    // A Number Literal
-    Str(String), // A String Literal
-    EmptyList,
-    Unit
+    Num(u64, Range),    // A Number Literal
+    Str(String, Range), // A String Literal
+    EmptyList(Range),
+    Unit(Range)
+}
+
+impl Expression {
+    pub fn range(&self) -> Range {
+        match self {
+            Expression::Unit(r) => r,
+            Expression::EmptyList(r) => r,
+            Expression::Str(_, r) => r,
+            Expression::Num(_, r) => r,
+            Expression::Lambda(_, _, r) => r,
+            Expression::Call(_, _, r) => r,
+            Expression::Match(_, _, r) => r,
+            Expression::If(_, _, _, r) => r,
+            Expression::Let(_, _, _, r) => r,
+            Expression::Identifier(_, r) => r,
+            Expression::Tuple(_, r) => r,
+            Expression::ExprList(_, r) => r,
+        }.clone()
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Pattern {
-    Unit,
-    EmptyList,
+    Unit(Range),
+    EmptyList(Range),
 
-    Num(u64),
-    Str(String),
+    Num(u64, Range),
+    Str(String, Range),
 
-    Var(String),
+    Var(String, Range),
 
-    Tuple(Vec<Pattern>),
-    Cons(String, Box<Pattern>)
+    Tuple(Vec<Pattern>, Range),
+    Cons(String, Box<Pattern>, Range)
+}
+
+impl Pattern {
+    pub fn free_vars(&self) -> List<String> {
+        match self {
+            Pattern::Var(a, _) => {
+                let mut l = List::new();
+                l.push_front(a.clone());
+                l
+            }
+            Pattern::Tuple(ps, _) => {
+                let mut i = ps.iter();
+                let mut l = i.next().unwrap().free_vars();
+
+                for p in ps {
+                    l.append(&mut p.free_vars());
+                }
+
+                l
+            }
+            Pattern::Cons(_, p, _) => p.free_vars(),
+            _ => List::new()
+        }
+    }
+
+    pub fn range(&self) -> Range {
+        *match self {
+            Pattern::Var(_, r) => r,
+            Pattern::Unit(r) => r,
+            Pattern::Num(_, r) => r,
+            Pattern::Str(_, r) => r,
+            Pattern::EmptyList(r) => r,
+            Pattern::Tuple(_, r) => r,
+            Pattern::Cons(_, _, r) => r
+        }
+    }
 }

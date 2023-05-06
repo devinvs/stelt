@@ -4,6 +4,7 @@ use std::io::Read;
 use stelt::Lexer;
 use stelt::Program;
 use stelt::MIRTree;
+use stelt::TypeChecker;
 
 fn main() {
     compile("./test.st");
@@ -35,7 +36,15 @@ fn compile(path: &str) {
     };
 
     let mir = MIRTree::from(program);
-    eprintln!("{mir:#?}");
+
+    let mut checker = TypeChecker::default();
+    match checker.check_program(&mir) {
+        Ok(_) => {}
+        Err(e) => {
+            e.pprint(&buf);
+            std::process::exit(1);
+        }
+    }
 
     // Output Code
     //program.compile();
