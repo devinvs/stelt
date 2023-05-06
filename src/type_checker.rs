@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use crate::parse_tree::{Type, Pattern, DataDecl};
+use crate::parse_tree::{Type, Pattern};
 use crate::unify::Term;
 use crate::unify::unify;
 use crate::unify::apply_unifier;
@@ -108,63 +108,28 @@ pub struct TypeChecker {
 
 impl TypeChecker {
     pub fn check_program(&mut self, tree: &MIRTree) -> Result<(), SteltError> {
-        let mut builtin = HashMap::new();
-        builtin.insert(
-            "add".to_string(),
-            Type::Arrow(
-                Box::new(Type::Tuple(vec![Type::U64(R0), Type::U64(R0)], R0)),
-                Box::new(Type::U64(R0)),
-                R0
-            )
-        );
-
-        let mut conss = HashMap::new();
-        let mut defs = HashMap::new();
-
-        // Add all user defined type definitions to defs
-        for (name, t) in tree.typedefs.iter() {
-            defs.insert(name.clone(), t.clone());
-        }
-
-        // Add all type constructors to conss
-        for (name, DataDecl { args, cons, range }) in tree.types.iter() {
-            for cons in cons {
-
-                let outt = if args.len() == 0 {
-                    Box::new(Type::Ident(name.clone(), range.clone()))
-                } else {
-                    Box::new(Type::Generic(
-                        args.clone().into_iter().map(|s| Type::Ident(s, range.clone())).collect(),
-                        Box::new(Type::Ident(name.clone(), range.clone())),
-                        range.clone()
-                    ))
-                };
-
-                conss.insert(
-                    cons.name.clone(),
-                    Type::ForAll(
-                        args.clone(),
-                        Box::new(Type::Arrow(
-                            Box::new(cons.args.clone()),
-                            outt,
-                            range.clone()
-                        )),
-                        range.clone()
-                    )
-                );
-            }
-        }
-
         // Check all defs
         for (name, def) in tree.defs.iter() {
-            let ty = defs.get(name).unwrap().clone();
-            self.check_expression(&builtin, &conss, &defs, def.clone(), ty.clone())?;
+            let ty = tree.declarations.get(name).unwrap().clone();
+            self.check_expression(
+                &tree.builtins,
+                &tree.constructors,
+                &tree.declarations,
+                def.clone(),
+                ty.clone()
+            )?;
         }
 
         // Check all functions
         for (name, func) in tree.funcs.iter() {
-            let ty = defs.get(name).unwrap().clone();
-            self.check_expression(&builtin, &conss, &defs, func.clone(), ty.clone())?;
+            let ty = tree.declarations.get(name).unwrap().clone();
+            self.check_expression(
+                &tree.builtins,
+                &tree.constructors,
+                &tree.declarations,
+                func.clone(),
+                ty.clone()
+            )?;
         }
 
         Ok(())

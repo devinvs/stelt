@@ -32,12 +32,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "201de327520df007757c1f0adce6e827fe8562fbc28bfd9c15571c66ca1f5f79"
 
 [[package]]
-name = "maplit"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e2e65a1a2e43cfcb47a895c4c8b10d1f4a61097f9f254f183aee60cad9c651d"
-
-[[package]]
 name = "ppv-lite86"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -74,21 +68,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "rust-unify"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba395d86e5edbfbfac5605db1e83a962c45a35800a6ea53db0b85e08638210eb"
-dependencies = [
- "maplit",
-]
-
-[[package]]
 name = "stelt"
 version = "0.1.0"
 dependencies = [
  "lazy_static",
  "rand",
- "rust-unify",
  "termcolor",
 ]
 
