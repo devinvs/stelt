@@ -4,6 +4,7 @@ use crate::Token;
 use crate::lexer::TokenStream;
 use crate::lexer::LexemeFeed;
 use crate::lexer::Lexeme;
+use crate::lexer::Lexer;
 use crate::SteltError;
 use crate::error::Range;
 
@@ -270,6 +271,12 @@ impl FunctionDef {
 }
 
 impl Type {
+    pub fn from_str(s: &str) -> Result<Self, SteltError> {
+        let mut l = Lexer::default();
+        let mut tokens = l.lex(s)?;
+        Type::parse(&mut tokens)
+    }
+
     fn parse(t: &mut TokenStream) -> Result<Self, SteltError> {
         let cont = Self::parse_tuple(t)?;
 
@@ -336,6 +343,13 @@ impl Type {
             
             let r = base.range().add(r2);
             Ok(Self::Generic(vars, Box::new(base), r))
+        } else if let Some(r) = t.consume(Token::Question) {
+            let r2 = r.add(base.range());
+            Ok(Self::Generic(
+                vec![base],
+                Box::new(Self::Ident("Maybe".into(), r)),
+                r2
+            ))
         } else {
             Ok(base)
         }
@@ -826,8 +840,23 @@ impl Expression {
                 Ok(e)
             }
             Some(Lexeme { token: Token::LBrace, range, ..}) => {
+                if let Some(r) = t.consume(Token::RBrace) {
+                    let r = r.add(range);
+                    return Ok(Self::Call(
+                        Box::new(Self::Identifier("Nil".to_string(), r)),
+                        Box::new(Self::Unit(r)),
+                        r
+                    ));
+                }
+
+                let mut es = vec![Self::parse(t)?];
+                while t.consume(Token::Comma).is_some() {
+                    es.push(Self::parse(t)?);
+                }
                 let r = t.assert(Token::RBrace)?;
-                Ok(Self::EmptyList(range.add(r)))
+                let r = r.add(range);
+
+                Ok(Self::cons_from_es(&es, r))
             }
             Some(a) => {
                 //panic!("PrimaryExpr: Expected identifier, constant, or expression, found: {:?}", a);
@@ -842,6 +871,22 @@ impl Expression {
                     msg: "Expected expression".into() })
             }
         }
+    }
+
+    fn cons_from_es(es: &[Self], r: Range) -> Self {
+        if es.is_empty() {
+            return Self::Call(
+                Box::new(Self::Identifier("Nil".to_string(), r)),
+                Box::new(Self::Unit(r)),
+                r
+            );
+        }
+
+        Self::Call(
+            Box::new(Self::Identifier("Cons".to_string(), r)),
+            Box::new(Self::Tuple(vec![es[0].clone(), Self::cons_from_es(&es[1..], r)], r)),
+            r
+        )
     }
 
     fn to_lambda_pattern(&self) -> Pattern {
@@ -908,7 +953,12 @@ impl Pattern {
         match t.next() {
             Some(Lexeme {token: Token::LBrace, range, ..}) => {
                 let r = t.assert(Token::RBrace)?;
-                Ok(Pattern::EmptyList(range.add(r)))
+                let r = range.add(r);
+                Ok(Pattern::Cons(
+                    "Nil".to_string(),
+                    Box::new(Self::Unit(r)),
+                    r
+                ))
             }
             Some(Lexeme {token: Token::Num(n), range, ..}) => {
                 Ok(Pattern::Num(n, range))

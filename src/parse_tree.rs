@@ -136,7 +136,6 @@ pub enum Expression {
     // Constant Fields
     Num(u64, Range),    // A Number Literal
     Str(String, Range), // A String Literal
-    EmptyList(Range),
     Unit(Range)
 }
 
@@ -144,7 +143,6 @@ impl Expression {
     pub fn range(&self) -> Range {
         match self {
             Expression::Unit(r) => r,
-            Expression::EmptyList(r) => r,
             Expression::Str(_, r) => r,
             Expression::Num(_, r) => r,
             Expression::Lambda(_, _, r) => r,
@@ -162,7 +160,6 @@ impl Expression {
 #[derive(Debug, PartialEq, Clone)]
 pub enum Pattern {
     Unit(Range),
-    EmptyList(Range),
 
     Num(u64, Range),
     Str(String, Range),
@@ -185,7 +182,7 @@ impl Pattern {
                 let mut i = ps.iter();
                 let mut l = i.next().unwrap().free_vars();
 
-                for p in ps {
+                for p in i {
                     l.append(&mut p.free_vars());
                 }
 
@@ -202,7 +199,6 @@ impl Pattern {
             Pattern::Unit(r) => r,
             Pattern::Num(_, r) => r,
             Pattern::Str(_, r) => r,
-            Pattern::EmptyList(r) => r,
             Pattern::Tuple(_, r) => r,
             Pattern::Cons(_, _, r) => r
         }

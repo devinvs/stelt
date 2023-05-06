@@ -3,6 +3,7 @@ mod lexer;
 mod parse_tree;
 mod parser;
 mod mir;
+mod builtin;
 mod unify;
 mod type_checker;
 //mod codegen;

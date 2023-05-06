@@ -10,6 +10,7 @@ use crate::error::Range;
 use crate::error::SteltError;
 
 use crate::mir::MIRTree;
+use crate::builtin::BUILTIN;
 
 type Theta = HashMap<Term<String>, Term<String>>;
 type Gamma<'a> = &'a HashMap<String, Type>;
@@ -112,7 +113,7 @@ impl TypeChecker {
         for (name, def) in tree.defs.iter() {
             let ty = tree.declarations.get(name).unwrap().clone();
             self.check_expression(
-                &tree.builtins,
+                &BUILTIN,
                 &tree.constructors,
                 &tree.declarations,
                 def.clone(),
@@ -124,7 +125,7 @@ impl TypeChecker {
         for (name, func) in tree.funcs.iter() {
             let ty = tree.declarations.get(name).unwrap().clone();
             self.check_expression(
-                &tree.builtins,
+                &BUILTIN,
                 &tree.constructors,
                 &tree.declarations,
                 func.clone(),
@@ -198,15 +199,6 @@ impl TypeChecker {
         unify(Type::Str(R0).to_term(), t.to_term(), subs).ok_or(SteltError {
             range: Some(r),
             msg: format!("Type Mismatch: Expected str found {:?}", tname)
-        })
-    }
-
-    fn judge_empty_list(&mut self, r: Range, t: Type, subs: Theta) -> Result<Theta, SteltError> {
-        let tname = apply_unifier(t.to_term(), &subs).name();
-        let v = self.gen_var();
-        unify(Type::List(Box::new(v), R0).to_term(), t.to_term(), subs).ok_or(SteltError {
-            range: Some(r),
-            msg: format!("Type Mismatch: Expected [] found {:?}", tname)
         })
     }
 
@@ -357,7 +349,6 @@ impl TypeChecker {
             Expression::Unit(_) => self.judge_unit(e.range(), t, subs),
             Expression::Num(_, _) => self.judge_num(e.range(), t, subs),
             Expression::Str(_, _) => self.judge_str(e.range(), t, subs),
-            Expression::EmptyList(_) => self.judge_empty_list(e.range(), t, subs),
             Expression::Identifier(_, _) => self.judge_var(builtins, cons, defs, e, t, subs),
             Expression::Tuple(_, _) => self.judge_tuple(builtins, cons, defs, e, t, subs),
             Expression::Lambda1(_, _, _) => self.judge_lambda(builtins, cons, defs, e, t, subs),
@@ -460,7 +451,6 @@ impl TypeChecker {
             Pattern::Unit(_) => self.judge_unit(p.range(), t, subs),
             Pattern::Num(_, _) => self.judge_num(p.range(), t, subs),
             Pattern::Str(_, _) => self.judge_str(p.range(), t, subs),
-            Pattern::EmptyList(_) => self.judge_empty_list(p.range(), t, subs),
             Pattern::Var(_, _) => self.judge_pattern_var(d, p, t, subs),
             Pattern::Tuple(_, _) => self.judge_pattern_tuple(c, d, p, t, subs),
             Pattern::Cons(_, _, _) => self.judge_pattern_cons(c, d, p, t, subs),

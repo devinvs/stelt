@@ -20,7 +20,6 @@ pub struct MIRTree {
     pub funcs: HashMap<String, MIRExpression>,
     pub defs: HashMap<String, MIRExpression>,
 
-    pub builtins: HashMap<String, Type>,
     pub constructors: HashMap<String, Type>,
     pub declarations: HashMap<String, Type>
 }
@@ -43,9 +42,6 @@ impl MIRTree {
                 subs.insert(name, new_name);
             }
         }
-
-        // Add the builtin types
-        let builtins = HashMap::new();
 
         // Add all user defined type definitions to declaratiosn
         let mut declarations = HashMap::new();
@@ -122,7 +118,6 @@ impl MIRTree {
             typedefs: tree.typedefs,
             funcs,
             defs,
-            builtins,
             constructors,
             declarations
         }
@@ -155,7 +150,6 @@ pub enum MIRExpression {
     // Constant Fields
     Num(u64, Range),    // A Number Literal
     Str(String, Range), // A String Literal
-    EmptyList(Range),
     Unit(Range)
 }
 
@@ -164,7 +158,6 @@ impl MIRExpression {
         match tree {
             Expression::Num(n, r) => Self::Num(n, r),
             Expression::Str(s, r) => Self::Str(s, r),
-            Expression::EmptyList(r) => Self::EmptyList(r),
             Expression::Unit(r) => Self::Unit(r),
             Expression::Identifier(i, r) => Self::Identifier(i, r),
             Expression::ExprList(es, r) => Self::List(es.into_iter().map(|e| MIRExpression::from(e, cons)).collect(), r),
@@ -227,7 +220,6 @@ impl MIRExpression {
             Self::Num(_, r) => r,
             Self::Str(_, r) => r,
             Self::Unit(r) => r,
-            Self::EmptyList(r) => r,
             Self::List(_, r) => r,
             Self::Tuple(_, r) => r,
             Self::Match(_, _, r) => r,
