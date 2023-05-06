@@ -14,6 +14,7 @@ use crate::builtin::BUILTIN;
 
 type Theta = HashMap<Term<String>, Term<String>>;
 type Gamma<'a> = &'a HashMap<String, Type>;
+type GammaStruct<'a> = &'a HashMap<String, HashMap<String, Type>>;
 type MutGamma<'a> = &'a mut HashMap<String, Type>;
 
 const R0: Range = Range::line(0, 0, 0);
@@ -116,6 +117,7 @@ impl TypeChecker {
                 &BUILTIN,
                 &tree.constructors,
                 &tree.declarations,
+                &tree.structs,
                 def.clone(),
                 ty.clone()
             )?;
@@ -128,6 +130,7 @@ impl TypeChecker {
                 &BUILTIN,
                 &tree.constructors,
                 &tree.declarations,
+                &tree.structs,
                 func.clone(),
                 ty.clone()
             )?;
@@ -136,13 +139,13 @@ impl TypeChecker {
         Ok(())
     }
 
-    fn check_expression(&mut self, b: Gamma, c: Gamma, d: Gamma, e: Expression, t: Type) -> Result<Theta, SteltError> {
+    fn check_expression(&mut self, b: Gamma, c: Gamma, d: Gamma, s: GammaStruct, e: Expression, t: Type) -> Result<Theta, SteltError> {
         let simple = match t {
             Type::ForAll(_, t, _) => *t,
             _ => t.clone(),
         };
 
-        self.judge_type(b, c, d, e, simple, HashMap::new())
+        self.judge_type(b, c, d, s, e, simple, HashMap::new())
     }
 
     fn gen_var(&mut self) -> Type {
@@ -232,6 +235,7 @@ impl TypeChecker {
         b: Gamma,
         c: Gamma,
         d: Gamma,
+        s: GammaStruct,
         e: Expression,
         t: Type,
         mut subs: Theta
@@ -242,7 +246,7 @@ impl TypeChecker {
             Expression::Tuple(es, _) => {
                 for exp in es {
                     let tv = self.gen_var();
-                    subs = self.judge_type(b, c, d, exp, tv.clone(), subs)?;
+                    subs = self.judge_type(b, c, d, s, exp, tv.clone(), subs)?;
                     ts.push(tv);
                 }
             }
@@ -263,6 +267,7 @@ impl TypeChecker {
         b: Gamma,
         c: Gamma,
         d: Gamma,
+        s: GammaStruct,
         e: Expression,
         ty: Type,
         mut subs: Theta
@@ -279,7 +284,23 @@ impl TypeChecker {
         let mut d = d.clone();
         d.insert(x, t1.clone());
 
-        subs = self.judge_type(b, c, &d, *m, t2.clone(), subs)?;
+        // unify t1 with lambda arg type first so that struct resolution can work
+        subs = match ty.clone() {
+            Type::Arrow(a, _, r2) => {
+                unify(a.to_term(), t1.to_term(), subs).ok_or(SteltError {
+                    range: Some(r2),
+                    msg: format!("Type check failed here")
+                })?
+            }
+            a => {
+                return Err(SteltError {
+                    range: Some(r),
+                    msg: format!("Expected lambda found {:?}", a)
+                })
+            }
+        };
+
+        subs = self.judge_type(b, c, &d, s, *m, t2.clone(), subs)?;
 
         let tname = apply_unifier(ty.to_term(), &subs).name();
         let xname = apply_unifier(Type::Arrow(Box::new(t1.clone()), Box::new(t2.clone()), R0).to_term(), &subs).name();
@@ -295,6 +316,7 @@ impl TypeChecker {
         b: Gamma,
         c: Gamma,
         d: Gamma,
+        s: GammaStruct,
         e: Expression,
         ty: Type,
         mut subs: Theta
@@ -305,8 +327,8 @@ impl TypeChecker {
         };
         let t = self.gen_var();
         let call_t = Type::Arrow(Box::new(t.clone()), Box::new(ty), R0);
-        subs = self.judge_type(b, c, d, *n, t, subs)?;
-        self.judge_type(b, c, d, *m, call_t, subs)
+        subs = self.judge_type(b, c, d, s, *n, t, subs)?;
+        self.judge_type(b, c, d, s, *m, call_t, subs)
     }
 
     fn judge_match(
@@ -314,6 +336,7 @@ impl TypeChecker {
         b: Gamma,
         c: Gamma,
         d: Gamma,
+        s: GammaStruct,
         e: Expression,
         t: Type,
         mut subs: Theta
@@ -324,16 +347,70 @@ impl TypeChecker {
         };
 
         let m_type = self.gen_var();
-        subs = self.judge_type(b, c, d, *mat, m_type.clone(), subs)?;
+        subs = self.judge_type(b, c, d, s, *mat, m_type.clone(), subs)?;
 
         for (pat, exp) in cases {
             let mut newd = d.clone();
             subs = self.judge_pattern(c, &mut newd, pat, m_type.clone(), subs)?;
 
-            subs = self.judge_type(b, c, &newd, exp, t.clone(), subs)?;
+            subs = self.judge_type(b, c, &newd, s, exp, t.clone(), subs)?;
         }
 
         Ok(subs)
+    }
+
+    fn judge_member(
+        &mut self,
+        b: Gamma,
+        c: Gamma,
+        d: Gamma,
+        structs: GammaStruct,
+        e: Expression,
+        t: Type,
+        mut subs: Theta
+    ) -> Result<Theta, SteltError> {
+        let (m, n, r) = match e {
+            Expression::Member(m, n, r) => (m, n, r),
+            _ => unreachable!()
+        };
+
+        let struct_var = self.gen_var();
+        subs = self.judge_type(b, c, d, structs, *m.clone(), struct_var.clone(), subs)?;
+
+        // apply unifier to struct_var to get it's concrete type
+        let term = apply_unifier(struct_var.to_term(), &subs);
+
+        let struct_name = match term {
+            Term::Const(n) => n,
+            Term::Composite(n, _) => n,
+            Term::Var(_) => {
+                return Err(SteltError {
+                    range: Some(m.range()),
+                    msg: format!("Type not known for struct")
+                });
+            }
+        };
+
+        if let Some(members) = structs.get(&struct_name) {
+            if let Some(ty) = members.get(&n) {
+                let ty = self.gen_fresh_type(ty);
+
+                unify(ty.to_term(), t.to_term(), subs).ok_or(SteltError {
+                    range: Some(r),
+                    msg: format!("nope not yet i'll write this later")
+                })
+            } else {
+                Err(SteltError {
+                    range: Some(m.range()),
+                    msg: format!("No member '{}' found for struct '{}'", n, struct_name)
+                })
+            }
+        } else {
+            Err(SteltError {
+                range: Some(m.range()),
+                msg: format!("No struct named {} found", struct_name)
+            })
+        }
     }
 
     fn judge_type(
@@ -341,6 +418,7 @@ impl TypeChecker {
         builtins: Gamma,
         cons: Gamma,
         defs: Gamma,
+        structs: GammaStruct,
         e: Expression,
         t: Type,
         subs: Theta
@@ -350,10 +428,11 @@ impl TypeChecker {
             Expression::Num(_, _) => self.judge_num(e.range(), t, subs),
             Expression::Str(_, _) => self.judge_str(e.range(), t, subs),
             Expression::Identifier(_, _) => self.judge_var(builtins, cons, defs, e, t, subs),
-            Expression::Tuple(_, _) => self.judge_tuple(builtins, cons, defs, e, t, subs),
-            Expression::Lambda1(_, _, _) => self.judge_lambda(builtins, cons, defs, e, t, subs),
-            Expression::Call(_, _, _) => self.judge_call(builtins, cons, defs, e, t, subs),
-            Expression::Match(_, _, _) => self.judge_match(builtins, cons, defs, e, t, subs),
+            Expression::Tuple(_, _) => self.judge_tuple(builtins, cons, defs, structs, e, t, subs),
+            Expression::Lambda1(_, _, _) => self.judge_lambda(builtins, cons, defs, structs, e, t, subs),
+            Expression::Call(_, _, _) => self.judge_call(builtins, cons, defs, structs, e, t, subs),
+            Expression::Match(_, _, _) => self.judge_match(builtins, cons, defs, structs, e, t, subs),
+            Expression::Member(_, _, _) => self.judge_member(builtins, cons, defs, structs, e, t, subs),
             _ => panic!("please don't make me go through this")
         }
     }
@@ -430,6 +509,7 @@ impl TypeChecker {
         subs = self.judge_type(
             &HashMap::new(),
             c,
+            &HashMap::new(),
             &HashMap::new(),
             Expression::Identifier(m, R0),
             Type::Arrow(Box::new(newt.clone()), Box::new(t), R0),

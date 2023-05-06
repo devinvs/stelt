@@ -65,7 +65,7 @@ impl ParseTree {
 
                     match t.next() {
                         Some(Lexeme {token: Token::Assign, ..}) => {
-                            let ty = DataDecl::parse(t, args, r)?;
+                            let ty = DataDecl::parse(t, name.clone(), args, r)?;
                             me.types.insert(name, ty);
                         }
                         Some(Lexeme {token: Token::Colon, ..}) => {
@@ -219,19 +219,42 @@ impl Impl {
 }
 
 impl DataDecl {
-    fn parse(t: &mut TokenStream, args: Vec<String>, mut r: Range) -> Result<Self, SteltError> {
-        let mut cons = Vec::new();
-        let con = TypeCons::parse(t)?;
-        r = r.add(con.range);
-        cons.push(con);
+    fn parse(t: &mut TokenStream, name: String, args: Vec<String>, mut r: Range) -> Result<Self, SteltError> {
+        if t.consume(Token::LCurly).is_some() {
+            let mut members = Vec::new();
 
-        while t.consume(Token::Bar).is_some() {
+            if let Some(r2) = t.consume(Token::RCurly) {
+                let r = r.add(r2);
+                return Ok(Self::Product(name, args, members, r));
+            }
+
+            let n = t.ident()?;
+            let ty = Type::parse(t)?;
+            members.push((n, ty));
+
+            while t.consume(Token::Comma).is_some() {
+                let n = t.ident()?;
+                let ty = Type::parse(t)?;
+                members.push((n, ty));
+            }
+
+            let r = r.add(t.assert(Token::RCurly)?);
+
+            Ok(Self::Product(name, args, members, r))
+        } else {
+            let mut cons = Vec::new();
             let con = TypeCons::parse(t)?;
             r = r.add(con.range);
             cons.push(con);
-        }
 
-        Ok(Self { cons, args, range: r })
+            while t.consume(Token::Bar).is_some() {
+                let con = TypeCons::parse(t)?;
+                r = r.add(con.range);
+                cons.push(con);
+            }
+
+            Ok(Self::Sum(name, args, cons, r))
+        }
     }
 }
 
@@ -998,6 +1021,11 @@ impl Pattern {
                     let range = range.add(args.range());
                     Ok(Pattern::Cons(format!("{i}.{var}"), Box::new(args), range))
 
+                } else if t.test(Token::LParen) {
+                    let args = Self::parse(t)?;
+                    let r = range.add(args.range());
+
+                    Ok(Pattern::Cons(i, Box::new(args), r))
                 } else if i=="None" {
                     Ok(Pattern::Cons(
                         "Maybe.None".to_string(),

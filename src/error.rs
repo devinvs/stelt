@@ -123,7 +123,7 @@ impl SteltError {
         stderr.set_color(ColorSpec::new().set_fg(Some(Color::Yellow))).unwrap();
 
         let arr = if let Some(range) = self.range {
-            (range.c1 - range.c0) / 2 + range.c0 + 4
+            (range.c1 - range.c0) / 2 + range.c0 + 5
         } else {
             0
         };

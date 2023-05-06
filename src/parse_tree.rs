@@ -31,11 +31,12 @@ pub struct Impl {
 }
 
 #[derive(Debug)]
-/// The declaration of a new sum type with given name and constructors
-pub struct DataDecl {
-    pub args: Vec<String>,
-    pub cons: Vec<TypeCons>,
-    pub range: Range,
+/// A data decl is the declaration of either a product type or a sum type.
+/// A product type is a list of ident type pairs, a sum type is a list of type
+/// constructors. Both have generic type args
+pub enum DataDecl {
+    Product(String, Vec<String>, Vec<(String, Type)>, Range),
+    Sum(String, Vec<String>, Vec<TypeCons>, Range)
 }
 
 #[derive(Debug)]

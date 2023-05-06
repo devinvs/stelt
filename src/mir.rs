@@ -17,6 +17,7 @@ pub struct MIRTree {
     pub traits: HashMap<String, Trait>,
     pub types: HashMap<String, DataDecl>,
     pub typedefs: HashMap<String, Type>,
+    pub structs: HashMap<String, HashMap<String, Type>>,
     pub funcs: HashMap<String, MIRExpression>,
     pub defs: HashMap<String, MIRExpression>,
 
@@ -52,31 +53,77 @@ impl MIRTree {
 
         // Add all type constructors to conss
         let mut constructors = HashMap::new();
+        let mut structs = HashMap::new();
 
-        for (name, DataDecl { args, cons, range }) in tree.types.iter() {
-            for cons in cons {
-                let outt = if args.len() == 0 {
-                    Box::new(Type::Ident(name.clone(), range.clone()))
-                } else {
-                    Box::new(Type::Generic(
-                        args.clone().into_iter().map(|s| Type::Ident(s, range.clone())).collect(),
-                        Box::new(Type::Ident(name.clone(), range.clone())), 
-                        range.clone()
-                    ))
-                };
+        for (name, decl) in tree.types.iter() {
+            match decl {
+                DataDecl::Sum(_, args, cons, range) => {
+                    for cons in cons {
+                        let outt = if args.len() == 0 {
+                            Box::new(Type::Ident(name.clone(), range.clone()))
+                        } else {
+                            Box::new(Type::Generic(
+                                args.clone().into_iter().map(|s| Type::Ident(s, range.clone())).collect(),
+                                Box::new(Type::Ident(name.clone(), range.clone())), 
+                                range.clone()
+                            ))
+                        };
 
-                constructors.insert(
-                    cons.name.clone(),
-                    Type::ForAll(
-                        args.clone(),
-                        Box::new(Type::Arrow(
-                            Box::new(cons.args.clone()),
-                            outt,
-                            range.clone())
-                        ),
-                        range.clone()
-                    )
-                );
+                        constructors.insert(
+                            format!("{name}.{}", cons.name),
+                            Type::ForAll(
+                                args.clone(),
+                                Box::new(Type::Arrow(
+                                    Box::new(cons.args.clone()),
+                                    outt,
+                                    range.clone())
+                                ),
+                                range.clone()
+                            )
+                        );
+                    }
+                }
+                DataDecl::Product(_, args, members, range) => {
+                    // Add an entry into the structs map
+                    let mut m = HashMap::new();
+                    members.iter().for_each(|(n, t)| {m.insert(n.clone(), t.clone());});
+
+                    structs.insert(name.clone(), m);
+
+                    // add constructor
+                    let outt = if args.len() == 0 {
+                        Box::new(Type::Ident(name.clone(), range.clone()))
+                    } else {
+                        Box::new(Type::Generic(
+                            args.clone().into_iter().map(|s| Type::Ident(s, range.clone())).collect(),
+                            Box::new(Type::Ident(name.clone(), range.clone())), 
+                            range.clone()
+                        ))
+                    };
+
+                    let inputt = members.into_iter()
+                        .map(|(_, t)| t.clone())
+                        .collect::<Vec<_>>();
+
+                    let inputt = match inputt.len() {
+                        0 => Box::new(Type::Unit(range.clone())),
+                        1 => Box::new(inputt.into_iter().next().unwrap()),
+                        _ => Box::new(Type::Tuple(inputt, range.clone()))
+                    };
+
+                    constructors.insert(
+                        name.clone(),
+                        Type::ForAll(
+                            args.clone(),
+                            Box::new(Type::Arrow(
+                                inputt,
+                                outt,
+                                range.clone()
+                            )),
+                            range.clone()
+                        )
+                    );
+                }
             }
         }
 
@@ -119,7 +166,8 @@ impl MIRTree {
             funcs,
             defs,
             constructors,
-            declarations
+            declarations,
+            structs
         }
     }
 }
