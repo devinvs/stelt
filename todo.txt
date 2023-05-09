@@ -1,28 +1,23 @@
-- Learn about Algebraic Structures
-    + haskell uses typeclasses to implement algebraic structures
-    + Find a way to implement traits/something like the above in stelt
 - Type Inference
+    + Is this even necessary? idk.
+    + Maybe for numeric types (i8, u8, etc)
 - Define type storage specification
-- Better way to represent product/sum types...
+    + Closures?
 - Function annotations? (pure, impure)
 - Low Level Memory operations?
-- ds on stack vs heap?
 
-- Do I have any clue what I'm doing?
-    + Not really
+- memory model ideas
+    + Check out Carp
+    + Check out rust
+    + essentially implement the borrow checker...
+    + every variable declared in a lexical scope is dropped at the end of
+        the scope.
+        - Basically functions, let statements, and match cases
+    + Everything is pass by reference unless used in a constructor.
+        + constructors always take ownership
 
-- Ig I have to implement type classes, sadge
-    + but also maybe just generics???
-    + Polymorphism? Maybe?
-    + ahhhhhhh
+- start with OSGC
+- ranges/ errors with type checker
+- trait resolution...
 
-Goals:
-1. Call puts on hello world string
-2. Running on microcontroller using mset and mget
-    - Doesn't require algebraic types or inference
-
-
-References for later:
-https://web.archive.org/web/20150102181601id_/http://eb.host.cs.st-andrews.ac.uk/drafts/effects.pdf
-https://raw.githubusercontent.com/papers-we-love/papers-we-love/main/languages-theory/principal-type-schemes-for-functional-programs.pdf
-https://alexott.net/en/fp/books/
+- unify types instead of terms?
