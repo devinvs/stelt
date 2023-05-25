@@ -72,8 +72,7 @@ impl ParseTree {
                         }
                         Some(Lexeme {token: Token::Colon, ..}) => {
                             let ty = Type::parse(t)?;
-                            let r = r.add(ty.range());
-                            me.typedefs.insert(name, Type::ForAll(args, Box::new(ty), r));
+                            me.typedefs.insert(name, Type::ForAll(args, Box::new(ty)));
                         }
                         Some(a) => {
                             return Err(SteltError {
@@ -167,10 +166,9 @@ impl TypeCons {
         let args = if t.test(Token::LParen) {
             Type::parse(t)?
         } else {
-            Type::Unit(r)
+            Type::Unit
         };
 
-        let r = r.add(args.range());
         Ok(Self { name, args, range: r })
     }
 }
@@ -207,18 +205,17 @@ impl Type {
         if t.consume(Token::Arrow).is_some() {
             let end = Self::parse_tuple(t)?;
 
-            let r = cont.range().add(end.range());
-            Ok(Self::Arrow(Box::new(cont), Box::new(end), r))
+            Ok(Self::Arrow(Box::new(cont), Box::new(end)))
         } else {
             Ok(cont)
         }
     }
 
     fn parse_tuple(t: &mut TokenStream) -> Result<Self, SteltError> {
-        if let Some(r) = t.consume(Token::LParen) {
-            if let Some(r2) = t.consume(Token::RParen) {
+        if t.consume(Token::LParen).is_some() {
+            if t.consume(Token::RParen).is_some() {
                 // Not a tuple, an empty type
-                return Ok(Self::Unit(r.add(r2)));
+                return Ok(Self::Unit);
             }
 
             let mut inner = vec![Self::parse(t)?];
@@ -228,12 +225,12 @@ impl Type {
                 inner.push(Self::parse(t)?);
             }
 
-            let r2 = t.assert(Token::RParen)?;
+            t.assert(Token::RParen)?;
 
             if inner.len() == 1 {
                 Ok(inner.pop().unwrap())
             } else {
-                Ok(Self::Tuple(inner, r.add(r2)))
+                Ok(Self::Tuple(inner))
             }
         } else {
             Ok(Self::parse_list(t)?)
@@ -241,12 +238,12 @@ impl Type {
     }
 
     fn parse_list(t: &mut TokenStream) -> Result<Self, SteltError> {
-        if let Some(r) = t.consume(Token::LBrace) {
+        if t.consume(Token::LBrace).is_some() {
             let inner = Self::parse(t)?;
 
-            let r2 = t.assert(Token::RBrace)?;
+            t.assert(Token::RBrace)?;
 
-            Ok(Self::List(Box::new(inner), r.add(r2)))
+            Ok(Self::List(Box::new(inner)))
         } else {
             Ok(Self::parse_generic(t)?)
         }
@@ -263,16 +260,11 @@ impl Type {
                 vars.push(Self::parse(t)?);
             }
 
-            let r2 = t.assert(Token::RArrow)?;
-            
-            let r = base.range().add(r2);
-            Ok(Self::Generic(vars, Box::new(base), r))
-        } else if let Some(r) = t.consume(Token::Question) {
-            let r2 = r.add(base.range());
+            Ok(Self::Generic(vars, Box::new(base)))
+        } else if t.consume(Token::Question).is_some() {
             Ok(Self::Generic(
                 vec![base],
-                Box::new(Self::Ident("Maybe".into(), r)),
-                r2
+                Box::new(Self::Ident("Maybe".into())),
             ))
         } else {
             Ok(base)
@@ -281,16 +273,16 @@ impl Type {
 
     fn parse_base(t: &mut TokenStream) -> Result<Self, SteltError> {
         Ok(match t.next() {
-            Some(Lexeme {token: Token::Ident(i), range, ..}) => Self::Ident(i, range),
-            Some(Lexeme {token: Token::U8, range, ..}) => Self::U8(range),
-            Some(Lexeme {token: Token::U16, range, ..}) => Self::U16(range),
-            Some(Lexeme {token: Token::U32, range, ..}) => Self::U32(range),
-            Some(Lexeme {token: Token::U64, range, ..}) => Self::U64(range),
-            Some(Lexeme {token: Token::I8, range, ..}) => Self::I8(range),
-            Some(Lexeme {token: Token::I16, range, ..}) => Self::I16(range),
-            Some(Lexeme {token: Token::I32, range, ..}) => Self::I32(range),
-            Some(Lexeme {token: Token::I64, range, ..}) => Self::I64(range),
-            Some(Lexeme {token: Token::Str, range, ..}) => Self::Str(range),
+            Some(Lexeme {token: Token::Ident(i), ..}) => Self::Ident(i),
+            Some(Lexeme {token: Token::U8, ..}) => Self::U8,
+            Some(Lexeme {token: Token::U16, ..}) => Self::U16,
+            Some(Lexeme {token: Token::U32, ..}) => Self::U32,
+            Some(Lexeme {token: Token::U64, ..}) => Self::U64,
+            Some(Lexeme {token: Token::I8, ..}) => Self::I8,
+            Some(Lexeme {token: Token::I16, ..}) => Self::I16,
+            Some(Lexeme {token: Token::I32, ..}) => Self::I32,
+            Some(Lexeme {token: Token::I64, ..}) => Self::I64,
+            Some(Lexeme {token: Token::Str, ..}) => Self::Str,
             Some(a) => {
                 return Err(SteltError {
                     range: Some(a.range),
@@ -852,8 +844,8 @@ impl Expression {
 
     fn to_lambda_pattern(&self) -> Pattern {
         match self {
-            Self::Identifier(s, r) => Pattern::Var(s.clone(), r.clone()),
-            Self::Tuple(es, r) => Pattern::Tuple(es.iter().map(|e| e.to_lambda_pattern()).collect(), r.clone()),
+            Self::Identifier(s, r) => Pattern::Var(s.clone(), r.clone(), None),
+            Self::Tuple(es, r) => Pattern::Tuple(es.iter().map(|e| e.to_lambda_pattern()).collect(), r.clone(), None),
             _ => panic!("ahh")
         }
     }
@@ -866,7 +858,7 @@ impl Pattern {
             // We are either the unit type or the tuple type
 
             if let Some(r2) = t.consume(Token::RParen) {
-                return Ok(Pattern::Unit(r.add(r2)));
+                return Ok(Pattern::Unit(r.add(r2), Some(Type::Unit)));
             }
 
             let mut pats = Vec::new();
@@ -886,7 +878,7 @@ impl Pattern {
             if pats.len() == 1 {
                 Ok(pats.into_iter().next().unwrap())
             } else {
-                Ok(Pattern::Tuple(pats, r))
+                Ok(Pattern::Tuple(pats, r, None))
             }
         } else {
             Pattern::parse_conc(t)
@@ -902,8 +894,9 @@ impl Pattern {
 
             Ok(Self::Cons(
                 "List.Cons".into(),
-                Box::new(Pattern::Tuple(vec![a, b], r)),
-                r
+                Box::new(Pattern::Tuple(vec![a, b], r, None)),
+                r,
+                None
             ))
         } else {
             Ok(a)
@@ -917,15 +910,16 @@ impl Pattern {
                 let r = range.add(r);
                 Ok(Pattern::Cons(
                     "List.Nil".to_string(),
-                    Box::new(Self::Unit(r)),
-                    r
+                    Box::new(Self::Unit(r, Some(Type::Unit))),
+                    r,
+                    None
                 ))
             }
             Some(Lexeme {token: Token::Num(n), range, ..}) => {
-                Ok(Pattern::Num(n, range))
+                Ok(Pattern::Num(n, range, Some(Type::I32)))
             }
             Some(Lexeme {token: Token::String(s), range, ..}) => {
-                Ok(Pattern::Str(s, range))
+                Ok(Pattern::Str(s, range, Some(Type::Str)))
             }
             Some(Lexeme {token: Token::Ident(i), range, ..}) => {
                 // either variable or constructor...
@@ -936,22 +930,23 @@ impl Pattern {
                     let args = if t.test(Token::LParen) {
                         Pattern::parse(t)?
                     } else {
-                        Pattern::Unit(range)
+                        Pattern::Unit(range, Some(Type::Unit))
                     };
 
                     let range = range.add(args.range());
-                    Ok(Pattern::Cons(format!("{i}.{var}"), Box::new(args), range))
+                    Ok(Pattern::Cons(format!("{i}.{var}"), Box::new(args), range, None))
 
                 } else if t.test(Token::LParen) {
                     let args = Self::parse(t)?;
                     let r = range.add(args.range());
 
-                    Ok(Pattern::Cons(i, Box::new(args), r))
+                    Ok(Pattern::Cons(i, Box::new(args), r, None))
                 } else if i=="None" {
                     Ok(Pattern::Cons(
                         "Maybe.None".to_string(),
-                        Box::new(Self::Unit(range)),
-                        range
+                        Box::new(Self::Unit(range, Some(Type::Unit))),
+                        range,
+                        None
                     ))
                 } else if i=="Some" {
                     let args = Pattern::parse(t)?;
@@ -960,10 +955,11 @@ impl Pattern {
                     Ok(Pattern::Cons(
                         "Maybe.Some".to_string(),
                         Box::new(args),
-                        range
+                        range,
+                        None
                     ))
                 } else {
-                    Ok(Pattern::Var(i, range))
+                    Ok(Pattern::Var(i, range, None))
                 }
             }
             _ => panic!("unexpected token")

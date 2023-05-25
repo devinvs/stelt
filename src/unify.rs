@@ -77,6 +77,7 @@ where
     }
 }
 
+
 pub fn unify<T>(s: Term<T>, t: Term<T>, mut subs: HashMap<Term<T>, Term<T>>) -> Option<HashMap<Term<T>, Term<T>>>
 where
     T: std::cmp::Eq + std::hash::Hash + Clone,

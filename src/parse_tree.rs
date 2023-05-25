@@ -33,52 +33,28 @@ pub struct TypeCons {
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum Type {
-    ForAll(Vec<String>, Box<Type>, Range),
-    Generic(Vec<Type>, Box<Type>, Range),
-    Arrow(Box<Type>, Box<Type>, Range),
-    Tuple(Vec<Type>, Range),
-    List(Box<Type>, Range),
-    Ident(String, Range),
+    ForAll(Vec<String>, Box<Type>),
+    Generic(Vec<Type>, Box<Type>),
+    Arrow(Box<Type>, Box<Type>),
+    Tuple(Vec<Type>),
+    List(Box<Type>),
+    Ident(String),
 
     // Builtins
-    U8(Range),
-    U16(Range),
-    U32(Range),
-    U64(Range),
-    I8(Range),
-    I16(Range),
-    I32(Range),
-    I64(Range),
-    Str(Range),
-    Unit(Range),
+    U8,
+    U16,
+    U32,
+    U64,
+    I8,
+    I16,
+    I32,
+    I64,
+    Str,
+    Unit,
 
     // Type variable used for parsing. Only present in ir.
     // DOES NOT PARSE
     Var(usize)
-}
-
-impl Type {
-    pub fn range(&self) -> Range {
-        match self {
-            Self::ForAll(_, _, r) => r,
-            Self::Generic(_, _, r) => r,
-            Self::Arrow(_, _, r) => r,
-            Self::Tuple(_, r) => r,
-            Self::List(_, r) => r,
-            Self::Ident(_, r) => r,
-            Self::U8(r)
-            | Self::U16(r)
-            | Self::U32(r)
-            | Self::U64(r)
-            | Self::I8(r)
-            | Self::I16(r)
-            | Self::I32(r)
-            | Self::I64(r)
-            | Self::Str(r)
-            | Self::Unit(r) => r,
-            _ => panic!()
-        }.clone()
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -147,26 +123,26 @@ impl Expression {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Pattern {
-    Unit(Range),
+    Unit(Range, Option<Type>),
 
-    Num(u64, Range),
-    Str(String, Range),
+    Num(u64, Range, Option<Type>),
+    Str(String, Range, Option<Type>),
 
-    Var(String, Range),
+    Var(String, Range, Option<Type>),
 
-    Tuple(Vec<Pattern>, Range),
-    Cons(String, Box<Pattern>, Range)
+    Tuple(Vec<Pattern>, Range, Option<Type>),
+    Cons(String, Box<Pattern>, Range, Option<Type>)
 }
 
 impl Pattern {
     pub fn free_vars(&self) -> List<String> {
         match self {
-            Pattern::Var(a, _) => {
+            Pattern::Var(a, _, _) => {
                 let mut l = List::new();
                 l.push_front(a.clone());
                 l
             }
-            Pattern::Tuple(ps, _) => {
+            Pattern::Tuple(ps, _, _) => {
                 let mut i = ps.iter();
                 let mut l = i.next().unwrap().free_vars();
 
@@ -176,19 +152,41 @@ impl Pattern {
 
                 l
             }
-            Pattern::Cons(_, p, _) => p.free_vars(),
+            Pattern::Cons(_, p, _, _) => p.free_vars(),
             _ => List::new()
         }
     }
 
     pub fn range(&self) -> Range {
         *match self {
-            Pattern::Var(_, r) => r,
-            Pattern::Unit(r) => r,
-            Pattern::Num(_, r) => r,
-            Pattern::Str(_, r) => r,
-            Pattern::Tuple(_, r) => r,
-            Pattern::Cons(_, _, r) => r
+            Pattern::Var(_, r, _) => r,
+            Pattern::Unit(r, _) => r,
+            Pattern::Num(_, r, _) => r,
+            Pattern::Str(_, r, _) => r,
+            Pattern::Tuple(_, r, _) => r,
+            Pattern::Cons(_, _, r, _) => r
+        }
+    }
+
+    pub fn ty(&self) -> Type {
+        match self {
+            Pattern::Var(_, _, t) => t,
+            Pattern::Unit(_, t) => t,
+            Pattern::Num(_, _, t) => t,
+            Pattern::Str(_, _, t) => t,
+            Pattern::Tuple(_, _, t) => t,
+            Pattern::Cons(_, _, _, t) => t
+        }.clone().unwrap()
+    }
+
+    pub fn set_type(&mut self, ty: Type) {
+        match self {
+            Pattern::Var(_, _, t) => *t = Some(ty),
+            Pattern::Unit(_, t) => *t = Some(ty),
+            Pattern::Num(_, _, t) => *t = Some(ty),
+            Pattern::Str(_, _, t) => *t = Some(ty),
+            Pattern::Tuple(_, _, t) => *t = Some(ty),
+            Pattern::Cons(_, _, _, t) => *t = Some(ty)
         }
     }
 }

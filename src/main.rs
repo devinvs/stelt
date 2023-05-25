@@ -37,10 +37,10 @@ fn compile(path: &str) {
         }
     };
 
-    let mir = MIRTree::from(program);
+    let mut mir = MIRTree::from(program);
 
     let mut checker = TypeChecker::default();
-    match checker.check_program(&mir) {
+    match checker.check_program(&mut mir) {
         Ok(_) => {}
         Err(e) => {
             e.pprint(&buf);
