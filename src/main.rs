@@ -6,6 +6,8 @@ use stelt::Program;
 use stelt::MIRTree;
 use stelt::TypeChecker;
 
+use stelt::Module;
+
 fn main() {
     compile("./test.st");
 }
@@ -46,6 +48,10 @@ fn compile(path: &str) {
         }
     }
 
-    // Output Code
-    //program.compile();
+    let lir = mir.lower();
+    eprintln!("{:#?}", lir);
+
+    let out = File::create("./out.ll").unwrap();
+    let mut module = Module::new(Box::new(out));
+    module.compile(lir).unwrap();
 }

@@ -1,33 +1,16 @@
 use std::collections::HashMap;
 use std::collections::LinkedList as List;
+use std::collections::HashSet;
 
 use crate::error::Range;
 
 #[derive(Debug)]
 pub struct ParseTree {
-    pub traits: HashMap<String, Trait>,
-    pub impls: Vec<Impl>,
     pub types: HashMap<String, DataDecl>,
     pub typedefs: HashMap<String, Type>,
     pub funcs: HashMap<String, Vec<FunctionDef>>,
-    pub defs: HashMap<String, Expression>
-}
-
-#[derive(Debug)]
-pub struct Trait {
-    pub name: String,
-    pub var: String,
-    pub types: HashMap<String, Type>,
-    pub funcs: HashMap<String, Vec<FunctionDef>>,
-    pub range: Range,
-}
-
-#[derive(Debug)]
-pub struct Impl {
-    pub trait_name: String,
-    pub for_type: Type,
-    pub funcs: HashMap<String, Vec<FunctionDef>>,
-    pub range: Range,
+    pub defs: HashMap<String, Expression>,
+    pub external: HashSet<String>
 }
 
 #[derive(Debug)]

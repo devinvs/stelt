@@ -1,290 +1,110 @@
-use std::collections::HashMap;
-use std::path::Path;
+use crate::lir::{LIRTree, LIRExpression};
 
-use inkwell::builder::Builder;
-use inkwell::context::Context;
-use inkwell::module::Module;
-use inkwell::AddressSpace;
-use inkwell::targets::{InitializationConfig, Target, TargetMachine};
-use inkwell::passes::PassManager;
+use std::io::Write;
+use std::error::Error;
 
-use inkwell::types::{
-    BasicTypeEnum,
-    BasicType,
-    BasicMetadataTypeEnum,
-    AnyTypeEnum
-};
+use crate::llvm::LLVMType;
 
-use inkwell::values::{BasicMetadataValueEnum, BasicValue, FunctionValue};
+pub struct Module {
+    w: Box<dyn Write>,
+    strs: Vec<String>,
 
-use crate::ast::{
-    Program,
-    Type,
-    Field,
-    Function,
-    Expression
-};
-
-pub struct Compiler<'a, 'ctx> {
-    pub context: &'ctx Context,
-    pub builder: &'a Builder<'ctx>,
-    pub module: &'a Module<'ctx>,
-    pub fpm: &'a PassManager<FunctionValue<'ctx>>,
-    
-    pub types: HashMap<String, BasicTypeEnum<'ctx>>,
-    pub variables: HashMap<String, BasicMetadataValueEnum<'ctx>>,
+    // index for anonymous variables
+    i: usize,
 }
 
-impl Program {
-    pub fn compile(&self) {
-        let context = Context::create();
-        let module = context.create_module("main");
-        let builder = context.create_builder();
+impl Write for Module {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.w.write(buf)
+    }
 
-        let fpm = PassManager::create(&module);
-        fpm.add_instruction_combining_pass();
-        fpm.add_reassociate_pass();
-        fpm.add_gvn_pass();
-        fpm.add_cfg_simplification_pass();
-        fpm.add_basic_alias_analysis_pass();
-        fpm.add_promote_memory_to_register_pass();
-        fpm.add_instruction_combining_pass();
-        fpm.add_reassociate_pass();
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.w.flush()
+    }
+}
 
-        let mut compiler = Compiler {
-            context: &context,
-            module: &module,
-            builder: &builder,
-            fpm: &fpm,
+impl Module {
+    pub fn new(w: Box<dyn Write>) -> Self {
+        Self {
+            w,
+            strs: Vec::new(),
 
-            types: HashMap::new(),
-            variables: HashMap::new(),
-        };
+            i: 1,
+        }
+    }
 
-        // Insert types for builtin functions
-        let memget_t = Type::Func(
-                "memget".to_string(), 
-                Box::new(Field::I64),
-                Box::new(Field::I64)
-        );
-        memget_t.compile(Some(&"memget".to_string()), &mut compiler);
+    pub fn var(&mut self) -> String {
+        self.i += 1;
+        format!("%{}", self.i-1)
+    }
 
-        let memset_t = Type::Func(
-                "memget".to_string(), 
-                Box::new(Field::Tuple(vec![Field::I64, Field::I64])),
-                Box::new(Field::Empty)
-        );
-        memset_t.compile(Some(&"memget".to_string()), &mut compiler);
-
-        for (name, ty) in self.types.iter() {
-            ty.compile(Some(name), &mut compiler);
+    pub fn compile(&mut self, tree: LIRTree) -> Result<(), Box<dyn Error>> {
+        // Output extern functions
+        for name in tree.external {
+            let (from, to) = tree.func_types.get(&name).unwrap();
+            writeln!(self, "declare {to} @{name}({from} nocapture) nounwind")?;
         }
 
-        for (name, func) in self.funcs.iter() {
-            let f = compiler.module.get_function(name).unwrap();
+        // Compile all functions
+        for (name, expr) in tree.funcs {
+            // get function type
+            let (from, to) = tree.func_types.get(&name).unwrap();
 
-            let entry = compiler.context.append_basic_block(f, "entry");
-            compiler.builder.position_at_end(entry);
+            let froms = if *from == LLVMType::Void { "".to_string() } else { format!("{from}") };
 
-            if func.len() == 1 {
-                // Add function args...
-                let params = f.get_params();
-                for (i, a) in func[0].args.iter().enumerate() {
-                    let name = match a {
-                        Expression::Identifier(_, n) => n.clone(),
-                        _ => format!("{i}")
-                    };
+            writeln!(self, "define {to} @{name}({froms}) {{")?;
 
-                    compiler.variables.insert(name, params[i].into());
-                }
+            let var = expr.compile(self)?;
 
-                func[0].codegen(&mut compiler);
-                compiler.builder.build_return(None);
+            if *to == LLVMType::Void {
+                writeln!(self, "\tret {to}")?;
             } else {
-                panic!("WHOAH THERE!!!") //TODO
+                writeln!(self, "\tret {to} {var}")?;
             }
+
+            writeln!(self, "}}")?;
         }
 
-        compiler.module.print_to_stderr();
-        compiler.module.verify().unwrap();
-        compiler.module.write_bitcode_to_path(Path::new("module.bc"));
+        // Emit string definitions
+        for (i, s) in self.strs.clone().into_iter().enumerate() {
+            let len = s.len() + 1; // plus one because null byte
+            let s = s.replace("\n", "\\0a");
 
-        // Compile to object file!
-        let init_config = InitializationConfig {
-            info: true,
-            base: true,
-            machine_code: true,
-            asm_parser: true,
-            asm_printer: true,
-            disassembler: false,
-        };
+            writeln!(self, "@str.{i} = private unnamed_addr constant [{len} x i8] c\"{s}\\00\"")?;
+        }
 
-        Target::initialize_native(&init_config).unwrap();
-
-        let triple = TargetMachine::get_default_triple();
-        let target = Target::from_triple(&triple).unwrap();
-
-        let tm = target.create_target_machine(
-            &triple,
-            "generic",
-            "",
-            inkwell::OptimizationLevel::Default,
-            inkwell::targets::RelocMode::PIC,
-            inkwell::targets::CodeModel::Default
-        ).unwrap();
-
-        compiler.module.set_data_layout(&tm.get_target_data().get_data_layout());
-
-        // Emit object code!!!
-        tm.write_to_file(
-            compiler.module,
-            inkwell::targets::FileType::Object,
-            Path::new("output.o")
-        ).unwrap();
+        Ok(())
     }
 }
 
-impl Type {
-    fn compile<'a, 'ctx>(&self, name: Option<&String>, c: &mut Compiler<'a, 'ctx>) -> AnyTypeEnum<'ctx> {
+impl LIRExpression {
+    fn compile(self, module: &mut Module) -> Result<String, Box<dyn Error>> {
         match self {
-            Type::Func(_, a, b) => {
-                // Get function type
-                let ft = if **b == Field::Empty {
-                    let out = c.context.void_type();
-
-                    if let Field::Tuple(fs) = &**a {
-                        let args = fs.into_iter()
-                            .map(|f| f.compile(c).into())
-                            .collect::<Vec<BasicMetadataTypeEnum>>();
-                        out.fn_type(args.as_slice(), false)
-                    } else {
-                        out.fn_type(&[], false)
-                    }
-                } else {
-                    let out = Box::new(b.compile(c)) as Box<dyn BasicType>;
-
-                    if let Field::Tuple(fs) = &**a {
-                        let args = fs.into_iter()
-                            .map(|f| f.compile(c).into())
-                            .collect::<Vec<BasicMetadataTypeEnum>>();
-                        out.fn_type(args.as_slice(), false)
-                    } else {
-                        let arg = a.compile(c).into();
-                        out.fn_type(&[arg], false)
-                    }
-                };
-
-                if let Some(s) = name {
-                    c.module.add_function(s.as_str(), ft, None);
-                }
-
-                ft.into()
+            Self::Identifier(n) => {
+                // for now just assume its a function...
+                Ok(format!("@{n}"))
             }
-            _ => unimplemented!()
-        }
-    }
-}
+            Self::Call(f, args) => {
+                let args = args.compile(module)?;
+                let f = f.compile(module)?;
+                let out = module.var();
 
+                // get type of function
 
-impl Field {
-    fn compile<'ctx>(&self, c: &mut Compiler<'_, 'ctx>) -> BasicTypeEnum<'ctx> {
-        match self {
-            Field::U8 | Field::I8 => {
-                c.context.i8_type().into()
-            },
-            Field::U16 | Field::I16 => {
-                c.context.i16_type().into()
-            },
-            Field::U32 | Field::I32 => {
-                c.context.i32_type().into()
-            },
-            Field::U64 | Field::I64 => {
-                c.context.i64_type().into()
-            },
-            Field::Ident(n) => {
-                *c.types.get(n).unwrap()
-            },
-            Field::Str => {
-                let char_type = c.context.i8_type();
-                char_type.ptr_type(AddressSpace::default()).into()
-            }
-            Field::Func(_, _) => {
-                c.context.i32_type().into()
-            }
-            Field::Named(_, f) => {
-                f.compile(c)
-            }
-            _ => unimplemented!()
-        }
-    }
-}
+                writeln!(module, "\t{out} = call i32 {f}(ptr {args})")?; // FIX!!!
 
-pub trait CodeGen {
-    fn codegen<'ctx>(&self, c: &mut Compiler<'_, 'ctx>) -> BasicMetadataValueEnum<'ctx>; 
-}
+                Ok(out)
+            }
+            Self::Str(s) => {
+                module.strs.push(s);
+                let i = module.strs.len() - 1;
 
-impl CodeGen for Function {
-    fn codegen<'ctx>(&self, c: &mut Compiler<'_, 'ctx>) -> BasicMetadataValueEnum<'ctx> {
-        for i in 0..self.body.len()-1 {
-            self.body[i].codegen(c);
-        }
-
-        self.body[self.body.len()-1].codegen(c)
-    }
-}
-
-impl CodeGen for Expression {
-    fn codegen<'ctx>(&self, c: &mut Compiler<'_, 'ctx>) -> BasicMetadataValueEnum<'ctx> {
-        match self {
-            Expression::Num(_, n) => c.context.i64_type().const_int(*n, false).into(),
-            Expression::Add(_, left, right) => {
-                let (l, r) = (left.codegen(c).into_int_value(), right.codegen(c).into_int_value());
-                c.builder.build_int_add(l, r, "addtmp").into()
+                Ok(format!("@str.{i}"))
             }
-            Expression::Sub(_, left, right) => {
-                let (l, r) = (
-                    left.codegen(c).into_int_value(),
-                    right.codegen(c).into_int_value()
-                );
-                c.builder.build_int_sub(l, r, "subtmp").into()
+            Self::Num(n) => {
+                Ok(n.to_string())
             }
-            Expression::Mul(_, left, right) => {
-                let (l, r) = (left.codegen(c).into_int_value(), right.codegen(c).into_int_value());
-                c.builder.build_int_mul(l, r, "multmp").into()
-            }
-            Expression::Let(_, name, expr) => {
-                let e = expr.codegen(c);
-                c.variables.insert(name.clone(), e);
-                e.into()
-            }
-            Expression::Identifier(_, name) => {
-                *c.variables.get(name).unwrap()
-            }
-            Expression::Call(_, name, args) => {
-                let args = args.iter()
-                    .map(|a| a.codegen(c))
-                    .collect::<Vec<BasicMetadataValueEnum>>();
-
-                if let Expression::Identifier(_, i) = &**name {
-                    match i.as_str() {
-                        i => {
-                            let f = c.module.get_function(i).unwrap();
-
-                            c.builder
-                                .build_call(f, args.as_slice(), "tmp")
-                                .try_as_basic_value().left().unwrap()
-                                .into()
-                        }
-                    }
-
-                } else {
-                    panic!("OH NOSES")
-                }
-            }
-            Expression::String(_, s) => {
-                c.builder.build_global_string_ptr(&s, &s).as_basic_value_enum().into()
-            }
-            e => panic!("NOT IMPLEMENTED YET: {e:?}")
+            a => unimplemented!("{a:?}")
         }
     }
 }

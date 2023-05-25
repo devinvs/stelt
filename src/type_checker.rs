@@ -191,7 +191,7 @@ impl TypeChecker {
 
     fn judge_num(&mut self, r: Range, t: Type, subs: Theta) -> Result<Theta, SteltError> {
         let tname = apply_unifier(t.to_term(), &subs).name();
-        unify(Type::U64(R0).to_term(), t.to_term(), subs).ok_or(SteltError {
+        unify(Type::I32(R0).to_term(), t.to_term(), subs).ok_or(SteltError {
             range: Some(r),
             msg: format!("Type Mismatch: Expected u64 found {:?}", tname)
         })

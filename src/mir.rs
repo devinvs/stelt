@@ -1,11 +1,11 @@
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 use crate::parse_tree::{
     ParseTree,
     Expression,
     Type,
     DataDecl,
-    Trait,
     Pattern
 };
 
@@ -14,7 +14,7 @@ use crate::error::Range;
 
 #[derive(Debug)]
 pub struct MIRTree {
-    pub traits: HashMap<String, Trait>,
+    pub external: HashSet<String>,
     pub types: HashMap<String, DataDecl>,
     pub typedefs: HashMap<String, Type>,
     pub structs: HashMap<String, HashMap<String, Type>>,
@@ -26,24 +26,7 @@ pub struct MIRTree {
 }
 
 impl MIRTree {
-    pub fn from(mut tree: ParseTree) -> Self {
-        // For each trait implementation, use the trait as a template with
-        // the implemented type as the substitution. Insert new functions
-        // into funcs
-        for i in tree.impls {
-            let tr = tree.traits.get(&i.trait_name).unwrap();
-
-            // Generate new typedef for each typedef in types with a unique named
-            // prefixed by name of this impl type
-            let mut subs = HashMap::new();
-            for (name, t) in tr.types.iter() {
-                let n: u16 = rand::random();
-                let new_name = format!("{}$${}", name, n);
-                tree.typedefs.insert(new_name.clone(), t.clone());
-                subs.insert(name, new_name);
-            }
-        }
-
+    pub fn from(tree: ParseTree) -> Self {
         // Add all user defined type definitions to declaratiosn
         let mut declarations = HashMap::new();
 
@@ -160,7 +143,7 @@ impl MIRTree {
 
 
         Self {
-            traits: tree.traits,
+            external: tree.external,
             types: tree.types,
             typedefs: tree.typedefs,
             funcs,

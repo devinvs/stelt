@@ -20,6 +20,7 @@ lazy_static! {
         m.insert("if", Token::If);
         m.insert("else", Token::Else);
         m.insert("match", Token::Match);
+        m.insert("extern", Token::Extern);
 
         // Built types
         m.insert("u8", Token::U8);
@@ -42,6 +43,7 @@ lazy_static! {
         m.insert("=", Token::Assign);
         m.insert("==", Token::Equal);
         m.insert("!=", Token::NotEqual);
+        m.insert("=>", Token::FatArrow);
         m.insert("->", Token::Arrow);
         m.insert("::", Token::Concat);
         m.insert("|", Token::Bar);
@@ -154,8 +156,7 @@ impl LexemeFeed for TokenStream {
     fn range(&mut self) -> Result<Range, SteltError> {
         if let Some(l) = self.peek() {
             Ok(l.range)
-        } else {
-            Err(SteltError {
+        } else { Err(SteltError {
                 range: None,
                 msg: format!("Unexpected EOF")
             })
@@ -175,6 +176,7 @@ pub enum Token {
     If,
     Else,
     Match,
+    Extern,
 
     // Builtin Types
     U8,
@@ -210,6 +212,7 @@ pub enum Token {
 
     // Fancy stuff maybe?
     Arrow,
+    FatArrow,
     Concat,
     Bar,
 
@@ -234,6 +237,8 @@ pub enum Token {
 impl Token {
     pub fn name(&self) -> String {
         match self {
+            Self::Extern => "extern",
+            Self::FatArrow => "=>",
             Self::Def => "def",
             Self::Type => "type",
             Self::Let => "let",

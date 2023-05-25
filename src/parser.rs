@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 use crate::Token;
 use crate::lexer::TokenStream;
@@ -10,8 +11,6 @@ use crate::error::Range;
 
 use crate::parse_tree::{
     ParseTree,
-    Trait,
-    Impl,
     DataDecl,
     TypeCons,
     Type,
@@ -23,23 +22,26 @@ use crate::parse_tree::{
 impl ParseTree {
     pub fn parse(t: &mut TokenStream) -> Result<Self, SteltError> {
         let mut me = Self {
-            traits: HashMap::new(),
-            impls: Vec::new(),
             types: HashMap::new(),
             typedefs: HashMap::new(),
             funcs: HashMap::new(),
             defs: HashMap::new(),
+            external: HashSet::new()
         };
 
         loop {
             match t.peek() {
-                Some(Lexeme {token: Token::Trait, ..}) => {
-                    let t = Trait::parse(t)?;
-                    me.traits.insert(t.name.clone(), t);
-                }
-                Some(Lexeme {token: Token::Impl, ..}) => {
-                    let i = Impl::parse(t)?;
-                    me.impls.push(i);
+                Some(Lexeme {token: Token::Extern, ..}) => {
+                    t.assert(Token::Extern)?;
+                    // must be a typedecl
+                    t.assert(Token::Type)?;
+
+                    let name = t.ident()?;
+                    t.assert(Token::Colon)?;
+
+                    let ty = Type::parse(t)?;
+                    me.typedefs.insert(name.clone(), ty);
+                    me.external.insert(name);
                 }
                 Some(Lexeme {token: Token::Type, ..}) => {
                     // Either a typedecl or datadecl
@@ -114,107 +116,6 @@ impl ParseTree {
         }
 
         Ok(me)
-    }
-}
-impl Trait { fn parse(t: &mut TokenStream) -> Result<Self, SteltError> { t.assert(Token::Trait)?;
-        let mut r = t.range()?;
-        let name = t.ident()?;
-
-        t.assert(Token::LArrow)?;
-
-        let var = t.ident()?;
-
-        t.assert(Token::RArrow)?;
-
-        t.assert(Token::LCurly)?;
-
-        let mut types = HashMap::new();
-        let mut funcs = HashMap::<String, Vec<FunctionDef>>::new();
-
-        loop {
-            match t.next() {
-                Some(Lexeme {token: Token::RCurly, range, ..}) => {
-                    r = r.add(range);
-                    break;
-                },
-                Some(Lexeme {token: Token::Type, ..}) => {
-                    // typedecls
-
-                    let name = t.ident()?;
-
-                    t.assert(Token::Colon)?;
-
-                    let ty = Type::parse(t)?;
-                    types.insert(name, ty);
-                }
-                Some(Lexeme {token: Token::Ident(_), range, ..}) => {
-                    let name = t.ident()?;
-                    let func = FunctionDef::parse(t, name, range)?;
-                    if let Some(f) = funcs.get_mut(&func.name) {
-                        f.push(func);
-                    } else {
-                        funcs.insert(func.name.clone(), vec![func]);
-                    }
-                }
-                Some(a) => {
-                    return Err(SteltError {
-                        range: Some(a.range),
-                        msg: format!("Unexpected token in trait: '{}'", a.token.name())
-                    })
-                }
-                None => {
-                    return Err(SteltError {
-                        range: None,
-                        msg: format!("Unexpected EOF in trait")
-                    })
-                }
-            }
-        }
-
-        Ok(Trait {
-            name,
-            var,
-            types,
-            funcs,
-            range: r
-        })
-    }
-}
-
-impl Impl {
-    fn parse(t: &mut TokenStream) -> Result<Self, SteltError> {
-        let r = t.assert(Token::Impl)?;
-
-        let trait_name = t.ident()?;
-
-        t.assert(Token::For)?;
-
-        let var = Type::parse(t)?;
-
-        t.assert(Token::LCurly)?;
-
-        let mut funcs: HashMap<String, Vec<FunctionDef>> = HashMap::new();
-
-        // Emit impl functions
-        while !t.test(Token::RCurly) {
-            let r = t.range()?;
-            let name = t.ident()?;
-            let func = FunctionDef::parse(t, name, r)?;
-
-            if let Some(f) = funcs.get_mut(&func.name) {
-                f.push(func);
-            } else {
-                funcs.insert(func.name.clone(), vec![func]);
-            }
-        }
-        let r2 = t.assert(Token::RCurly)?;
-
-        Ok(Impl {
-            trait_name,
-            for_type: var,
-            funcs,
-            range: r.add(r2)
-        })
     }
 }
 
@@ -827,27 +728,15 @@ impl Expression {
             let r = primary.range().add(t.range());
             Ok(Self::Call(Box::new(primary), Box::new(t), r))
         } else if t.consume(Token::Dot).is_some() {
-            // Either a struct member or a function call
+            // Struct membership
+            // must be followed by an identifier, which can then be followed
+            // by other postfix posts
 
-            let next = Self::postfix(t)?;
-            match next {
-                Self::Call(f, args, r2) => {
-                    let r = primary.range().add(r2);
-                    let args = match *args {
-                        Self::Tuple(mut es, r3) => {
-                            es.insert(0, primary);
-                            Self::Tuple(es, r3)
-                        },
-                        a => a
-                    };
-                    Ok(Self::Call(f, Box::new(args), r))
-                }
-                Self::Identifier(member, r2) => {
-                    let r = primary.range().add(r2);
-                    Ok(Self::Member(Box::new(primary), member, r))
-                }
-                _ => {panic!("expected call")}
-            }
+            let r = t.range()?.add(primary.range());
+            let i = t.ident()?;
+
+            let e = Self::Member(Box::new(primary), i, r);
+            Self::postfix_post(t, e)
         } else if t.consume(Token::Question).is_some() {
             let then = Expression::parse(t)?;
 
@@ -857,6 +746,38 @@ impl Expression {
 
             let r = primary.range().add(else_.range());
             Ok(Self::If(Box::new(primary), Box::new(then), Box::new(else_), r))
+        } else if t.consume(Token::FatArrow).is_some() {
+            // Fancy call with primary as first arg.
+
+            // must be followed by an identifer and then some args
+            let f = t.ident()?;
+            let primr = primary.range();
+
+            // Get args in tuple
+            let mut args = vec![primary];
+
+            let mut r2 = t.assert(Token::LParen)?;
+            if let Some(r3) = t.consume(Token::RParen) {
+                r2 = r2.add(r3);
+            } else {
+                args.push(Self::parse(t)?);
+                while t.consume(Token::Comma).is_some() {
+                    args.push(Self::parse(t)?);
+                }
+                let r3 = t.assert(Token::RParen)?;
+                r2 = r2.add(r3);
+            }
+
+            let args = Self::Tuple(args, r2);
+            let r = primr.add(args.range());
+
+            let e = Self::Call(
+                Box::new(Self::Identifier(f, r)),
+                Box::new(args),
+                r
+            );
+
+            Self::postfix_post(t, e)
         } else {
             Ok(primary)
         }
