@@ -1,4 +1,6 @@
 use crate::parse_tree::Type;
+use crate::parse_tree::DataDecl;
+use crate::parse_tree::TypeCons;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum LLVMType {
@@ -18,9 +20,33 @@ impl LLVMType {
             Type::Str => Self::Ptr,
             Type::Unit => Self::Void,
             Type::Arrow(_, _) => Self::Ptr,
+            //Type::Tuple(_) => Self::Ptr,
             Type::Tuple(ts) => Self::Struct(ts.into_iter().map(|t| LLVMType::from_type(t)).collect()),
             a => unimplemented!("{a:?}")
         }
+    }
+
+    pub fn from_data(t: DataDecl) -> Self {
+        match t {
+            DataDecl::Product(_, _, mems, _) => {
+                let mut inner = vec![];
+
+                for (_, t) in mems {
+                    inner.push(Self::from_type(t));
+                }
+
+                Self::Struct(inner)
+            }
+            _ => unimplemented!()
+        }
+    }
+
+    pub fn from_cons(t: TypeCons) -> Self {
+        Self::from_type(t.args)
+    }
+
+    pub fn size(&self) {
+
     }
 }
 

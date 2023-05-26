@@ -470,6 +470,30 @@ impl TypeChecker {
         }
     }
 
+    fn judge_multiple(
+        &mut self,
+        b: Gamma,
+        c: Gamma,
+        d: Gamma,
+        structs: GammaStruct,
+        e: &mut Expression,
+        t: Type,
+        mut subs: Theta
+    ) -> Result<Theta, SteltError> {
+        let es = match e { Expression::List(a, _, _) => a, _ => panic!() };
+        let last_i = es.len() - 1;
+
+        for i in 0..last_i {
+            let ty = self.gen_var();
+            es[i].set_type(ty.clone());
+            subs = self.judge_type(b, c, d, structs, &mut es[i], ty, subs)?;
+        }
+
+        let e = &mut es[last_i];
+        e.set_type(t.clone());
+        self.judge_type(b, c, d, structs, e, t, subs)
+    }
+
     fn judge_type(
         &mut self,
         builtins: Gamma,
@@ -490,7 +514,7 @@ impl TypeChecker {
             Expression::Call(..) => self.judge_call(builtins, cons, defs, structs, e, t, subs),
             Expression::Match(..) => self.judge_match(builtins, cons, defs, structs, e, t, subs),
             Expression::Member(..) => self.judge_member(builtins, cons, defs, structs, e, t, subs),
-            _ => panic!("please don't make me go through this")
+            Expression::List(..) => self.judge_multiple(builtins, cons, defs, structs, e, t, subs),
         }
     }
 

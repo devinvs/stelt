@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 use std::io::Write;
 use std::error::Error;
+use crate::builtin::BUILTIN_ASM;
 
 use crate::llvm::LLVMType;
 
@@ -54,12 +55,13 @@ impl Module {
 
     pub fn compile(&mut self, tree: LIRTree) -> Result<(), Box<dyn Error>> {
         // output builtin functions
-        writeln!(self, "{}", crate::builtin::BUILTIN_ASM)?;
+        writeln!(self, "{}", &BUILTIN_ASM)?;
 
         // Output extern functions
         for name in tree.external {
             let (from, to) = tree.func_types.get(&name).unwrap();
-            writeln!(self, "declare {to} @{name}({from} nocapture) nounwind")?;
+            let attrs = if *from == LLVMType::Ptr { "nocapture" } else { "" };
+            writeln!(self, "declare {to} @{name}({from} {attrs}) nounwind")?;
         }
 
         // Compile all functions
@@ -101,7 +103,10 @@ impl LIRExpression {
         match self {
             Self::If(cond, yes, no, t) => {
                 let out = module.var();
-                writeln!(module, "\t{out} = alloca {t}")?;
+
+                if t != LLVMType::Void {
+                    writeln!(module, "\t{out} = alloca {t}")?;
+                }
 
                 let cond = cond.compile(module)?;
 
@@ -113,17 +118,23 @@ impl LIRExpression {
                 
                 writeln!(module, "{}:", yeslab)?;
                 let yesout = yes.compile(module)?;
-                writeln!(module, "\tstore {t} {yesout}, ptr {out}")?;
+                if t != LLVMType::Void {
+                    writeln!(module, "\tstore {t} {yesout}, ptr {out}")?;
+                }
                 writeln!(module, "\tbr label %{endlab}")?;
 
                 writeln!(module, "{}:", nolab)?;
                 let noout = no.compile(module)?;
-                writeln!(module, "\tstore {t} {noout}, ptr {out}")?;
+                if t != LLVMType::Void {
+                    writeln!(module, "\tstore {t} {noout}, ptr {out}")?;
+                }
                 writeln!(module, "\tbr label %{endlab}")?;
 
                 writeln!(module, "{}:", endlab)?;
                 let fin = module.var();
-                writeln!(module, "\t{fin} = load {t}, ptr {out}")?;
+                if t != LLVMType::Void {
+                    writeln!(module, "\t{fin} = load {t}, ptr {out}")?;
+                }
 
                 Ok(fin)
             }
@@ -140,10 +151,15 @@ impl LIRExpression {
                 let f = f.compile(module)?;
                 let out = module.var();
 
-                // get type of function
-                writeln!(module, "\t{out} = call {t} {f}({argt} {args})")?; // FIX!!!
+                if t == LLVMType::Void {
+                    writeln!(module, "\tcall {t} {f}({argt} {args})")?; // FIX!!!
+                    Ok("".into())
+                } else {
+                    // get type of function
+                    writeln!(module, "\t{out} = call {t} {f}({argt} {args})")?; // FIX!!!
 
-                Ok(out)
+                    Ok(out)
+                }
             }
             Self::Str(s) => {
                 module.strs.push(s);
@@ -176,6 +192,17 @@ impl LIRExpression {
                 module.named_vars.insert(id, e);
 
                 body.compile(module)
+            }
+            Self::Unit => {
+                Ok("".into())
+            }
+            Self::List(es, _) => {
+                let last_i = es.len() - 1;
+                for i in 0..last_i {
+                    es[i].clone().compile(module)?;
+                }
+
+                es[last_i].clone().compile(module)
             }
             a => unimplemented!("{a:?}")
         }

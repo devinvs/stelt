@@ -223,8 +223,8 @@ impl MIRExpression {
             }
             Expression::Lambda(pat, body, lamrange) => {
                 match pat.trans_cons(cons) {
-                    Pattern::Var(s, _, t) => Self::Lambda1(s, Box::new(MIRExpression::from(*body, cons)), lamrange, None),
-                    Pattern::Tuple(ps, rtup1, t) => {
+                    Pattern::Var(s, _, _) => Self::Lambda1(s, Box::new(MIRExpression::from(*body, cons)), lamrange, None),
+                    Pattern::Tuple(ps, rtup1, _) => {
                         let mut i = ps.into_iter();
                         let first = i.next().unwrap();
                         let rest: Vec<_> = i.collect();

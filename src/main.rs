@@ -49,7 +49,6 @@ fn compile(path: &str) {
     }
 
     let lir = mir.lower();
-    eprintln!("{:#?}", lir);
 
     let out = File::create("./out.ll").unwrap();
     let mut module = Module::new(Box::new(out));

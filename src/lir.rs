@@ -72,6 +72,8 @@ pub enum LIRExpression {
 
     If(Box<LIRExpression>, Box<LIRExpression>, Box<LIRExpression>, LLVMType),
 
+    List(Vec<LIRExpression>, LLVMType),
+
     // Constant Fields
     Num(u64),    // A Number Literal
     Str(String), // A String Literal, stores index into constant string array
@@ -112,6 +114,7 @@ impl LIRExpression {
             Self::If(_, _, _, t) => t.clone(),
             Self::Num(_) => LLVMType::I32,
             Self::Tuple(_, t) => t.clone(),
+            Self::List(_, t) => t.clone(),
         }
     }
 }
@@ -150,6 +153,8 @@ impl MIRExpression {
             Self::Identifier(s, _, t) => LIRExpression::Identifier(s, LLVMType::from_type(t.unwrap())),
             Self::Num(n, _, _) => LIRExpression::Num(n),
             Self::Tuple(es, _, t) => LIRExpression::Tuple(es.into_iter().map(|e| e.lower()).collect(), LLVMType::from_type(t.unwrap())),
+            Self::List(es, _, t) => LIRExpression::List(es.into_iter().map(|e| e.lower()).collect(), LLVMType::from_type(t.unwrap())),
+            Self::Unit(_, _) => LIRExpression::Unit,
             a => unimplemented!("{a:?}")
         }
     }

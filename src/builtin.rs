@@ -9,37 +9,54 @@ lazy_static! {
         m.insert("add".into(), Type::from_str("(i32, i32) -> i32").unwrap());
         m.insert("sub".into(), Type::from_str("(i32, i32) -> i32").unwrap());
         m.insert("mul".into(), Type::from_str("(i32, i32) -> i32").unwrap());
+        m.insert("div".into(), Type::from_str("(i32, i32) -> i32").unwrap());
+        m.insert("mod".into(), Type::from_str("(i32, i32) -> i32").unwrap());
 
         m
     };
+
 }
 
-pub const BUILTIN_ASM: &'static str = r#"
-define i32 @add({i32, i32} %arg.0) alwaysinline {
-    %arg1 = extractvalue {i32, i32} %arg.0, 0
-    %arg2 = extractvalue {i32, i32} %arg.0, 1
-    %res = add i32 %arg1, %arg2
+pub const BUILTIN_ASM: &str = r#"
+define private i32 @add({i32, i32} %in) alwaysinline {
+    %a = extractvalue {i32, i32} %in, 0
+    %b = extractvalue {i32, i32} %in, 1
+    %res = add i32 %a, %b
     ret i32 %res
 }
 
-define i32 @sub({i32, i32} %arg.0) alwaysinline {
-    %arg1 = extractvalue {i32, i32} %arg.0, 0
-    %arg2 = extractvalue {i32, i32} %arg.0, 1
-    %res = sub i32 %arg1, %arg2
+define private i32 @sub({i32, i32} %in) alwaysinline {
+    %a = extractvalue {i32, i32} %in, 0
+    %b = extractvalue {i32, i32} %in, 1
+    %res = sub i32 %a, %b
     ret i32 %res
 }
 
-define i32 @mul({i32, i32} %arg.0) alwaysinline {
-    %arg1 = extractvalue {i32, i32} %arg.0, 0
-    %arg2 = extractvalue {i32, i32} %arg.0, 1
-    %res = mul i32 %arg1, %arg2
+define private i32 @mul({i32, i32} %in) alwaysinline {
+    %a = extractvalue {i32, i32} %in, 0
+    %b = extractvalue {i32, i32} %in, 1
+    %res = mul i32 %a, %b
     ret i32 %res
 }
 
-define i1 @eq({i32, i32} %arg.0) alwaysinline {
-    %arg1 = extractvalue {i32, i32} %arg.0, 0
-    %arg2 = extractvalue {i32, i32} %arg.0, 1
-    %res = icmp eq i32 %arg1, %arg2
+define private i32 @div({i32, i32} %in) alwaysinline {
+    %a = extractvalue {i32, i32} %in, 0
+    %b = extractvalue {i32, i32} %in, 1
+    %res = sdiv i32 %a, %b
+    ret i32 %res
+}
+
+define private i32 @mod({i32, i32} %in) alwaysinline {
+    %a = extractvalue {i32, i32} %in, 0
+    %b = extractvalue {i32, i32} %in, 1
+    %res = srem i32 %a, %b
+    ret i32 %res
+}
+
+define private i1 @eq({i32, i32} %in) alwaysinline {
+    %a = extractvalue {i32, i32} %in, 0
+    %b = extractvalue {i32, i32} %in, 1
+    %res = icmp eq i32 %a, %b
     ret i1 %res
 }
 "#;
