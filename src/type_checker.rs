@@ -242,6 +242,7 @@ impl TypeChecker {
         t: Type,
         subs: Theta
     ) -> Result<Theta, SteltError> {
+
         let r = e.range();
         let name = match e { Expression::Identifier(a, _, None) => a, _ => panic!() };
         let x = self.apply_gamma_all(&name, builtins, cons, defined).ok_or(SteltError {
@@ -318,7 +319,9 @@ impl TypeChecker {
         };
 
         let mut d = d.clone();
-        d.insert(x.clone(), t1.clone());
+        if let Some(x) = x {
+            d.insert(x.clone(), t1.clone());
+        }
 
         // unify t1 with lambda arg type first so that struct resolution can work
         subs = match ty.clone() {
@@ -328,12 +331,15 @@ impl TypeChecker {
                     msg: format!("Type check failed here")
                 })?
             }
+            _ => subs,
+            /*
             a => {
+                eprintln!("{x:?}  {m:?}");
                 return Err(SteltError {
                     range: Some(r),
                     msg: format!("Expected lambda found {:?}", a)
                 })
-            }
+            }*/
         };
 
         subs = self.judge_type(b, c, &d, s, m, t2.clone(), subs)?;
@@ -367,13 +373,13 @@ impl TypeChecker {
             _ => panic!()
         };
         let t = self.gen_var();
-        let call_t = Type::Arrow(Box::new(t.clone()), Box::new(ty));
+        let call_t = Type::Arrow(Box::new(t.clone()), Box::new(ty.clone()));
         subs = self.judge_type(b, c, d, s, n, t.clone(), subs)?;
         subs = self.judge_type(b, c, d, s, m, call_t.clone(), subs)?;
 
         m.set_type(call_t);
         n.set_type(t.clone());
-        e.set_type(t);
+        e.set_type(ty);
 
         Ok(subs)
     }

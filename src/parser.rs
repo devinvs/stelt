@@ -260,6 +260,8 @@ impl Type {
                 vars.push(Self::parse(t)?);
             }
 
+            t.assert(Token::RArrow)?;
+
             Ok(Self::Generic(vars, Box::new(base)))
         } else if t.consume(Token::Question).is_some() {
             Ok(Self::Generic(
@@ -846,6 +848,7 @@ impl Expression {
         match self {
             Self::Identifier(s, r) => Pattern::Var(s.clone(), r.clone(), None),
             Self::Tuple(es, r) => Pattern::Tuple(es.iter().map(|e| e.to_lambda_pattern()).collect(), r.clone(), None),
+            Self::Unit(r) => Pattern::Unit(*r, Some(Type::Unit)),
             _ => panic!("ahh")
         }
     }

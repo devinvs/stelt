@@ -26,6 +26,9 @@ pub struct MIRTree {
 
     pub constructors: HashMap<String, Type>,
     pub declarations: HashMap<String, Type>,
+
+    // concrete instantiations of concrete types
+    //pub concrete: HashMap<String, Type>,
 }
 
 impl MIRTree {
@@ -120,13 +123,13 @@ impl MIRTree {
         let mut funcs = HashMap::new();
         tree.funcs.into_iter()
             .for_each(|(name, defs)| {
-                let v = "arg.0".to_string();
+                let v = crate::gen_var("in");
 
                 let r = defs[0].range;
                 let r = defs.iter().fold(r, |r1, e| r1.add(e.range));
 
                 funcs.insert(name, MIRExpression::Lambda1(
-                    v.clone(),
+                    Some(v.clone()),
                     Box::new(MIRExpression::Match(
                         Box::new(MIRExpression::Identifier(v, r, None)), 
                         defs.into_iter().map(|def| {
@@ -178,7 +181,7 @@ pub enum MIRExpression {
     Member(Box<MIRExpression>, String, Range, Option<Type>),
 
     /// A lambda expression with pattern args and an expression body
-    Lambda1(String, Box<MIRExpression>, Range, Option<Type>),
+    Lambda1(Option<String>, Box<MIRExpression>, Range, Option<Type>),
 
     // Constant Fields
     Num(u64, Range, Option<Type>),    // A Number Literal
@@ -210,10 +213,7 @@ impl MIRExpression {
             Expression::Member(t, variant, r) => {
                 if let Expression::Identifier(t, r) = *t {
                     if cons.contains_key(&format!("{t}.{variant}")) {
-                        MIRExpression::Call(
-                            Box::new(MIRExpression::Identifier(format!("{t}.{variant}"), r, None)), 
-                            Box::new(MIRExpression::Unit(r, Some(Type::Unit))),
-                            r, None)
+                        MIRExpression::Identifier(format!("{t}.{variant}"), r, None)
                     } else {
                         MIRExpression::Member(Box::new(MIRExpression::Identifier(t, r, None)), variant, r, None)
                     }
@@ -223,7 +223,7 @@ impl MIRExpression {
             }
             Expression::Lambda(pat, body, lamrange) => {
                 match pat.trans_cons(cons) {
-                    Pattern::Var(s, _, _) => Self::Lambda1(s, Box::new(MIRExpression::from(*body, cons)), lamrange, None),
+                    Pattern::Var(s, _, _) => Self::Lambda1(Some(s), Box::new(MIRExpression::from(*body, cons)), lamrange, None),
                     Pattern::Tuple(ps, rtup1, _) => {
                         let mut i = ps.into_iter();
                         let first = i.next().unwrap();
@@ -241,6 +241,9 @@ impl MIRExpression {
                             let l = Expression::Lambda(first, Box::new(l), r);
                             MIRExpression::from(l, cons)
                         }
+                    }
+                    Pattern::Unit(..) => {
+                        Self::Lambda1(None, Box::new(MIRExpression::from(*body, cons)), lamrange, None)
                     }
                     _ => panic!()
                 }

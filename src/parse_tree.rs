@@ -54,7 +54,7 @@ pub enum Type {
 
     // Type variable used for parsing. Only present in ir.
     // DOES NOT PARSE
-    Var(usize)
+    Var(usize),
 }
 
 #[derive(Debug, Clone)]

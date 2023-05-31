@@ -1,15 +1,17 @@
 use crate::parse_tree::Type;
-use crate::parse_tree::DataDecl;
 use crate::parse_tree::TypeCons;
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum LLVMType {
     I1,
     I8,
     I32,
     Ptr,
     Void,
-    Struct(Vec<LLVMType>)
+    Func(Box<LLVMType>, Box<LLVMType>),
+    Struct(Vec<LLVMType>),
+    Array(Box<LLVMType>, usize),
+    Named(String),
 }
 
 impl LLVMType {
@@ -19,34 +21,90 @@ impl LLVMType {
             Type::I8 => Self::I8,
             Type::Str => Self::Ptr,
             Type::Unit => Self::Void,
-            Type::Arrow(_, _) => Self::Ptr,
+            Type::Arrow(a, b) => Self::Func(Box::new(LLVMType::from_type(*a)), Box::new(LLVMType::from_type(*b))),
             //Type::Tuple(_) => Self::Ptr,
             Type::Tuple(ts) => Self::Struct(ts.into_iter().map(|t| LLVMType::from_type(t)).collect()),
+            Type::Ident(n) => Self::Named(n),
             a => unimplemented!("{a:?}")
         }
     }
 
-    pub fn from_data(t: DataDecl) -> Self {
-        match t {
-            DataDecl::Product(_, _, mems, _) => {
-                let mut inner = vec![];
-
-                for (_, t) in mems {
-                    inner.push(Self::from_type(t));
+    pub fn from_enum(tname: &String, cons: Vec<TypeCons>) -> Vec<(String, LLVMType)> {
+        let mut types = vec![];
+        for TypeCons { name, args, .. } in cons {
+            let name = format!("{tname}.{name}");
+            match Self::from_type(args) {
+                Self::Struct(mut ts) => {
+                    ts.insert(0, LLVMType::I8);
+                    types.push((name, Self::Struct(ts)))
                 }
-
-                Self::Struct(inner)
+                Self::Void => {
+                    types.push((name, Self::Struct(vec![LLVMType::I8])))
+                }
+                ty => {
+                    types.push((name, Self::Struct(vec![LLVMType::I8, ty])))
+                }
             }
-            _ => unimplemented!()
         }
+
+        types
+    }
+
+    pub fn from_struct(mems: Vec<(String, Type)>) -> Self {
+        let mut inner = vec![];
+
+        for (_, t) in mems {
+            inner.push(Self::from_type(t));
+        }
+
+        Self::Struct(inner)
     }
 
     pub fn from_cons(t: TypeCons) -> Self {
         Self::from_type(t.args)
     }
 
-    pub fn size(&self) {
+    pub fn size(&self, mut curr: usize) -> usize {
+        let my_align = self.alignment();
+        curr += curr % my_align;
 
+        match self {
+            Self::Void => {},
+            Self::I8 => curr+=8,
+            Self::I1 => curr+=1,
+            Self::I32 => curr+=32,
+            Self::Ptr => curr+=64,
+            Self::Struct(ts) => {
+                for t in ts {
+                    let t_align = t.alignment();
+                    curr += curr % t_align;
+                    curr = t.size(curr)
+                }
+            }
+            Self::Array(t, num) => {
+                curr += t.size(0) * num;
+            }
+            Self::Func(..) => {
+                curr += 64
+            }
+            Self::Named(_) => panic!("size unknown for named type")
+        };
+
+        curr
+    }
+
+    pub fn alignment(&self) -> usize {
+        match self {
+            Self::Void => 0,
+            Self::I1 => 8,
+            Self::I8 => 8,
+            Self::I32 => 32,
+            Self::Ptr => 64,
+            Self::Struct(..) => 64,
+            Self::Array(..) => 64,
+            Self::Func(..) => 64,
+            Self::Named(_) => panic!("alignment unknown for named type")
+        }
     }
 }
 
@@ -71,6 +129,9 @@ impl std::fmt::Display for LLVMType {
 
                 f.write_str("}")
             }
+            Self::Array(t, num) => f.write_fmt(format_args!("[{num} x {t}]")),
+            Self::Named(n) => f.write_fmt(format_args!("%{n}")),
+            Self::Func(..) => f.write_str("ptr")
         }
     }
 }
