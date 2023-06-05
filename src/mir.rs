@@ -6,7 +6,8 @@ use crate::parse_tree::{
     Expression,
     Type,
     DataDecl,
-    Pattern
+    Pattern,
+    TypeCons
 };
 
 use crate::error::Range;
@@ -26,9 +27,6 @@ pub struct MIRTree {
 
     pub constructors: HashMap<String, Type>,
     pub declarations: HashMap<String, Type>,
-
-    // concrete instantiations of concrete types
-    //pub concrete: HashMap<String, Type>,
 }
 
 impl MIRTree {
@@ -154,6 +152,37 @@ impl MIRTree {
             declarations,
             structs
         }
+    }
+
+    pub fn with_concrete_types(mut self) -> Self {
+        let mut generic_types = HashMap::new();
+        let mut concrete_types = HashMap::new();
+
+        // split out the generic type prototypes and the concrete types
+        for (name, t) in self.types {
+            let argc = match t.clone() {
+                DataDecl::Sum(_, args, _, _) => args.len(),
+                DataDecl::Product(_, args, _, _) => args.len()
+            };
+
+            if argc == 0 {
+                concrete_types.insert(name, t);
+            } else {
+                generic_types.insert(name, t);
+            }
+        }
+
+        // For each declared type replace generics with concrete instances
+        for (_, t) in self.typedefs.iter_mut() {
+            let (newt, concs) = t.clone().extract_generics(&generic_types);
+            for conc in concs {
+                concrete_types.insert(conc.name(), conc);
+            }
+            *t = newt;
+        }
+
+        self.types = concrete_types;
+        self
     }
 }
 
@@ -342,6 +371,7 @@ impl MIRExpression {
             _ => {}
         }
     }
+
 }
 
 impl Pattern {
@@ -371,6 +401,141 @@ impl Pattern {
                 a.iter_mut().for_each(|e| e.apply(subs))
             },
             _ => {}
+        }
+    }
+}
+
+impl Type {
+    fn extract_generics(self, generics: &HashMap<String, DataDecl>) -> (Self, Vec<DataDecl>) {
+        match self {
+            Type::Generic(vals, ty) => {
+                // type must be identifier to generic datadecl
+                let name = match *ty {
+                    Type::Ident(n) => n,
+                    _ => panic!("what?")
+                };
+                let gen_ty = &generics[&name];
+
+                let mut concrete = vec![];
+                // get concrete versions of type args
+                let mut new_vals = vec![];
+                for val in vals {
+                    let (t, concs) = val.extract_generics(generics);
+                    concrete.extend(concs);
+                    new_vals.push(t);
+                }
+
+                let newname = format!("{}${}$", name, new_vals.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(","));
+
+                let newt = gen_ty.substitute(newname.clone(), &new_vals);
+                concrete.push(newt);
+
+                (Type::Ident(newname), concrete)
+            }
+            Type::Arrow(a, b) => {
+                let (a, mut ts) = a.extract_generics(generics);
+                let (b, newts) = b.extract_generics(generics);
+
+                ts.extend(newts);
+                (Type::Arrow(Box::new(a), Box::new(b)), ts)
+            }
+            Type::ForAll(a, b) => {
+                let (t, ts) = b.extract_generics(generics);
+                (Type::ForAll(a, Box::new(t)), ts)
+            }
+            Type::Tuple(ts) => {
+                let mut concs = vec![];
+                let mut newts = vec![];
+
+                for t in ts {
+                    let (newt, conc) = t.extract_generics(generics);
+                    newts.push(newt);
+                    concs.extend(conc);
+                }
+
+                (Type::Tuple(newts), concs)
+            }
+            a => (a, vec![])
+        }
+    }
+
+    fn replace(self, from: &str, to: &Type) -> Self {
+        match self {
+            Type::Ident(s) => {
+                if s == from {
+                    to.clone()
+                } else {
+                    Type::Ident(s)
+                }
+            }
+            Type::Arrow(a, b) => {
+                let a = a.replace(from, to);
+                let b = b.replace(from, to);
+
+                Type::Arrow(Box::new(a), Box::new(b))
+            }
+            Type::ForAll(a, b) => {
+                Type::ForAll(a, Box::new(b.replace(from, to)))
+            }
+            Type::Generic(a, b) => {
+                Type::Generic(
+                    a.into_iter().map(|a| a.replace(from, to)).collect(),
+                    Box::new(b.replace(from, to))
+                )
+            }
+            Type::Tuple(ts) => Type::Tuple(ts.into_iter().map(|t| t.replace(from, to)).collect()),
+            a => a
+        }
+    }
+}
+
+impl DataDecl {
+    fn substitute(&self, name: String, vals: &Vec<Type>) -> Self {
+        match self {
+            DataDecl::Sum(_, args, cons, r) => {
+                let mut new_cons = vec![];
+
+                for con in cons {
+                    let mut con = con.clone();
+
+                    for (arg, val) in args.iter().zip(vals.iter()) {
+                        con = con.replace(arg, val);
+                    }
+
+                    new_cons.push(con);
+                }
+
+                DataDecl::Sum(name, vec![], new_cons, *r)
+            }
+            DataDecl::Product(_, args, mems, r) => {
+                let mut new_mems = vec![];
+
+                for (mem_n, mut mem) in mems.clone() {
+                    for (arg, val) in args.iter().zip(vals.iter()) {
+                        mem = mem.replace(arg, val);
+                    }
+                    new_mems.push((mem_n, mem));
+                }
+
+                DataDecl::Product(name, vec![], new_mems, *r)
+            }
+        }
+    }
+
+    fn name(&self) -> String {
+        match self {
+            Self::Sum(n, _, _, _) => n,
+            Self::Product(n, _, _, _) => n
+        }.clone()
+    }
+}
+
+impl TypeCons {
+    fn replace(&self, from: &str, to: &Type) -> Self {
+        TypeCons {
+            name: self.name.clone(),
+            args: self.args.clone().replace(from, to),
+            range: self.range
         }
     }
 }

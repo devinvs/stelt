@@ -64,9 +64,20 @@ impl Module {
 
         // Output extern functions
         for name in tree.external {
-            let (from, to) = tree.func_types.get(&name).unwrap();
-            let attrs = if *from == LLVMType::Ptr { "nocapture" } else { "" };
-            writeln!(self, "declare {to} @{name}({from} {attrs}) nounwind")?;
+            let (from, to) = tree.extern_types.get(&name).unwrap();
+
+            write!(self, "declare {to} @{name}(")?;
+
+            for (i, f) in from.iter().enumerate() {
+                let attrs = if *f == LLVMType::Ptr { " nocapture" } else { "" };
+                if i == 0 {
+                    write!(self, "{f}{attrs}")?;
+                } else {
+                    write!(self, ", {f}{attrs}")?;
+                }
+            }
+
+            writeln!(self, ") nounwind")?;
         }
 
         writeln!(self)?;
@@ -129,7 +140,9 @@ impl Module {
                     LLVMType::Struct(mut ts) => {
                         ts.remove(0);
 
-                        if ts.len() == 1 {
+                        if ts.len() == 0 {
+                            (LLVMType::Void, true)
+                        } else if ts.len() == 1 {
                             (ts[0].clone(), false)
                         } else {
                             (LLVMType::Struct(ts), true)
@@ -138,7 +151,12 @@ impl Module {
                     _ => unreachable!()
                 };
 
-                writeln!(self, "define %{name} @{varname} ({t} %in) {{")?;
+                if t == LLVMType::Void {
+                    writeln!(self, "define %{name} @{varname} () {{")?;
+                } else {
+                    writeln!(self, "define %{name} @{varname} ({t} %in) {{")?;
+                }
+
                 writeln!(self, "\t%ptr = alloca %{name}")?;
 
                 // store enum tag
@@ -148,6 +166,7 @@ impl Module {
                     // store rest of fields
                     let ts = match t.clone() {
                         LLVMType::Struct(ts) => ts,
+                        LLVMType::Void => vec![],
                         _ => unreachable!()
                     }.into_iter();
                     
@@ -189,7 +208,7 @@ impl Module {
             if *to == LLVMType::Void {
                 writeln!(self, "\tret {to}")?;
             } else {
-                writeln!(self, "\tret {to} {var}")?;
+                writeln!(self, "\tret {to} {}", var.unwrap())?;
             }
 
             writeln!(self, "}}\n")?;
@@ -209,7 +228,7 @@ impl Module {
 }
 
 impl LIRExpression {
-    fn compile(self, module: &mut Module) -> Result<String, Box<dyn Error>> {
+    fn compile(self, module: &mut Module) -> Result<Option<String>, Box<dyn Error>> {
         match self {
             Self::If(cond, yes, no, t) => {
                 let out = module.var();
@@ -218,7 +237,7 @@ impl LIRExpression {
                     writeln!(module, "\t{out} = alloca {t}")?;
                 }
 
-                let cond = cond.compile(module)?;
+                let cond = cond.compile(module)?.unwrap();
 
                 let yeslab = module.label();
                 let nolab = module.label();
@@ -227,16 +246,16 @@ impl LIRExpression {
                 writeln!(module, "\tbr i1 {cond}, label %{yeslab}, label %{nolab}")?;
                 
                 writeln!(module, "{}:", yeslab)?;
-                let yesout = yes.compile(module)?;
+                let yes = yes.compile(module)?;
                 if t != LLVMType::Void {
-                    writeln!(module, "\tstore {t} {yesout}, ptr {out}")?;
+                    writeln!(module, "\tstore {t} {}, ptr {out}", yes.unwrap())?;
                 }
                 writeln!(module, "\tbr label %{endlab}")?;
 
                 writeln!(module, "{}:", nolab)?;
-                let noout = no.compile(module)?;
+                let no = no.compile(module)?;
                 if t != LLVMType::Void {
-                    writeln!(module, "\tstore {t} {noout}, ptr {out}")?;
+                    writeln!(module, "\tstore {t} {}, ptr {out}", no.unwrap())?;
                 }
                 writeln!(module, "\tbr label %{endlab}")?;
 
@@ -244,15 +263,53 @@ impl LIRExpression {
                 let fin = module.var();
                 if t != LLVMType::Void {
                     writeln!(module, "\t{fin} = load {t}, ptr {out}")?;
+                    Ok(Some(fin))
+                } else {
+                    Ok(None)
                 }
-
-                Ok(fin)
             }
             Self::Identifier(n, _) => {
                 if let Some(var) = module.named_vars.get(&n) {
-                    Ok(var.clone())
+                    Ok(Some(var.clone()))
                 } else {
-                    Ok(format!("@{n}"))
+                    Ok(Some(format!("@{n}")))
+                }
+            }
+            Self::ExternCall(f, args, t) => {
+                let out = module.var();
+
+                let mut a = vec![];
+                let mut ts = vec![];
+                for arg in args {
+                    ts.push(arg.ty());
+                    a.push(arg.compile(module)?);
+                }
+                
+                write!(module, "\t")?;
+
+                if t != LLVMType::Void {
+                    write!(module, "{out} = ")?;
+                }
+
+                write!(module, "call {t} @{f}(")?;
+
+                for i in 0..a.len() {
+                    let arg = a[i].as_ref().unwrap();
+                    let ty = &ts[i];
+
+                    if i == 0 {
+                        write!(module, "{ty} {arg}")?;
+                    } else {
+                        write!(module, ", {ty} {arg}")?;
+                    }
+                }
+
+                writeln!(module, ")")?;
+
+                if t != LLVMType::Void {
+                    Ok(None)
+                } else {
+                    Ok(Some(out))
                 }
             }
             Self::GlobalCall(f, args, t) => {
@@ -260,20 +317,20 @@ impl LIRExpression {
                 let args = args.compile(module)?;
                 let out = module.var();
 
-                let args = if argt == LLVMType::Void {
-                    format!("()")
-                } else {
+                let args = if let Some(args) = args {
                     format!("({argt} {args})")
+                } else {
+                    format!("()")
                 };
 
                 if t == LLVMType::Void {
                     writeln!(module, "\tcall {t} @{f}{args}")?; // FIX!!!
-                    Ok("".into())
+                    Ok(None)
                 } else {
                     // get type of function
                     writeln!(module, "\t{out} = call {t} @{f}{args}")?; // FIX!!!
 
-                    Ok(out)
+                    Ok(Some(out))
                 }
             }
             Self::Call(f, args, t) => {
@@ -295,7 +352,7 @@ impl LIRExpression {
                     _ => panic!()
                 };
 
-                let closure = f.compile(module)?;
+                let closure = f.compile(module)?.unwrap();
 
                 let mut args = match arg_count {
                     0 => "undef".to_string(),
@@ -305,9 +362,9 @@ impl LIRExpression {
                             vec![*args],
                             *arg_t.clone()
                         );
-                        tup.compile(module)?
+                        tup.compile(module)?.unwrap()
                     }
-                    _ => args.compile(module)?
+                    _ => args.compile(module)?.unwrap()
                 };
 
                 let formals = match clos_t.clone() {
@@ -346,48 +403,48 @@ impl LIRExpression {
 
                 if t == LLVMType::Void {
                     writeln!(module, "\tcall {t} {f}{args}")?; // FIX!!!
-                    Ok("".into())
+                    Ok(None)
                 } else {
                     // get type of function
                     writeln!(module, "\t{out} = call {t} {f}{args}")?; // FIX!!!
 
-                    Ok(out)
+                    Ok(Some(out))
                 }
             }
             Self::Str(s) => {
                 module.strs.push(s);
                 let i = module.strs.len() - 1;
 
-                Ok(format!("@str.{i}"))
+                Ok(Some(format!("@str.{i}")))
             }
             Self::Num(n) => {
-                Ok(n.to_string())
+                Ok(Some(n.to_string()))
             }
             Self::Tuple(es, t) => {
                 let mut out = module.var();
                 let mut es = es.into_iter();
 
                 let e = es.next().unwrap();
-                let v = e.clone().compile(module)?;
+                let v = e.clone().compile(module)?.unwrap();
                 writeln!(module, "\t{out} = insertvalue {t} undef, {} {}, 0", e.ty(), v)?;
 
                 for (i, e) in es.enumerate() {
                     let old = out;
                     out = module.var();
-                    let v = e.clone().compile(module)?;
+                    let v = e.clone().compile(module)?.unwrap();
                     writeln!(module, "\t{out} = insertvalue {t} {old}, {} {}, {}", e.ty(), v, i+1)?;
                 }
 
-                Ok(out)
+                Ok(Some(out))
             }
             Self::Let1(id, e, body, _) => {
                 let e = e.compile(module)?;
-                module.named_vars.insert(id, e);
+                module.named_vars.insert(id, e.unwrap());
 
                 body.compile(module)
             }
             Self::Unit => {
-                Ok("".into())
+                Ok(None)
             }
             Self::List(es, _) => {
                 let last_i = es.len() - 1;
@@ -399,16 +456,16 @@ impl LIRExpression {
             }
             Self::GetTuple(tup, i, _) => {
                 let t = tup.ty();
-                let tup = tup.compile(module)?;
+                let tup = tup.compile(module)?.unwrap();
                 let out = module.var();
 
                 writeln!(module, "\t{out} = extractvalue {t} {tup}, {i}")?;
 
-                Ok(out)
+                Ok(Some(out))
             }
             Self::CheckTuple(exp, id, _) => {
                 let ty = exp.ty();
-                let exp = exp.compile(module)?;
+                let exp = exp.compile(module)?.unwrap();
 
                 let a = module.var();
                 let out = module.var();
@@ -416,15 +473,15 @@ impl LIRExpression {
                 writeln!(module, "\t{a} = extractvalue {ty} {exp}, 0")?;
                 writeln!(module, "\t{out} = icmp eq i8 {a}, {id}")?;
 
-                Ok(out)
+                Ok(Some(out))
             }
             Self::Error(_) => {
                 writeln!(module, "unreachable")?;
-                Ok("".to_string())
+                Ok(None)
             }
             Self::CastTuple(exp, ty, _) => {
                 let base = ty.split(".").next().unwrap();
-                let exp = exp.compile(module)?;
+                let exp = exp.compile(module)?.unwrap();
                 let out = module.var();
                 
                 let ptr = module.var();
@@ -433,7 +490,7 @@ impl LIRExpression {
                 writeln!(module, "\tstore %{base} {exp}, ptr {ptr}")?;
                 writeln!(module, "\t{out} = load %{ty}, ptr {ptr}")?;
 
-                Ok(out)
+                Ok(Some(out))
             }
             a => unimplemented!("{a:?}")
         }

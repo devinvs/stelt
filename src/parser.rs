@@ -243,7 +243,10 @@ impl Type {
 
             t.assert(Token::RBrace)?;
 
-            Ok(Self::List(Box::new(inner)))
+            Ok(Self::Generic(
+                vec![inner],
+                Box::new(Self::Ident("List".to_string()))
+            ))
         } else {
             Ok(Self::parse_generic(t)?)
         }

@@ -13,7 +13,7 @@ pub struct ParseTree {
     pub external: HashSet<String>
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// A data decl is the declaration of either a product type or a sum type.
 /// A product type is a list of ident type pairs, a sum type is a list of type
 /// constructors. Both have generic type args
@@ -22,7 +22,7 @@ pub enum DataDecl {
     Sum(String, Vec<String>, Vec<TypeCons>, Range)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// A constructor for a single variant of a sum type
 pub struct TypeCons {
     pub name: String,
@@ -37,7 +37,6 @@ pub enum Type {
     Generic(Vec<Type>, Box<Type>),
     Arrow(Box<Type>, Box<Type>),
     Tuple(Vec<Type>),
-    List(Box<Type>),
     Ident(String),
 
     // Builtins
@@ -55,6 +54,30 @@ pub enum Type {
     // Type variable used for parsing. Only present in ir.
     // DOES NOT PARSE
     Var(usize),
+}
+
+impl Type {
+    pub fn to_string(&self) -> String {
+        match self {
+            Type::Generic(args, t) => format!("{}${}$", t.to_string(), args.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(",")),
+            Type::Arrow(a, b) => format!("{}->{}", a.to_string(), b.to_string()),
+            Type::Tuple(ts) => format!("({})", ts.iter().map(Type::to_string).collect::<Vec<_>>().join(",")),
+            Type::Ident(s) => s.clone(),
+
+            Type::U8 => "u8".to_string(),
+            Type::U16 => "u16".to_string(),
+            Type::U32 => "u32".to_string(),
+            Type::U64 => "u64".to_string(),
+            Type::I8 => "i8".to_string(),
+            Type::I16 => "i16".to_string(),
+            Type::I32 => "i32".to_string(),
+            Type::I64 => "i64".to_string(),
+            Type::Str => "str".to_string(),
+            Type::Unit => "()".to_string(),
+
+            _ => panic!()
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

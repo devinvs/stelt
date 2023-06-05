@@ -25,6 +25,7 @@ impl LLVMType {
             //Type::Tuple(_) => Self::Ptr,
             Type::Tuple(ts) => Self::Struct(ts.into_iter().map(|t| LLVMType::from_type(t)).collect()),
             Type::Ident(n) => Self::Named(n),
+            Type::Generic(..) => Self::Named(t.to_string()),
             a => unimplemented!("{a:?}")
         }
     }

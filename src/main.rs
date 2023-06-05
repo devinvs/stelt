@@ -47,8 +47,11 @@ fn compile(path: &str) {
             std::process::exit(1);
         }
     }
+    mir = mir.with_concrete_types();
+    //eprintln!("{:#?}", mir.funcs);
+
     let lir = mir.lower();
-    eprintln!("{:#?}", lir.funcs);
+    //eprintln!("{:#?}", lir.funcs);
 
     let out = File::create("./out.ll").unwrap();
     let mut module = Module::new(Box::new(out));

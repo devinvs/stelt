@@ -1,8 +1,11 @@
-type test: i32 -> i32
-test(x) = {
-    let f = (y) -> x*x*y
-    f(2)
-}
+extern type puts: str -> ()
 
-type main: () -> i32
-main() = test(3)
+type Maybe<a> = None | Some(a)
+
+type print: Maybe<str> -> ()
+print(Maybe.None) = puts("None")
+print(Maybe.Some(b)) = puts(b)
+
+
+type main: () -> ()
+main() = print(Maybe.None())

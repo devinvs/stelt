@@ -33,11 +33,6 @@ impl Type {
             Self::I64 => Term::Const("i64".to_string()),
             Self::Str => Term::Const("str".to_string()),
             Self::Unit => Term::Const("()".to_string()),
-
-            Self::List(t) => Term::Composite(
-                "list".to_string(),
-                vec![t.to_term()]
-            ),
             Self::Generic(args, t) => {
                 let name = match &**t {
                     Type::Ident(s) => s.clone(),
@@ -96,7 +91,6 @@ impl Type {
             // Composite types
             Term::Composite(a, b) if a=="tuple" => Self::Tuple(b.into_iter().map(|t| Type::from_term(t)).collect()),
             Term::Composite(a, b) if a=="->" => Self::Arrow(Box::new(Type::from_term(b[0].clone())), Box::new(Type::from_term(b[1].clone()))),
-            Term::Composite(a, b) if a=="list" => Self::List(Box::new(Type::from_term(b[0].clone()))),
             Term::Composite(a, b) => Self::Generic(b.into_iter().map(|t| Type::from_term(t)).collect(), Box::new(Type::Ident(a))),
 
             // Var...
@@ -113,7 +107,6 @@ impl Type {
                 .collect()
             ),
             Self::Arrow(a, b) => Self::Arrow(Box::new(a.map(m)), Box::new(b.map(m))),
-            Self::List(a) => Self::List(Box::new(a.map(m))),
             Self::Generic(vars, a) => Self::Generic(
                 vars.into_iter().map(|t| t.map(m)).collect(),
                 Box::new(a.map(m)),
