@@ -23,7 +23,7 @@ fn compile(path: &str) {
     let mut tokens = match lexer.lex(&buf) {
         Ok(t) => t,
         Err(e) => {
-            e.pprint(&buf);
+            eprintln!("{e}");
             std::process::exit(1);
         }
     };
@@ -32,7 +32,7 @@ fn compile(path: &str) {
     let program = match Program::parse(&mut tokens) {
         Ok(p) => p,
         Err(e) => {
-            e.pprint(&buf);
+            eprintln!("{e}");
             std::process::exit(1);
         }
     };
@@ -43,12 +43,12 @@ fn compile(path: &str) {
     match checker.check_program(&mut mir) {
         Ok(_) => {}
         Err(e) => {
-            e.pprint(&buf);
+            eprintln!("{e}");
             std::process::exit(1);
         }
     }
+
     mir = mir.with_concrete_types();
-    //eprintln!("{:#?}", mir.funcs);
 
     let lir = mir.lower();
     //eprintln!("{:#?}", lir.funcs);

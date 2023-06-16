@@ -1,9 +1,6 @@
 use std::collections::HashMap;
 use std::iter::Peekable;
 
-use crate::SteltError;
-use crate::error::Range;
-
 use lazy_static::lazy_static;
 
 lazy_static! {
@@ -76,7 +73,6 @@ lazy_static! {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Lexeme {
     pub token: Token,
-    pub range: Range
 }
 
 impl Lexeme {
@@ -89,20 +85,17 @@ pub type TokenStream = Peekable<std::vec::IntoIter<Lexeme>>;
 
 pub trait LexemeFeed {
     fn test(&mut self, t: Token) -> bool;
-    fn assert(&mut self, t: Token) -> Result<Range, SteltError>;
-    fn ident(&mut self) -> Result<String, SteltError>;
+    fn assert(&mut self, t: Token) -> Result<(), String>;
+    fn ident(&mut self) -> Result<String, String>;
 
-    fn consume(&mut self, t: Token) -> Option<Range> {
+    fn consume(&mut self, t: Token) -> Option<()> {
         if self.test(t.clone()) {
-            let r = self.range().unwrap();
             self.assert(t).unwrap();
-            Some(r)
+            Some(())
         } else {
             None
         }
     }
-
-    fn range(&mut self) -> Result<Range, SteltError>;
 }
 
 impl LexemeFeed for TokenStream {
@@ -114,25 +107,23 @@ impl LexemeFeed for TokenStream {
         }
     }
 
-    fn assert(&mut self, t: Token) -> Result<Range, SteltError> {
+    fn assert(&mut self, t: Token) -> Result<(), String> {
         if let Some(l) = self.next() {
             if l.test(t.clone()) {
-                Ok(l.range)
+                Ok(())
             } else {
-                Err(SteltError {
-                    range: Some(l.range),
-                    msg: format!("Expected '{}', found '{}'", t.name(), l.token.name())
-                })
+                Err(
+                    format!("Expected '{}', found '{}'", t.name(), l.token.name())
+                )
             }
         } else {
-            Err(SteltError {
-                range: None,
-                msg: format!("Expected '{}', found EOF", t.name())
-            })
+            Err(
+                format!("Expected '{}', found EOF", t.name())
+            )
         }
     }
 
-    fn ident(&mut self) -> Result<String, SteltError> {
+    fn ident(&mut self) -> Result<String, String> {
         if let Some(l) = self.next() {
             if let Lexeme {
                 token: Token::Ident(s),
@@ -140,26 +131,14 @@ impl LexemeFeed for TokenStream {
             } = l {
                 Ok(s)
             } else {
-                Err(SteltError {
-                    range: Some(l.range),
-                    msg: format!("Expected identifier, found '{}'", l.token.name())
-                })
+                Err(
+                    format!("Expected identifier, found '{}'", l.token.name())
+                )
             }
         } else {
-            Err(SteltError {
-                range: None,
-                msg: format!("Expected identifier, found EOF")
-            })
-        }
-    }
-
-    fn range(&mut self) -> Result<Range, SteltError> {
-        if let Some(l) = self.peek() {
-            Ok(l.range)
-        } else { Err(SteltError {
-                range: None,
-                msg: format!("Unexpected EOF")
-            })
+            Err(
+                format!("Expected identifier, found EOF")
+            )
         }
     }
 }
@@ -310,7 +289,7 @@ pub struct Lexer {
 
 
 impl Lexer {
-    pub fn lex(&mut self, input: &str) -> Result<TokenStream, SteltError> {
+    pub fn lex(&mut self, input: &str) -> Result<TokenStream, String> {
         let mut tokens = Vec::new();
         let mut chars = input.chars().peekable();
 
@@ -352,10 +331,9 @@ impl Lexer {
                                 Some('"') => '"',
                                 Some('?') => '?',
                                 Some('0') => char::from_u32(0).unwrap(),
-                                _ => return Err(SteltError {
-                                    range: Some(Range::line(self.line, self.start+1, self.start+2)),
-                                    msg: "Invalid escape sequence".to_string()
-                                })
+                                _ => return Err(
+                                    "Invalid escape sequence".to_string()
+                                )
                             };
 
                             self.end += 2;
@@ -384,16 +362,14 @@ impl Lexer {
                 '\'' if stack.is_empty() => {
                     self.push_token(&mut tokens, &mut stack);
 
-                    let val = chars.next().ok_or(SteltError {
-                        range: Some(Range::line(self.line, self.start, self.start+1)),
-                        msg: "Expected char literal".to_string()
-                    })?;
+                    let val = chars.next().ok_or(
+                        "Expected char literal".to_string()
+                    )?;
 
                     let (c,n) = if val == '\\' {
-                        let escape = chars.next().ok_or(SteltError {
-                            range: Some(Range::line(self.line, self.start, self.start+1)),
-                            msg: "Expected escape character".to_string()
-                        })?;
+                        let escape = chars.next().ok_or(
+                            "Expected escape character".to_string()
+                        )?;
                         let new_c = match escape {
                                 'a' => char::from_u32(7).unwrap(),
                                 'b' => char::from_u32(8).unwrap(),
@@ -407,10 +383,9 @@ impl Lexer {
                                 '"' => '"',
                                 '?' => '?',
                                 '0' => char::from_u32(0).unwrap(),
-                                _ => return Err(SteltError {
-                                    range: Some(Range::line(self.line, self.start+1, self.start+2)),
-                                    msg: "Invalid escape sequence".to_string()
-                                })
+                                _ => return Err(
+                                    "Invalid escape sequence".to_string()
+                                )
                             };
                         (new_c, 3)
                     } else {
@@ -418,14 +393,12 @@ impl Lexer {
                     };
 
                     if let Some('\'') = chars.next() {} else {
-                        return Err(SteltError {
-                            range: Some(Range::line(self.line, self.start, self.end)),
-                            msg: "Expected closing ' for string literal".to_string() });
+                        return Err(
+                            "Expected closing ' for string literal".to_string());
                     }
 
                     tokens.push(Lexeme {
                         token: Token::Char(c),
-                        range: Range::line(self.line, self.start, self.start+1+n)
                     });
                     self.start += n + 1;
                     self.end = self.start;
@@ -436,7 +409,6 @@ impl Lexer {
                     chars.next().unwrap();
                     tokens.push(Lexeme {
                         token: Token::Pow,
-                        range: Range::line(self.line, self.start, self.start+2)
                     });
                     self.start += 2;
                     self.end = self.start;
@@ -446,7 +418,6 @@ impl Lexer {
                     chars.next().unwrap();
                     tokens.push(Lexeme {
                         token: Token::Concat,
-                        range: Range::line(self.line, self.start, self.start+2)
                     });
                     self.start += 2;
                     self.end = self.start;
@@ -456,7 +427,6 @@ impl Lexer {
                     chars.next().unwrap();
                     tokens.push(Lexeme {
                         token: Token::Arrow,
-                        range: Range::line(self.line, self.start, self.start+2)
                     });
                     self.start += 2;
                     self.end = self.start;
@@ -466,7 +436,6 @@ impl Lexer {
                     chars.next().unwrap();
                     tokens.push(Lexeme {
                         token: Token::Or,
-                        range: Range::line(self.line, self.start, self.start+2)
                     });
                     self.start += 2;
                     self.end = self.start;
@@ -476,7 +445,6 @@ impl Lexer {
                     chars.next().unwrap();
                     tokens.push(Lexeme {
                         token: Token::And,
-                        range: Range::line(self.line, self.start, self.start+2)
                     });
                     self.start += 2;
                     self.end = self.start;
@@ -486,7 +454,6 @@ impl Lexer {
                     chars.next().unwrap();
                     tokens.push(Lexeme {
                         token: Token::Equal,
-                        range: Range::line(self.line, self.start, self.start+2),
                     });
                     self.start += 2;
                     self.end = self.start;
@@ -496,7 +463,6 @@ impl Lexer {
                     chars.next().unwrap();
                     tokens.push(Lexeme {
                         token: Token::NotEqual,
-                        range: Range::line(self.line, self.start, self.start+2),
                     });
                     self.start += 2;
                     self.end = self.start;
@@ -506,7 +472,6 @@ impl Lexer {
                     chars.next().unwrap();
                     tokens.push(Lexeme {
                         token: Token::LTE,
-                        range: Range::line(self.line, self.start, self.start+2),
                     });
                     self.start += 2;
                     self.end = self.start;
@@ -516,7 +481,6 @@ impl Lexer {
                     chars.next().unwrap();
                     tokens.push(Lexeme {
                         token: Token::GTE,
-                        range: Range::line(self.line, self.start, self.start+2),
                     });
                     self.start += 2;
                     self.end = self.start;
@@ -526,7 +490,6 @@ impl Lexer {
                     self.push_token(&mut tokens, &mut stack);
                     tokens.push(Lexeme {
                         token: MAP.get(c.to_string().as_str()).unwrap().clone(),
-                        range: Range::line(self.line, self.start, self.start+1),
                     });
                     self.start += 1;
                     self.end = self.start;
@@ -537,7 +500,6 @@ impl Lexer {
                     self.push_token(&mut tokens, &mut stack);
                     tokens.push(Lexeme {
                         token: MAP.get(c.to_string().as_str()).unwrap().clone(),
-                        range: Range::line(self.line, self.start, self.start+1),
                     });
                     self.start += 1;
                     self.end = self.start;
@@ -561,10 +523,9 @@ impl Lexer {
         }
 
         if self.in_string {
-            return Err(SteltError {
-                range: None,
-                msg: format!("Unclosed string literal: expected \"")
-            });
+            return Err(
+                format!("Unclosed string literal: expected \"")
+            );
         }
 
 
@@ -578,22 +539,18 @@ impl Lexer {
             if self.in_string {
                 tokens.push(Lexeme {
                     token: Token::String(stack.clone()),
-                    range: Range::line(self.line, self.start, self.end)
                 });
             } else if let Some(tok) = MAP.get(stack.as_str()) {
                 tokens.push(Lexeme {
                     token: tok.clone(),
-                    range: Range::line(self.line, self.start, self.end)
                 });
             } else if let Ok(i) = str::parse::<u64>(&stack) {
                 tokens.push(Lexeme {
                     token: Token::Num(i),
-                    range: Range::line(self.line, self.start, self.end)
                 });
             } else {
                 tokens.push(Lexeme {
                     token: Token::Ident(stack.clone()),
-                    range: Range::line(self.line, self.start, self.end)
                 });
             }
 

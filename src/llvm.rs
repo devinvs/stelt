@@ -104,7 +104,7 @@ impl LLVMType {
             Self::Struct(..) => 64,
             Self::Array(..) => 64,
             Self::Func(..) => 64,
-            Self::Named(_) => panic!("alignment unknown for named type")
+            Self::Named(n) => panic!("alignment unknown for named type: {n}")
         }
     }
 }

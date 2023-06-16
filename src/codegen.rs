@@ -477,7 +477,7 @@ impl LIRExpression {
             }
             Self::Error(_) => {
                 writeln!(module, "unreachable")?;
-                Ok(None)
+                Ok(Some("poison".to_string()))
             }
             Self::CastTuple(exp, ty, _) => {
                 let base = ty.split(".").next().unwrap();
