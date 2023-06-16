@@ -1,10 +1,10 @@
 - Type Inference
     + Is this even necessary? idk.
+        - rn (6/15) this feels necessary
     + Maybe for numeric types (i8, u8, etc)
-- Define type storage specification
-    + Closures?
+
 - Function annotations? (pure, impure)
-- Low Level Memory operations?
+    + probably no
 
 - memory model ideas
     + Check out Carp
@@ -15,9 +15,20 @@
         - Basically functions, let statements, and match cases
     + Everything is pass by reference unless used in a constructor.
         + constructors always take ownership
+    + current plan: clone when necessary
+
+- macros! These probably aren't a terrible idea!
+
+- must be as simple as C but expressive as rust
+    + lol, i'm sure this is possible
+    + let's take a deep, long look at lisp
+
+- modules.
+    + need to create a module type
+    + collection of types, functions, traits, and macros
 
 - start with OSGC
-- ranges/ errors with type checker
 - trait resolution...
 
 - unify types instead of terms?
+    + will need to do this later, but not now
