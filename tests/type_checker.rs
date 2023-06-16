@@ -19,15 +19,15 @@ fn test_type_checker() {
         let mut tokens = lexer.lex(&buf).unwrap();
         let program = Program::parse(&mut tokens).unwrap();
 
-        let mir = MIRTree::from(program);
+        let mut mir = MIRTree::from(program);
 
         let mut checker = TypeChecker::default();
-        let out = checker.check_program(&mir);
+        let out = checker.check_program(&mut mir);
 
         if should_fail {
             assert!(out.is_err());
         } else if let Err(e) = out {
-            e.pprint(&buf);
+            eprintln!("{e}");
             panic!()
         }
     }

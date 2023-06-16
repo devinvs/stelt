@@ -21,7 +21,7 @@ fn test_lexer() {
         if should_fail {
             assert!(out.is_err());
         } else if let Err(e) = out {
-            e.pprint(&buf);
+            eprintln!("{e}");
             panic!("{:?} passed but should have failed", name)
         }
     }

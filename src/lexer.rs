@@ -485,6 +485,11 @@ impl Lexer {
                     self.start += 2;
                     self.end = self.start;
                 }
+                '=' if next.is_some() && *next.unwrap() == '>' => {
+                    self.push_token(&mut tokens, &mut stack);
+                    chars.next().unwrap();
+                    tokens.push(Lexeme { token: Token::FatArrow })
+                }
                 // Separators
                 ',' | '(' | ')' | '[' | ']' | '{' | '}' | ':' => {
                     self.push_token(&mut tokens, &mut stack);

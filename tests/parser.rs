@@ -23,7 +23,7 @@ fn test_parser() {
         if should_fail {
             assert!(program.is_err());
         } else if let Err(e) = program {
-            e.pprint(&buf);
+            eprintln!("{e}");
             panic!()
         }
     }
