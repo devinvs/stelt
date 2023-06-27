@@ -1,1 +1,4 @@
-main(a) = a=>map(square)=>filter(prime)=>sum()
+main(a) = a
+		=>map(square)
+		=>filter(prime)
+		=>sum()

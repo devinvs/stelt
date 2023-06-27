@@ -2,8 +2,8 @@ use std::fs::File;
 use std::io::Read;
 
 use stelt::Lexer;
-use stelt::Program;
 use stelt::MIRTree;
+use stelt::Program;
 use stelt::TypeChecker;
 
 use stelt::Module;
