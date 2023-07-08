@@ -1,9 +1,9 @@
-use crate::lir::{LIRTree, LIRExpression};
+use crate::lir::{LIRExpression, LIRTree};
 use std::collections::HashMap;
 
-use std::io::Write;
-use std::error::Error;
 use crate::builtin::BUILTIN_ASM;
+use std::error::Error;
+use std::io::Write;
 
 use crate::llvm::LLVMType;
 
@@ -45,17 +45,18 @@ impl Module {
 
     pub fn var(&mut self) -> String {
         self.i += 1;
-        format!("%anon.{}", self.i-1)
+        format!("%anon.{}", self.i - 1)
     }
 
     pub fn label(&mut self) -> String {
         self.labi += 1;
-        format!("Label{}", self.labi-1)
+        format!("Label{}", self.labi - 1)
     }
 
     pub fn reset(&mut self) {
         self.named_vars.clear();
-        self.named_vars.insert("arg.0".to_string(), "%arg.0".to_string());
+        self.named_vars
+            .insert("arg.0".to_string(), "%arg.0".to_string());
     }
 
     pub fn compile(&mut self, tree: LIRTree) -> Result<(), Box<dyn Error>> {
@@ -69,7 +70,11 @@ impl Module {
             write!(self, "declare {to} @{name}(")?;
 
             for (i, f) in from.iter().enumerate() {
-                let attrs = if *f == LLVMType::Ptr { " nocapture" } else { "" };
+                let attrs = if *f == LLVMType::Ptr {
+                    " nocapture"
+                } else {
+                    ""
+                };
                 if i == 0 {
                     write!(self, "{f}{attrs}")?;
                 } else {
@@ -92,15 +97,14 @@ impl Module {
             writeln!(self, "%{} = type {}", name, t)?;
 
             // ... and their variants
-            for (name, t) in tree.variants[name].iter() {
-                writeln!(self, "%{} = type {}", name, t)?;
+            for (vname, t) in tree.variants[name].iter() {
+                writeln!(self, "%{}.{} = type {}", name, vname, t)?;
             }
 
             writeln!(self)?;
         }
 
         writeln!(self)?;
-
 
         // Output struct constructors
         for (name, t) in tree.structs {
@@ -120,13 +124,17 @@ impl Module {
                         let w = self.var();
                         v = self.var();
 
-                        writeln!(self, "\t{w} = extractvalue {t} %in, {}", i+1)?;
-                        writeln!(self, "\t{v} = insertvalue %{name} {old}, {ty} {w}, {}", i+1)?;
+                        writeln!(self, "\t{w} = extractvalue {t} %in, {}", i + 1)?;
+                        writeln!(
+                            self,
+                            "\t{v} = insertvalue %{name} {old}, {ty} {w}, {}",
+                            i + 1
+                        )?;
                     }
 
                     v
                 }
-                _ => panic!("this probably shouldn't happen")
+                _ => panic!("this probably shouldn't happen"),
             };
 
             writeln!(self, "\tret %{name} {out}")?;
@@ -148,7 +156,7 @@ impl Module {
                             (LLVMType::Struct(ts), true)
                         }
                     }
-                    _ => unreachable!()
+                    _ => unreachable!(),
                 };
 
                 if t == LLVMType::Void {
@@ -167,29 +175,32 @@ impl Module {
                     let ts = match t.clone() {
                         LLVMType::Struct(ts) => ts,
                         LLVMType::Void => vec![],
-                        _ => unreachable!()
-                    }.into_iter();
-                    
+                        _ => unreachable!(),
+                    }
+                    .into_iter();
+
                     for (i, t2) in ts.enumerate() {
                         let v = self.var();
                         let i_ptr = self.var();
 
                         writeln!(self, "\t{v} = extractvalue {t} %in, {i}")?;
-                        writeln!(self, "\t{i_ptr} = getelementptr inbounds %{varname}, ptr %ptr, i32 0, i32 {}", i+1)?;
+                        writeln!(self, "\t{i_ptr} = getelementptr inbounds %{name}.{varname}, ptr %ptr, i32 0, i32 {}", i+1)?;
                         writeln!(self, "\tstore {t2} {v}, ptr {i_ptr}")?;
                     }
                 } else {
                     // get pointer to and store single value
-                    writeln!(self, "\t%var = getelementptr inbounds %{varname}, ptr %ptr, i32 0, i32 1")?;
+                    writeln!(
+                        self,
+                        "\t%var = getelementptr inbounds %{name}.{varname}, ptr %ptr, i32 0, i32 1"
+                    )?;
                     writeln!(self, "\tstore {t} %in, ptr %var")?;
                 }
-                
+
                 writeln!(self, "\n\t%ret = load %{name}, ptr %ptr")?;
                 writeln!(self, "\tret %{name} %ret")?;
                 writeln!(self, "}}\n")?;
             }
         }
-
 
         // Compile all functions
         self.reset();
@@ -220,7 +231,10 @@ impl Module {
             let len = s.len() + 1; // plus one because null byte
             let s = s.replace("\n", "\\0a");
 
-            writeln!(self, "@str.{i} = private unnamed_addr constant [{len} x i8] c\"{s}\\00\"")?;
+            writeln!(
+                self,
+                "@str.{i} = private unnamed_addr constant [{len} x i8] c\"{s}\\00\""
+            )?;
         }
 
         Ok(())
@@ -244,7 +258,7 @@ impl LIRExpression {
                 let endlab = module.label();
 
                 writeln!(module, "\tbr i1 {cond}, label %{yeslab}, label %{nolab}")?;
-                
+
                 writeln!(module, "{}:", yeslab)?;
                 let yes = yes.compile(module)?;
                 if t != LLVMType::Void {
@@ -284,7 +298,7 @@ impl LIRExpression {
                     ts.push(arg.ty());
                     a.push(arg.compile(module)?);
                 }
-                
+
                 write!(module, "\t")?;
 
                 if t != LLVMType::Void {
@@ -339,17 +353,15 @@ impl LIRExpression {
                 let arg_count = match args.ty() {
                     LLVMType::Struct(ts) => ts.len(),
                     LLVMType::Void => 0,
-                    _ => 1
+                    _ => 1,
                 };
 
                 let arg_t = match clos_t.clone() {
-                    LLVMType::Struct(ts) => {
-                        match &ts[0] {
-                            LLVMType::Func(args, _) => args.clone(),
-                            _ => panic!()
-                        }
-                    }
-                    _ => panic!()
+                    LLVMType::Struct(ts) => match &ts[0] {
+                        LLVMType::Func(args, _) => args.clone(),
+                        _ => panic!(),
+                    },
+                    _ => panic!(),
                 };
 
                 let closure = f.compile(module)?.unwrap();
@@ -358,13 +370,10 @@ impl LIRExpression {
                     0 => "undef".to_string(),
                     1 => {
                         // create a tuple
-                        let tup = LIRExpression::Tuple(
-                            vec![*args],
-                            *arg_t.clone()
-                        );
+                        let tup = LIRExpression::Tuple(vec![*args], *arg_t.clone());
                         tup.compile(module)?.unwrap()
                     }
-                    _ => args.compile(module)?.unwrap()
+                    _ => args.compile(module)?.unwrap(),
                 };
 
                 let formals = match clos_t.clone() {
@@ -372,10 +381,9 @@ impl LIRExpression {
                         ts.remove(0);
                         ts
                     }
-                    _ => panic!()
+                    _ => panic!(),
                 };
 
-                
                 // Get function pointer
                 let f = module.var();
                 writeln!(module, "\t{f} = extractvalue {clos_t} {closure}, 0")?;
@@ -386,11 +394,15 @@ impl LIRExpression {
 
                     // get the formal from the closure tuple
                     let v = module.var();
-                    writeln!(module, "\t{v} = extractvalue {clos_t} {closure}, {}", i+1)?;
+                    writeln!(module, "\t{v} = extractvalue {clos_t} {closure}, {}", i + 1)?;
 
                     // insert into the args
                     let w = module.var();
-                    writeln!(module, "\t{w} = insertvalue {arg_t} {args}, {ft} {v}, {}", arg_count+i)?;
+                    writeln!(
+                        module,
+                        "\t{w} = insertvalue {arg_t} {args}, {ft} {v}, {}",
+                        arg_count + i
+                    )?;
                     args = w;
                 }
 
@@ -417,22 +429,31 @@ impl LIRExpression {
 
                 Ok(Some(format!("@str.{i}")))
             }
-            Self::Num(n) => {
-                Ok(Some(n.to_string()))
-            }
+            Self::Num(n) => Ok(Some(n.to_string())),
             Self::Tuple(es, t) => {
                 let mut out = module.var();
                 let mut es = es.into_iter();
 
                 let e = es.next().unwrap();
                 let v = e.clone().compile(module)?.unwrap();
-                writeln!(module, "\t{out} = insertvalue {t} undef, {} {}, 0", e.ty(), v)?;
+                writeln!(
+                    module,
+                    "\t{out} = insertvalue {t} undef, {} {}, 0",
+                    e.ty(),
+                    v
+                )?;
 
                 for (i, e) in es.enumerate() {
                     let old = out;
                     out = module.var();
                     let v = e.clone().compile(module)?.unwrap();
-                    writeln!(module, "\t{out} = insertvalue {t} {old}, {} {}, {}", e.ty(), v, i+1)?;
+                    writeln!(
+                        module,
+                        "\t{out} = insertvalue {t} {old}, {} {}, {}",
+                        e.ty(),
+                        v,
+                        i + 1
+                    )?;
                 }
 
                 Ok(Some(out))
@@ -443,9 +464,7 @@ impl LIRExpression {
 
                 body.compile(module)
             }
-            Self::Unit => {
-                Ok(None)
-            }
+            Self::Unit => Ok(None),
             Self::List(es, _) => {
                 let last_i = es.len() - 1;
                 for i in 0..last_i {
@@ -483,7 +502,7 @@ impl LIRExpression {
                 let base = ty.split(".").next().unwrap();
                 let exp = exp.compile(module)?.unwrap();
                 let out = module.var();
-                
+
                 let ptr = module.var();
 
                 writeln!(module, "\t{ptr} = alloca %{base}")?;
@@ -492,7 +511,7 @@ impl LIRExpression {
 
                 Ok(Some(out))
             }
-            a => unimplemented!("{a:?}")
+            a => unimplemented!("{a:?}"),
         }
     }
 }

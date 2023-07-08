@@ -21,30 +21,30 @@ impl LLVMType {
             Type::I8 => Self::I8,
             Type::Str => Self::Ptr,
             Type::Unit => Self::Void,
-            Type::Arrow(a, b) => Self::Func(Box::new(LLVMType::from_type(*a)), Box::new(LLVMType::from_type(*b))),
+            Type::Arrow(a, b) => Self::Func(
+                Box::new(LLVMType::from_type(*a)),
+                Box::new(LLVMType::from_type(*b)),
+            ),
             //Type::Tuple(_) => Self::Ptr,
-            Type::Tuple(ts) => Self::Struct(ts.into_iter().map(|t| LLVMType::from_type(t)).collect()),
+            Type::Tuple(ts) => {
+                Self::Struct(ts.into_iter().map(|t| LLVMType::from_type(t)).collect())
+            }
             Type::Ident(n) => Self::Named(n),
             Type::Generic(..) => Self::Named(t.to_string()),
-            a => unimplemented!("{a:?}")
+            a => unimplemented!("{a:?}"),
         }
     }
 
     pub fn from_enum(tname: &String, cons: Vec<TypeCons>) -> Vec<(String, LLVMType)> {
         let mut types = vec![];
         for TypeCons { name, args, .. } in cons {
-            let name = format!("{tname}.{name}");
             match Self::from_type(args) {
                 Self::Struct(mut ts) => {
                     ts.insert(0, LLVMType::I8);
                     types.push((name, Self::Struct(ts)))
                 }
-                Self::Void => {
-                    types.push((name, Self::Struct(vec![LLVMType::I8])))
-                }
-                ty => {
-                    types.push((name, Self::Struct(vec![LLVMType::I8, ty])))
-                }
+                Self::Void => types.push((name, Self::Struct(vec![LLVMType::I8]))),
+                ty => types.push((name, Self::Struct(vec![LLVMType::I8, ty]))),
             }
         }
 
@@ -70,11 +70,11 @@ impl LLVMType {
         curr += curr % my_align;
 
         match self {
-            Self::Void => {},
-            Self::I8 => curr+=8,
-            Self::I1 => curr+=1,
-            Self::I32 => curr+=32,
-            Self::Ptr => curr+=64,
+            Self::Void => {}
+            Self::I8 => curr += 8,
+            Self::I1 => curr += 1,
+            Self::I32 => curr += 32,
+            Self::Ptr => curr += 64,
             Self::Struct(ts) => {
                 for t in ts {
                     let t_align = t.alignment();
@@ -85,10 +85,8 @@ impl LLVMType {
             Self::Array(t, num) => {
                 curr += t.size(0) * num;
             }
-            Self::Func(..) => {
-                curr += 64
-            }
-            Self::Named(_) => panic!("size unknown for named type")
+            Self::Func(..) => curr += 64,
+            Self::Named(_) => panic!("size unknown for named type"),
         };
 
         curr
@@ -104,7 +102,7 @@ impl LLVMType {
             Self::Struct(..) => 64,
             Self::Array(..) => 64,
             Self::Func(..) => 64,
-            Self::Named(n) => panic!("alignment unknown for named type: {n}")
+            Self::Named(n) => panic!("alignment unknown for named type: {n}"),
         }
     }
 }
@@ -132,7 +130,7 @@ impl std::fmt::Display for LLVMType {
             }
             Self::Array(t, num) => f.write_fmt(format_args!("[{num} x {t}]")),
             Self::Named(n) => f.write_fmt(format_args!("%{n}")),
-            Self::Func(..) => f.write_str("ptr")
+            Self::Func(..) => f.write_str("ptr"),
         }
     }
 }

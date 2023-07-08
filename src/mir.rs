@@ -1,14 +1,7 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use crate::parse_tree::{
-    ParseTree,
-    Expression,
-    Type,
-    DataDecl,
-    Pattern,
-    TypeCons
-};
+use crate::parse_tree::{DataDecl, Expression, ParseTree, Pattern, Type, TypeCons};
 
 use crate::unify::apply_unifier;
 use crate::unify::Term;
@@ -50,27 +43,25 @@ impl MIRTree {
                         } else {
                             Box::new(Type::Generic(
                                 args.clone().into_iter().map(|s| Type::Ident(s)).collect(),
-                                Box::new(Type::Ident(name.clone())), 
+                                Box::new(Type::Ident(name.clone())),
                             ))
                         };
 
                         constructors.insert(
-                            format!("{name}.{}", cons.name),
+                            cons.name.clone(),
                             Type::ForAll(
                                 args.clone(),
-                                Box::new(Type::Arrow(
-                                    Box::new(cons.args.clone()),
-                                    outt,
-                                    )
-                                ),
-                            )
+                                Box::new(Type::Arrow(Box::new(cons.args.clone()), outt)),
+                            ),
                         );
                     }
                 }
                 DataDecl::Product(_, args, members) => {
                     // Add an entry into the structs map
                     let mut m = HashMap::new();
-                    members.iter().for_each(|(n, t)| {m.insert(n.clone(), t.clone());});
+                    members.iter().for_each(|(n, t)| {
+                        m.insert(n.clone(), t.clone());
+                    });
 
                     structs.insert(name.clone(), m);
 
@@ -80,29 +71,24 @@ impl MIRTree {
                     } else {
                         Box::new(Type::Generic(
                             args.clone().into_iter().map(|s| Type::Ident(s)).collect(),
-                            Box::new(Type::Ident(name.clone())), 
+                            Box::new(Type::Ident(name.clone())),
                         ))
                     };
 
-                    let inputt = members.into_iter()
+                    let inputt = members
+                        .into_iter()
                         .map(|(_, t)| t.clone())
                         .collect::<Vec<_>>();
 
                     let inputt = match inputt.len() {
                         0 => Box::new(Type::Unit),
                         1 => Box::new(inputt.into_iter().next().unwrap()),
-                        _ => Box::new(Type::Tuple(inputt))
+                        _ => Box::new(Type::Tuple(inputt)),
                     };
 
                     constructors.insert(
                         name.clone(),
-                        Type::ForAll(
-                            args.clone(),
-                            Box::new(Type::Arrow(
-                                inputt,
-                                outt,
-                            )),
-                        )
+                        Type::ForAll(args.clone(), Box::new(Type::Arrow(inputt, outt))),
                     );
                 }
             }
@@ -111,30 +97,35 @@ impl MIRTree {
         let mut defs = HashMap::new();
 
         // Transform each definition into it's intermediate representation
-        tree.defs.into_iter()
-            .for_each(|(name, def)| {
-                defs.insert(name, MIRExpression::from(def, &constructors));
-            });
+        tree.defs.into_iter().for_each(|(name, def)| {
+            defs.insert(name, MIRExpression::from(def, &constructors));
+        });
 
         // Convert each list of function definitions into a lambda match expression
         let mut funcs = HashMap::new();
-        tree.funcs.into_iter()
-            .for_each(|(name, defs)| {
-                let v = crate::gen_var("in");
+        tree.funcs.into_iter().for_each(|(name, defs)| {
+            let v = crate::gen_var("in");
 
-                funcs.insert(name, MIRExpression::Lambda1(
+            funcs.insert(
+                name,
+                MIRExpression::Lambda1(
                     Some(v.clone()),
                     Box::new(MIRExpression::Match(
-                        Box::new(MIRExpression::Identifier(v, None)), 
-                        defs.into_iter().map(|def| {
-                            (def.args.trans_cons(&constructors), MIRExpression::from(def.body, &constructors))
-                        }).collect(),
-                        None
+                        Box::new(MIRExpression::Identifier(v, None)),
+                        defs.into_iter()
+                            .map(|def| {
+                                (
+                                    def.args.trans_cons(&constructors),
+                                    MIRExpression::from(def.body, &constructors),
+                                )
+                            })
+                            .collect(),
+                        None,
                     )),
-                    None
-                ));
-            });
-
+                    None,
+                ),
+            );
+        });
 
         Self {
             external: tree.external,
@@ -144,7 +135,7 @@ impl MIRTree {
             defs,
             constructors,
             declarations,
-            structs
+            structs,
         }
     }
 
@@ -162,7 +153,9 @@ impl MIRTree {
                         generic_decls.insert(name, Type::ForAll(args, inner));
                     }
                 }
-                a => {concrete_decls.insert(name, a);},
+                a => {
+                    concrete_decls.insert(name, a);
+                }
             }
         }
 
@@ -175,7 +168,6 @@ impl MIRTree {
                 let body = body.clone();
                 let (f, calls) = body.extract_calls(&generic_decls);
                 concrete_funcs.insert(name.clone(), f);
-
 
                 for (name, newname, ty) in calls {
                     // add concrete function prototype for new function
@@ -199,7 +191,7 @@ impl MIRTree {
         for (name, t) in self.types {
             let argc = match t.clone() {
                 DataDecl::Sum(_, args, _) => args.len(),
-                DataDecl::Product(_, args, _) => args.len()
+                DataDecl::Product(_, args, _) => args.len(),
             };
 
             if argc == 0 {
@@ -225,7 +217,6 @@ impl MIRTree {
     }
 }
 
-
 #[derive(Debug, PartialEq, Clone)]
 pub enum MIRExpression {
     /// An identifier that we can evaluate.
@@ -239,7 +230,11 @@ pub enum MIRExpression {
     List(Vec<MIRExpression>, Option<Type>),
 
     /// Test a list of patterns against an expression, returning the expression that matches
-    Match(Box<MIRExpression>, Vec<(Pattern, MIRExpression)>, Option<Type>),
+    Match(
+        Box<MIRExpression>,
+        Vec<(Pattern, MIRExpression)>,
+        Option<Type>,
+    ),
 
     /// Call the function with args
     /// Can be a global function, a lambda, or a constructor
@@ -254,7 +249,7 @@ pub enum MIRExpression {
     // Constant Fields
     Num(u64, Option<Type>),    // A Number Literal
     Str(String, Option<Type>), // A String Literal
-    Unit(Option<Type>)
+    Unit(Option<Type>),
 }
 
 impl MIRExpression {
@@ -264,29 +259,32 @@ impl MIRExpression {
         match self {
             MIRExpression::Identifier(n, _) => MIRExpression::Identifier(n, Some(t)),
             MIRExpression::Unit(_) => MIRExpression::Unit(Some(t)),
-            MIRExpression::Num(n, _) => MIRExpression::Num(n, Some(t)), 
+            MIRExpression::Num(n, _) => MIRExpression::Num(n, Some(t)),
             MIRExpression::Str(s, _) => MIRExpression::Str(s, Some(t)),
             MIRExpression::Call(m, n, _) => MIRExpression::Call(
-                Box::new(m.sub_types(subs)), 
-                Box::new(n.sub_types(subs)),
-                Some(t)
-            ),
-            MIRExpression::Lambda1(x, m, _) => MIRExpression::Lambda1(
-                x,
                 Box::new(m.sub_types(subs)),
-                Some(t)
+                Box::new(n.sub_types(subs)),
+                Some(t),
             ),
-            MIRExpression::List(es, _) => MIRExpression::List(
-                es.into_iter().map(|e| e.sub_types(subs)).collect(),
-                Some(t)
-            ),
+            MIRExpression::Lambda1(x, m, _) => {
+                MIRExpression::Lambda1(x, Box::new(m.sub_types(subs)), Some(t))
+            }
+            MIRExpression::List(es, _) => {
+                MIRExpression::List(es.into_iter().map(|e| e.sub_types(subs)).collect(), Some(t))
+            }
             MIRExpression::Match(m, ps, _) => MIRExpression::Match(
                 Box::new(m.sub_types(subs)),
-                ps.into_iter().map(|(p, e)| (p.sub_types(subs), e.sub_types(subs))).collect(),
-                Some(t)
+                ps.into_iter()
+                    .map(|(p, e)| (p.sub_types(subs), e.sub_types(subs)))
+                    .collect(),
+                Some(t),
             ),
-            MIRExpression::Tuple(es, _) => MIRExpression::Tuple(es.into_iter().map(|e| e.sub_types(subs)).collect(), Some(t)),
-            MIRExpression::Member(e, mem, _) => MIRExpression::Member(Box::new(e.sub_types(subs)), mem, Some(t)),
+            MIRExpression::Tuple(es, _) => {
+                MIRExpression::Tuple(es.into_iter().map(|e| e.sub_types(subs)).collect(), Some(t))
+            }
+            MIRExpression::Member(e, mem, _) => {
+                MIRExpression::Member(Box::new(e.sub_types(subs)), mem, Some(t))
+            }
         }
     }
 
@@ -296,66 +294,96 @@ impl MIRExpression {
             Expression::Str(s) => Self::Str(s, Some(Type::Str)),
             Expression::Unit => Self::Unit(Some(Type::Unit)),
             Expression::Identifier(i) => Self::Identifier(i, None),
-            Expression::ExprList(es) => Self::List(es.into_iter().map(|e| MIRExpression::from(e, cons)).collect(), None),
-            Expression::Tuple(es) => Self::Tuple(es.into_iter().map(|e| MIRExpression::from(e, cons)).collect(), None),
+            Expression::ExprList(es) => Self::List(
+                es.into_iter()
+                    .map(|e| MIRExpression::from(e, cons))
+                    .collect(),
+                None,
+            ),
+            Expression::Tuple(es) => Self::Tuple(
+                es.into_iter()
+                    .map(|e| MIRExpression::from(e, cons))
+                    .collect(),
+                None,
+            ),
             Expression::Match(m, cases) => Self::Match(
                 Box::new(MIRExpression::from(*m, cons)),
-                cases.into_iter().map(|(p, e)| (p.trans_cons(cons), MIRExpression::from(e, cons))).collect(),
-                None
+                cases
+                    .into_iter()
+                    .map(|(p, e)| (p.trans_cons(cons), MIRExpression::from(e, cons)))
+                    .collect(),
+                None,
             ),
             Expression::Call(f, args) => Self::Call(
                 Box::new(MIRExpression::from(*f, cons)),
                 Box::new(MIRExpression::from(*args, cons)),
-                None
+                None,
             ),
             Expression::Member(t, variant) => {
                 if let Expression::Identifier(t) = *t {
                     if cons.contains_key(&format!("{t}.{variant}")) {
                         MIRExpression::Identifier(format!("{t}.{variant}"), None)
                     } else {
-                        MIRExpression::Member(Box::new(MIRExpression::Identifier(t, None)), variant, None)
+                        MIRExpression::Member(
+                            Box::new(MIRExpression::Identifier(t, None)),
+                            variant,
+                            None,
+                        )
                     }
                 } else {
                     MIRExpression::Member(Box::new(MIRExpression::from(*t, cons)), variant, None)
                 }
             }
-            Expression::Lambda(pat, body) => {
-                match pat.trans_cons(cons) {
-                    Pattern::Var(s, _) => Self::Lambda1(Some(s), Box::new(MIRExpression::from(*body, cons)), None),
-                    Pattern::Tuple(ps, _) => {
-                        let mut i = ps.into_iter();
-                        let first = i.next().unwrap();
-                        let rest: Vec<_> = i.collect();
-
-                        if rest.is_empty() {
-                            let l = Expression::Lambda(first, body);
-                            MIRExpression::from(l, cons)
-                        } else {
-                            let l = Expression::Lambda(Pattern::Tuple(rest, None), body);
-                            let l = Expression::Lambda(first, Box::new(l));
-                            MIRExpression::from(l, cons)
-                        }
-                    }
-                    Pattern::Unit(..) => {
-                        Self::Lambda1(None, Box::new(MIRExpression::from(*body, cons)), None)
-                    }
-                    _ => panic!()
+            Expression::Lambda(pat, body) => match pat.trans_cons(cons) {
+                Pattern::Var(s, _) => {
+                    Self::Lambda1(Some(s), Box::new(MIRExpression::from(*body, cons)), None)
                 }
+                Pattern::Tuple(ps, _) => {
+                    let mut i = ps.into_iter();
+                    let first = i.next().unwrap();
+                    let rest: Vec<_> = i.collect();
+
+                    if rest.is_empty() {
+                        let l = Expression::Lambda(first, body);
+                        MIRExpression::from(l, cons)
+                    } else {
+                        let l = Expression::Lambda(Pattern::Tuple(rest, None), body);
+                        let l = Expression::Lambda(first, Box::new(l));
+                        MIRExpression::from(l, cons)
+                    }
+                }
+                Pattern::Unit(..) => {
+                    Self::Lambda1(None, Box::new(MIRExpression::from(*body, cons)), None)
+                }
+                _ => panic!(),
             },
             Expression::Let(pat, val, body) => Self::Match(
                 Box::new(MIRExpression::from(*val, cons)),
                 vec![(pat.trans_cons(cons), MIRExpression::from(*body, cons))],
-                None
+                None,
             ),
-            Expression::If(cond, then, els) => {
-                Self::Match(
-                    Box::new(MIRExpression::from(*cond, cons)),
-                    vec![
-                        (Pattern::Cons("true".into(), Box::new(Pattern::Unit(Some(Type::Unit))), None), MIRExpression::from(*then, cons)),
-                        (Pattern::Cons("false".into(), Box::new(Pattern::Unit( Some(Type::Unit))), None), MIRExpression::from(*els, cons)),
-                    ],
-                    None
-            )}
+            Expression::If(cond, then, els) => Self::Match(
+                Box::new(MIRExpression::from(*cond, cons)),
+                vec![
+                    (
+                        Pattern::Cons(
+                            "true".into(),
+                            Box::new(Pattern::Unit(Some(Type::Unit))),
+                            None,
+                        ),
+                        MIRExpression::from(*then, cons),
+                    ),
+                    (
+                        Pattern::Cons(
+                            "false".into(),
+                            Box::new(Pattern::Unit(Some(Type::Unit))),
+                            None,
+                        ),
+                        MIRExpression::from(*els, cons),
+                    ),
+                ],
+                None,
+            ),
         }
     }
 
@@ -371,7 +399,9 @@ impl MIRExpression {
             Self::Call(_, _, t) => t,
             Self::Lambda1(_, _, t) => t,
             Self::Member(_, _, t) => t,
-        }.clone().unwrap()
+        }
+        .clone()
+        .unwrap()
     }
 
     pub fn set_type(&mut self, ty: Type) {
@@ -419,13 +449,19 @@ impl MIRExpression {
         }
     }
 
-    fn extract_calls(self, generics: &HashMap<String, Type>) -> (Self, Vec<(String, String, Type)>) {
+    fn extract_calls(
+        self,
+        generics: &HashMap<String, Type>,
+    ) -> (Self, Vec<(String, String, Type)>) {
         match self {
             MIRExpression::Identifier(name, t) => {
                 if generics.contains_key(&name) {
                     let newname = format!("{name}${}$", crate::id());
 
-                    (MIRExpression::Identifier(newname.clone(), t.clone()), vec![(name, newname, t.unwrap())])
+                    (
+                        MIRExpression::Identifier(newname.clone(), t.clone()),
+                        vec![(name, newname, t.unwrap())],
+                    )
                 } else {
                     (MIRExpression::Identifier(name, t), vec![])
                 }
@@ -461,7 +497,7 @@ impl MIRExpression {
 
                 (MIRExpression::Call(Box::new(f), Box::new(args), t), gens)
             }
-            MIRExpression::Lambda1(arg, body,t) => {
+            MIRExpression::Lambda1(arg, body, t) => {
                 let (body, gens) = body.extract_calls(generics);
                 (MIRExpression::Lambda1(arg, Box::new(body), t), gens)
             }
@@ -482,7 +518,7 @@ impl MIRExpression {
 
                 (MIRExpression::Match(Box::new(e), new_ps, t), gens)
             }
-            a => (a, vec![])
+            a => (a, vec![]),
         }
     }
 }
@@ -495,7 +531,9 @@ impl Pattern {
             Pattern::Unit(_) => Pattern::Unit(Some(t)),
             Pattern::Num(n, _) => Pattern::Num(n, Some(t)),
             Pattern::Str(s, _) => Pattern::Str(s, Some(t)),
-            Pattern::Tuple(ps, _) => Pattern::Tuple(ps.into_iter().map(|p| p.sub_types(subs)).collect(), Some(t)),
+            Pattern::Tuple(ps, _) => {
+                Pattern::Tuple(ps.into_iter().map(|p| p.sub_types(subs)).collect(), Some(t))
+            }
             Pattern::Cons(n, args, _) => Pattern::Cons(n, Box::new(args.sub_types(subs)), Some(t)),
         }
     }
@@ -509,7 +547,7 @@ impl Pattern {
                     Self::Var(x, t)
                 }
             }
-            a => a
+            a => a,
         }
     }
 
@@ -521,17 +559,14 @@ impl Pattern {
         match self {
             Pattern::Cons(_, a, _) => {
                 a.apply(subs);
-            },
-            Pattern::Tuple(a, _) => {
-                a.iter_mut().for_each(|e| e.apply(subs))
-            },
+            }
+            Pattern::Tuple(a, _) => a.iter_mut().for_each(|e| e.apply(subs)),
             _ => {}
         }
     }
 }
 
 impl Type {
-
     fn get_generic_subs(&self, other: &Type) -> HashMap<String, Type> {
         if let Type::ForAll(vars, t) = self {
             let mut name_to_id = HashMap::new();
@@ -545,10 +580,9 @@ impl Type {
 
             let var_to_ty = me.get_var_subs(other);
 
-            name_to_id.into_iter()
-                .map(|(a, b)| {
-                    (a, var_to_ty[&b].clone())
-                })
+            name_to_id
+                .into_iter()
+                .map(|(a, b)| (a, var_to_ty[&b].clone()))
                 .collect()
         } else {
             HashMap::new()
@@ -594,14 +628,13 @@ impl Type {
         }
     }
 
-
     fn extract_generics(self, generics: &HashMap<String, DataDecl>) -> (Self, Vec<DataDecl>) {
         match self {
             Type::Generic(vals, ty) => {
                 // type must be identifier to generic datadecl
                 let name = match *ty {
                     Type::Ident(n) => n,
-                    _ => panic!("what?")
+                    _ => panic!("what?"),
                 };
                 let gen_ty = &generics[&name];
 
@@ -614,7 +647,15 @@ impl Type {
                     new_vals.push(t);
                 }
 
-                let newname = format!("{}${}$", name, new_vals.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(","));
+                let newname = format!(
+                    "{}${}$",
+                    name,
+                    new_vals
+                        .iter()
+                        .map(|t| t.to_string())
+                        .collect::<Vec<_>>()
+                        .join(",")
+                );
 
                 let newt = gen_ty.substitute(newname.clone(), &new_vals);
                 concrete.push(newt);
@@ -644,7 +685,7 @@ impl Type {
 
                 (Type::Tuple(newts), concs)
             }
-            a => (a, vec![])
+            a => (a, vec![]),
         }
     }
 
@@ -671,17 +712,13 @@ impl Type {
 
                 Type::Arrow(Box::new(a), Box::new(b))
             }
-            Type::ForAll(a, b) => {
-                Type::ForAll(a, Box::new(b.replace(from, to)))
-            }
-            Type::Generic(a, b) => {
-                Type::Generic(
-                    a.into_iter().map(|a| a.replace(from, to)).collect(),
-                    Box::new(b.replace(from, to))
-                )
-            }
+            Type::ForAll(a, b) => Type::ForAll(a, Box::new(b.replace(from, to))),
+            Type::Generic(a, b) => Type::Generic(
+                a.into_iter().map(|a| a.replace(from, to)).collect(),
+                Box::new(b.replace(from, to)),
+            ),
             Type::Tuple(ts) => Type::Tuple(ts.into_iter().map(|t| t.replace(from, to)).collect()),
-            a => a
+            a => a,
         }
     }
 }
@@ -722,8 +759,9 @@ impl DataDecl {
     fn name(&self) -> String {
         match self {
             Self::Sum(n, _, _) => n,
-            Self::Product(n, _, _) => n
-        }.clone()
+            Self::Product(n, _, _) => n,
+        }
+        .clone()
     }
 }
 

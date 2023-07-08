@@ -1,21 +1,13 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use crate::Token;
-use crate::lexer::TokenStream;
-use crate::lexer::LexemeFeed;
 use crate::lexer::Lexeme;
+use crate::lexer::LexemeFeed;
 use crate::lexer::Lexer;
+use crate::lexer::TokenStream;
+use crate::Token;
 
-use crate::parse_tree::{
-    ParseTree,
-    DataDecl,
-    TypeCons,
-    Type,
-    FunctionDef,
-    Expression,
-    Pattern,
-};
+use crate::parse_tree::{DataDecl, Expression, FunctionDef, ParseTree, Pattern, Type, TypeCons};
 
 impl ParseTree {
     pub fn parse(t: &mut TokenStream) -> Result<Self, String> {
@@ -24,12 +16,15 @@ impl ParseTree {
             typedefs: HashMap::new(),
             funcs: HashMap::new(),
             defs: HashMap::new(),
-            external: HashSet::new()
+            external: HashSet::new(),
         };
 
         loop {
             match t.peek() {
-                Some(Lexeme {token: Token::Extern, ..}) => {
+                Some(Lexeme {
+                    token: Token::Extern,
+                    ..
+                }) => {
                     t.assert(Token::Extern)?;
                     // must be a typedecl
                     t.assert(Token::Type)?;
@@ -41,7 +36,9 @@ impl ParseTree {
                     me.typedefs.insert(name.clone(), ty);
                     me.external.insert(name);
                 }
-                Some(Lexeme {token: Token::Type, ..}) => {
+                Some(Lexeme {
+                    token: Token::Type, ..
+                }) => {
                     // Either a typedecl or datadecl
                     t.assert(Token::Type)?;
 
@@ -50,12 +47,10 @@ impl ParseTree {
                     // generic args for forall type
                     let mut args = Vec::new();
                     if t.consume(Token::LArrow).is_some() {
-
                         let arg = t.ident()?;
                         args.push(arg);
 
                         while t.consume(Token::Comma).is_some() {
-
                             let arg = t.ident()?;
                             args.push(arg);
                         }
@@ -64,33 +59,41 @@ impl ParseTree {
                     }
 
                     match t.next() {
-                        Some(Lexeme {token: Token::Assign, ..}) => {
+                        Some(Lexeme {
+                            token: Token::Assign,
+                            ..
+                        }) => {
                             let ty = DataDecl::parse(t, name.clone(), args)?;
                             me.types.insert(name, ty);
                         }
-                        Some(Lexeme {token: Token::Colon, ..}) => {
+                        Some(Lexeme {
+                            token: Token::Colon,
+                            ..
+                        }) => {
                             let ty = Type::parse(t)?;
                             me.typedefs.insert(name, Type::ForAll(args, Box::new(ty)));
                         }
                         Some(a) => {
-                            return Err(
-                                format!("Expected colon or equals, found '{}'", a.token.name())
-                            )
+                            return Err(format!(
+                                "Expected colon or equals, found '{}'",
+                                a.token.name()
+                            ))
                         }
-                        None => {
-                            return Err(
-                                format!("Expected colon or equals, found EOF")
-                            )
-                        }
+                        None => return Err(format!("Expected colon or equals, found EOF")),
                     }
                 }
-                Some(Lexeme {token: Token::Def, ..}) => {
+                Some(Lexeme {
+                    token: Token::Def, ..
+                }) => {
                     let name = t.ident()?;
 
                     let expr = Expression::parse(t)?;
                     me.defs.insert(name, expr);
                 }
-                Some(Lexeme {token: Token::Ident(_), ..}) => {
+                Some(Lexeme {
+                    token: Token::Ident(_),
+                    ..
+                }) => {
                     let name = t.ident()?;
                     let func = FunctionDef::parse(t, name)?;
                     if let Some(f) = me.funcs.get_mut(&func.name) {
@@ -100,11 +103,12 @@ impl ParseTree {
                     }
                 }
                 Some(a) => {
-                    return Err(
-                        format!("Unexpected token in declaration: '{}'", a.token.name())
-                    )
+                    return Err(format!(
+                        "Unexpected token in declaration: '{}'",
+                        a.token.name()
+                    ))
                 }
-                None => break
+                None => break,
             }
         }
 
@@ -159,7 +163,7 @@ impl TypeCons {
             Type::Unit
         };
 
-        Ok(Self { name, args})
+        Ok(Self { name, args })
     }
 }
 
@@ -177,7 +181,7 @@ impl FunctionDef {
 
         let body = Expression::parse(t)?;
 
-        return Ok(FunctionDef {name, args, body})
+        return Ok(FunctionDef { name, args, body });
     }
 }
 
@@ -234,7 +238,7 @@ impl Type {
 
             Ok(Self::Generic(
                 vec![inner],
-                Box::new(Self::Ident("List".to_string()))
+                Box::new(Self::Ident("List".to_string())),
             ))
         } else {
             Ok(Self::parse_generic(t)?)
@@ -267,30 +271,42 @@ impl Type {
 
     fn parse_base(t: &mut TokenStream) -> Result<Self, String> {
         Ok(match t.next() {
-            Some(Lexeme {token: Token::Ident(i), ..}) => Self::Ident(i),
-            Some(Lexeme {token: Token::U8, ..}) => Self::U8,
-            Some(Lexeme {token: Token::U16, ..}) => Self::U16,
-            Some(Lexeme {token: Token::U32, ..}) => Self::U32,
-            Some(Lexeme {token: Token::U64, ..}) => Self::U64,
-            Some(Lexeme {token: Token::I8, ..}) => Self::I8,
-            Some(Lexeme {token: Token::I16, ..}) => Self::I16,
-            Some(Lexeme {token: Token::I32, ..}) => Self::I32,
-            Some(Lexeme {token: Token::I64, ..}) => Self::I64,
-            Some(Lexeme {token: Token::Str, ..}) => Self::Str,
-            Some(a) => {
-                return Err(
-                    format!("Unexpected token in type: '{}'", a.token.name())
-                )
-            }
-            None => {
-                return Err(
-                    format!("Unexpected EOF in type")
-                )
-            }
+            Some(Lexeme {
+                token: Token::Ident(i),
+                ..
+            }) => Self::Ident(i),
+            Some(Lexeme {
+                token: Token::U8, ..
+            }) => Self::U8,
+            Some(Lexeme {
+                token: Token::U16, ..
+            }) => Self::U16,
+            Some(Lexeme {
+                token: Token::U32, ..
+            }) => Self::U32,
+            Some(Lexeme {
+                token: Token::U64, ..
+            }) => Self::U64,
+            Some(Lexeme {
+                token: Token::I8, ..
+            }) => Self::I8,
+            Some(Lexeme {
+                token: Token::I16, ..
+            }) => Self::I16,
+            Some(Lexeme {
+                token: Token::I32, ..
+            }) => Self::I32,
+            Some(Lexeme {
+                token: Token::I64, ..
+            }) => Self::I64,
+            Some(Lexeme {
+                token: Token::Str, ..
+            }) => Self::Str,
+            Some(a) => return Err(format!("Unexpected token in type: '{}'", a.token.name())),
+            None => return Err(format!("Unexpected EOF in type")),
         })
     }
 }
-
 
 impl Expression {
     pub fn parse_list_scoped(t: &mut TokenStream) -> Result<Vec<Expression>, String> {
@@ -302,14 +318,12 @@ impl Expression {
                     let body = match rest.len() {
                         0 => Expression::Unit,
                         1 => rest.into_iter().next().unwrap(),
-                        _ => {
-                            Self::ExprList(rest)
-                        }
+                        _ => Self::ExprList(rest),
                     };
 
                     Self::Let(pat, val, Box::new(body))
                 }
-                a => a
+                a => a,
             };
 
             exprs.push(e);
@@ -326,7 +340,7 @@ impl Expression {
         match exprs.len() {
             0 => Ok(Expression::Unit),
             1 => Ok(exprs.into_iter().next().unwrap()),
-            _ => Ok(Self::ExprList(exprs))
+            _ => Ok(Self::ExprList(exprs)),
         }
     }
 
@@ -399,7 +413,6 @@ impl Expression {
             let e = Self::parse(t)?;
             es.push(e);
 
-
             while t.consume(Token::Comma).is_some() {
                 es.push(Self::parse(t)?);
             }
@@ -426,7 +439,7 @@ impl Expression {
             let end = Self::orexpr(t)?;
             Ok(Self::Call(
                 Box::new(Self::Identifier("or".into())),
-                Box::new(Self::Tuple(vec![and, end]))
+                Box::new(Self::Tuple(vec![and, end])),
             ))
         } else {
             Ok(and)
@@ -518,29 +531,25 @@ impl Expression {
                 Box::new(Self::Identifier("lt".into())),
                 Box::new(Self::Tuple(vec![conc, end])),
             ))
-        }
-        else if let Some(()) = t.consume(Token::RArrow) {
+        } else if let Some(()) = t.consume(Token::RArrow) {
             let end = Self::relexpr(t)?;
             Ok(Self::Call(
                 Box::new(Self::Identifier("gt".into())),
                 Box::new(Self::Tuple(vec![conc, end])),
             ))
-        }
-        else if let Some(()) = t.consume(Token::LTE) {
+        } else if let Some(()) = t.consume(Token::LTE) {
             let end = Self::relexpr(t)?;
             Ok(Self::Call(
                 Box::new(Self::Identifier("leq".into())),
                 Box::new(Self::Tuple(vec![conc, end])),
             ))
-        }
-        else if let Some(()) = t.consume(Token::GTE) {
+        } else if let Some(()) = t.consume(Token::GTE) {
             let end = Self::relexpr(t)?;
             Ok(Self::Call(
                 Box::new(Self::Identifier("geq".into())),
                 Box::new(Self::Tuple(vec![conc, end])),
             ))
-        }
-        else {
+        } else {
             Ok(conc)
         }
     }
@@ -645,17 +654,6 @@ impl Expression {
 
     fn postfix(t: &mut TokenStream) -> Result<Self, String> {
         let primary = Self::primary(t)?;
-        let primary = if let Self::Identifier(i) = primary {
-            let i = match i.as_str() {
-                "None" => "Maybe.None",
-                "Some" => "Maybe.Some",
-                a => a,
-            }.to_string();
-
-            Self::Identifier(i)
-        } else {
-            primary
-        };
         Self::postfix_post(t, primary)
     }
 
@@ -701,38 +699,43 @@ impl Expression {
 
             let args = Self::Tuple(args);
 
-            let e = Self::Call(
-                Box::new(Self::Identifier(f)),
-                Box::new(args),
-            );
+            let e = Self::Call(Box::new(Self::Identifier(f)), Box::new(args));
 
             Self::postfix_post(t, e)
         } else {
             Ok(primary)
         }
-
     }
 
     fn primary(t: &mut TokenStream) -> Result<Self, String> {
         match t.next() {
-            Some(Lexeme {token: Token::String(s), ..}) => {
-                Ok(Self::Str(s))
-            }
-            Some(Lexeme {token: Token::Num(n), ..}) => {
-                Ok(Self::Num(n))
-            }
-            Some(Lexeme {token: Token::Ident(i), ..}) => {
-                Ok(Self::Identifier(i))
-            }
-            Some(Lexeme {token: Token::LParen, ..}) => {
+            Some(Lexeme {
+                token: Token::String(s),
+                ..
+            }) => Ok(Self::Str(s)),
+            Some(Lexeme {
+                token: Token::Num(n),
+                ..
+            }) => Ok(Self::Num(n)),
+            Some(Lexeme {
+                token: Token::Ident(i),
+                ..
+            }) => Ok(Self::Identifier(i)),
+            Some(Lexeme {
+                token: Token::LParen,
+                ..
+            }) => {
                 let e = Expression::parse(t)?;
                 t.assert(Token::RParen)?;
                 Ok(e)
             }
-            Some(Lexeme { token: Token::LBrace, ..}) => {
+            Some(Lexeme {
+                token: Token::LBrace,
+                ..
+            }) => {
                 if let Some(()) = t.consume(Token::RBrace) {
                     return Ok(Self::Call(
-                        Box::new(Self::Identifier("List.Nil".to_string())),
+                        Box::new(Self::Identifier("Nil".to_string())),
                         Box::new(Self::Unit),
                     ));
                 }
@@ -747,42 +750,40 @@ impl Expression {
             }
             Some(a) => {
                 //panic!("PrimaryExpr: Expected identifier, constant, or expression, found: {:?}", a);
-                Err(
-                    format!("Expected expression, found '{}'", a.token.name())
-                )
+                Err(format!("Expected expression, found '{}'", a.token.name()))
             }
-            None => {
-                Err(
-                    "Expected expression".into()
-                )
-            }
+            None => Err("Expected expression".into()),
         }
     }
 
     fn cons_from_es(es: &[Self]) -> Self {
         if es.is_empty() {
             return Self::Call(
-                Box::new(Self::Identifier("List.Nil".to_string())),
+                Box::new(Self::Identifier("Nil".to_string())),
                 Box::new(Self::Unit),
             );
         }
 
         Self::Call(
-            Box::new(Self::Identifier("List.Cons".to_string())),
-            Box::new(Self::Tuple(vec![es[0].clone(), Self::cons_from_es(&es[1..])])),
+            Box::new(Self::Identifier("Cons".to_string())),
+            Box::new(Self::Tuple(vec![
+                es[0].clone(),
+                Self::cons_from_es(&es[1..]),
+            ])),
         )
     }
 
     fn to_lambda_pattern(&self) -> Pattern {
         match self {
             Self::Identifier(s) => Pattern::Var(s.clone(), None),
-            Self::Tuple(es) => Pattern::Tuple(es.iter().map(|e| e.to_lambda_pattern()).collect(), None),
+            Self::Tuple(es) => {
+                Pattern::Tuple(es.iter().map(|e| e.to_lambda_pattern()).collect(), None)
+            }
             Self::Unit => Pattern::Unit(Some(Type::Unit)),
-            _ => panic!("ahh")
+            _ => panic!("ahh"),
         }
     }
 }
-
 
 impl Pattern {
     fn parse(t: &mut TokenStream) -> Result<Pattern, String> {
@@ -821,9 +822,9 @@ impl Pattern {
             let b = Self::parse_base(t)?;
 
             Ok(Self::Cons(
-                "List.Cons".into(),
+                "Cons".into(),
                 Box::new(Pattern::Tuple(vec![a, b], None)),
-                None
+                None,
             ))
         } else {
             Ok(a)
@@ -832,21 +833,29 @@ impl Pattern {
 
     fn parse_base(t: &mut TokenStream) -> Result<Pattern, String> {
         match t.next() {
-            Some(Lexeme {token: Token::LBrace, ..}) => {
+            Some(Lexeme {
+                token: Token::LBrace,
+                ..
+            }) => {
                 t.assert(Token::RBrace)?;
                 Ok(Pattern::Cons(
-                    "List.Nil".to_string(),
+                    "Nil".to_string(),
                     Box::new(Self::Unit(Some(Type::Unit))),
-                    None
+                    None,
                 ))
             }
-            Some(Lexeme {token: Token::Num(n), ..}) => {
-                Ok(Pattern::Num(n, Some(Type::I32)))
-            }
-            Some(Lexeme {token: Token::String(s), ..}) => {
-                Ok(Pattern::Str(s, Some(Type::Str)))
-            }
-            Some(Lexeme {token: Token::Ident(i), ..}) => {
+            Some(Lexeme {
+                token: Token::Num(n),
+                ..
+            }) => Ok(Pattern::Num(n, Some(Type::I32))),
+            Some(Lexeme {
+                token: Token::String(s),
+                ..
+            }) => Ok(Pattern::Str(s, Some(Type::Str))),
+            Some(Lexeme {
+                token: Token::Ident(i),
+                ..
+            }) => {
                 // either variable or constructor...
                 if t.consume(Token::Dot).is_some() {
                     let var = t.ident()?;
@@ -858,30 +867,15 @@ impl Pattern {
                     };
 
                     Ok(Pattern::Cons(format!("{i}.{var}"), Box::new(args), None))
-
                 } else if t.test(Token::LParen) {
                     let args = Self::parse(t)?;
 
                     Ok(Pattern::Cons(i, Box::new(args), None))
-                } else if i=="None" {
-                    Ok(Pattern::Cons(
-                        "Maybe.None".to_string(),
-                        Box::new(Self::Unit(Some(Type::Unit))),
-                        None
-                    ))
-                } else if i=="Some" {
-                    let args = Pattern::parse(t)?;
-
-                    Ok(Pattern::Cons(
-                        "Maybe.Some".to_string(),
-                        Box::new(args),
-                        None
-                    ))
                 } else {
                     Ok(Pattern::Var(i, None))
                 }
             }
-            _ => panic!("unexpected token")
+            _ => panic!("unexpected token"),
         }
     }
 }
