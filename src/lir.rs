@@ -736,14 +736,8 @@ impl MIRExpression {
                 yes
             }
             Pattern::Num(n, _) => LIRExpression::If(
-                Box::new(LIRExpression::Call(
-                    Box::new(LIRExpression::Identifier(
-                        "eq".into(),
-                        LLVMType::Func(
-                            Box::new(LLVMType::Struct(vec![LLVMType::I32, LLVMType::I32])),
-                            Box::new(LLVMType::I1),
-                        ),
-                    )),
+                Box::new(LIRExpression::GlobalCall(
+                    "eq".into(),
                     Box::new(LIRExpression::Tuple(
                         vec![exp, LIRExpression::Num(n)],
                         LLVMType::Struct(vec![LLVMType::I32, LLVMType::I32]),
