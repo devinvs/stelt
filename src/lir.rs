@@ -49,7 +49,7 @@ impl MIRTree {
         for (name, t) in self.types {
             match t {
                 DataDecl::Sum(_, _, cons) => {
-                    let vars = LLVMType::from_enum(&name, cons);
+                    let vars = LLVMType::from_enum(cons);
                     variants.insert(name, vars);
                 }
                 DataDecl::Product(_, _, mems) => structs.push((name, LLVMType::from_struct(mems))),

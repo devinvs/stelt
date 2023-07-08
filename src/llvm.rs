@@ -35,7 +35,7 @@ impl LLVMType {
         }
     }
 
-    pub fn from_enum(tname: &String, cons: Vec<TypeCons>) -> Vec<(String, LLVMType)> {
+    pub fn from_enum(cons: Vec<TypeCons>) -> Vec<(String, LLVMType)> {
         let mut types = vec![];
         for TypeCons { name, args, .. } in cons {
             match Self::from_type(args) {
