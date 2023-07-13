@@ -499,14 +499,14 @@ impl LIRExpression {
                 Ok(Some("poison".to_string()))
             }
             Self::CastTuple(exp, ty, _) => {
-                let base = ty.split(".").next().unwrap();
+                let base = exp.ty();
                 let exp = exp.compile(module)?.unwrap();
                 let out = module.var();
 
                 let ptr = module.var();
 
-                writeln!(module, "\t{ptr} = alloca %{base}")?;
-                writeln!(module, "\tstore %{base} {exp}, ptr {ptr}")?;
+                writeln!(module, "\t{ptr} = alloca {base}")?;
+                writeln!(module, "\tstore {base} {exp}, ptr {ptr}")?;
                 writeln!(module, "\t{out} = load %{ty}, ptr {ptr}")?;
 
                 Ok(Some(out))

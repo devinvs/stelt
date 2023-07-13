@@ -19,6 +19,8 @@ pub struct MIRTree {
 
     pub constructors: HashMap<String, Type>,
     pub declarations: HashMap<String, Type>,
+
+    pub imports: HashSet<String>,
 }
 
 impl MIRTree {
@@ -136,6 +138,7 @@ impl MIRTree {
             constructors,
             declarations,
             structs,
+            imports: tree.imports,
         }
     }
 
@@ -290,6 +293,7 @@ impl MIRExpression {
 
     fn from(tree: Expression, cons: &HashMap<String, Type>) -> Self {
         match tree {
+            Expression::Namespace(..) => panic!(),
             Expression::Num(n) => Self::Num(n, Some(Type::I32)),
             Expression::Str(s) => Self::Str(s, Some(Type::Str)),
             Expression::Unit => Self::Unit(Some(Type::Unit)),
@@ -401,7 +405,7 @@ impl MIRExpression {
             Self::Member(_, _, t) => t,
         }
         .clone()
-        .unwrap()
+        .expect(&format!("{:?}", self))
     }
 
     pub fn set_type(&mut self, ty: Type) {
@@ -527,6 +531,7 @@ impl Pattern {
     fn sub_types(self, subs: &HashMap<String, Type>) -> Self {
         let t = self.ty().replace_all(subs);
         match self {
+            Pattern::Namespace(..) => panic!(),
             Pattern::Var(x, _) => Pattern::Var(x, Some(t)),
             Pattern::Unit(_) => Pattern::Unit(Some(t)),
             Pattern::Num(n, _) => Pattern::Num(n, Some(t)),

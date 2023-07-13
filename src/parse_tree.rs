@@ -1,14 +1,16 @@
 use std::collections::HashMap;
-use std::collections::LinkedList as List;
 use std::collections::HashSet;
+use std::collections::LinkedList as List;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ParseTree {
     pub types: HashMap<String, DataDecl>,
     pub typedefs: HashMap<String, Type>,
     pub funcs: HashMap<String, Vec<FunctionDef>>,
     pub defs: HashMap<String, Expression>,
-    pub external: HashSet<String>
+    pub external: HashSet<String>,
+    pub namespaces: HashSet<String>,
+    pub imports: HashSet<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -17,7 +19,7 @@ pub struct ParseTree {
 /// constructors. Both have generic type args
 pub enum DataDecl {
     Product(String, Vec<String>, Vec<(String, Type)>),
-    Sum(String, Vec<String>, Vec<TypeCons>)
+    Sum(String, Vec<String>, Vec<TypeCons>),
 }
 
 #[derive(Debug, Clone)]
@@ -27,7 +29,6 @@ pub struct TypeCons {
     pub args: Type,
 }
 
-
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum Type {
     ForAll(Vec<String>, Box<Type>),
@@ -35,6 +36,7 @@ pub enum Type {
     Arrow(Box<Type>, Box<Type>),
     Tuple(Vec<Type>),
     Ident(String),
+    Namespace(String, String),
 
     // Builtins
     U8,
@@ -56,9 +58,19 @@ pub enum Type {
 impl Type {
     pub fn to_string(&self) -> String {
         match self {
-            Type::Generic(args, t) => format!("{}${}$", t.to_string(), args.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(",")),
+            Type::Generic(args, t) => format!(
+                "{}${}$",
+                t.to_string(),
+                args.iter()
+                    .map(|t| t.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
             Type::Arrow(a, b) => format!("{}->{}", a.to_string(), b.to_string()),
-            Type::Tuple(ts) => format!("({})", ts.iter().map(Type::to_string).collect::<Vec<_>>().join(",")),
+            Type::Tuple(ts) => format!(
+                "({})",
+                ts.iter().map(Type::to_string).collect::<Vec<_>>().join(",")
+            ),
             Type::Ident(s) => s.clone(),
 
             Type::U8 => "u8".to_string(),
@@ -72,7 +84,7 @@ impl Type {
             Type::Str => "str".to_string(),
             Type::Unit => "()".to_string(),
 
-            _ => panic!()
+            _ => panic!(),
         }
     }
 }
@@ -115,10 +127,13 @@ pub enum Expression {
     /// A lambda expression with pattern args and an expression body
     Lambda(Pattern, Box<Expression>),
 
+    /// Get a field from a namespace
+    Namespace(String, String),
+
     // Constant Fields
     Num(u64),    // A Number Literal
     Str(String), // A String Literal
-    Unit
+    Unit,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -131,7 +146,8 @@ pub enum Pattern {
     Var(String, Option<Type>),
 
     Tuple(Vec<Pattern>, Option<Type>),
-    Cons(String, Box<Pattern>, Option<Type>)
+    Cons(String, Box<Pattern>, Option<Type>),
+    Namespace(String, Box<Pattern>, Option<Type>),
 }
 
 impl Pattern {
@@ -153,19 +169,22 @@ impl Pattern {
                 l
             }
             Pattern::Cons(_, p, _) => p.free_vars(),
-            _ => List::new()
+            _ => List::new(),
         }
     }
 
     pub fn ty(&self) -> Type {
         match self {
-            Pattern::Var(_,  t) => t,
+            Pattern::Var(_, t) => t,
             Pattern::Unit(t) => t,
             Pattern::Num(_, t) => t,
             Pattern::Str(_, t) => t,
             Pattern::Tuple(_, t) => t,
-            Pattern::Cons(_, _, t) => t
-        }.clone().unwrap()
+            Pattern::Cons(_, _, t) => t,
+            Pattern::Namespace(_, _, t) => t,
+        }
+        .clone()
+        .unwrap()
     }
 
     pub fn set_type(&mut self, ty: Type) {
@@ -175,7 +194,8 @@ impl Pattern {
             Pattern::Num(_, t) => *t = Some(ty),
             Pattern::Str(_, t) => *t = Some(ty),
             Pattern::Tuple(_, t) => *t = Some(ty),
-            Pattern::Cons(_, _, t) => *t = Some(ty)
+            Pattern::Cons(_, _, t) => *t = Some(ty),
+            Pattern::Namespace(_, _, t) => *t = Some(ty),
         }
     }
 }

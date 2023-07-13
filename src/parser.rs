@@ -17,10 +17,24 @@ impl ParseTree {
             funcs: HashMap::new(),
             defs: HashMap::new(),
             external: HashSet::new(),
+            namespaces: HashSet::new(),
+            imports: HashSet::new(),
         };
 
         loop {
             match t.peek() {
+                Some(Lexeme {
+                    token: Token::Import,
+                }) => {
+                    t.assert(Token::Import)?;
+                    let mut namespace = t.ident()?;
+                    while t.consume(Token::Dot).is_some() {
+                        namespace.push_str(".");
+                        namespace.push_str(&t.ident()?);
+                    }
+
+                    me.namespaces.insert(namespace);
+                }
                 Some(Lexeme {
                     token: Token::Extern,
                     ..
@@ -87,7 +101,7 @@ impl ParseTree {
                 }) => {
                     let name = t.ident()?;
 
-                    let expr = Expression::parse(t)?;
+                    let expr = Expression::parse(t)?.extract_ns(&me.namespaces);
                     me.defs.insert(name, expr);
                 }
                 Some(Lexeme {
@@ -95,7 +109,7 @@ impl ParseTree {
                     ..
                 }) => {
                     let name = t.ident()?;
-                    let func = FunctionDef::parse(t, name)?;
+                    let func = FunctionDef::parse(t, name, &me.namespaces)?;
                     if let Some(f) = me.funcs.get_mut(&func.name) {
                         f.push(func);
                     } else {
@@ -114,9 +128,118 @@ impl ParseTree {
 
         Ok(me)
     }
+
+    /// Resolve all namespace references
+    ///
+    /// Type references are copied into our tree
+    /// Functions and defs have their type decls copied
+    /// Generic functions have their bodies copied into our tree
+    pub fn resolve(self, mods: &HashMap<String, Self>) -> Self {
+        let mut ref_types = HashMap::new();
+        let mut typedefs = self
+            .typedefs
+            .into_iter()
+            .map(|(name, td)| (name, td.resolve(&mut ref_types, mods)))
+            .collect();
+
+        let mut types: HashMap<String, DataDecl> = self
+            .types
+            .into_iter()
+            .map(|(name, data)| (name, data.resolve(&mut ref_types, mods)))
+            .collect();
+
+        let mut generics = HashMap::new();
+        let mut funcs: HashMap<String, Vec<FunctionDef>> = self
+            .funcs
+            .into_iter()
+            .map(|(name, fs)| {
+                (
+                    name,
+                    fs.into_iter()
+                        .map(|f| f.resolve(&mut ref_types, &mut typedefs, &mut generics, mods))
+                        .collect(),
+                )
+            })
+            .collect();
+
+        let defs: HashMap<String, Expression> = self
+            .defs
+            .into_iter()
+            .map(|(name, d)| {
+                (
+                    name,
+                    d.resolve(&mut ref_types, &mut typedefs, &mut generics, mods),
+                )
+            })
+            .collect();
+
+        let mut imports = HashSet::new();
+        imports.extend(ref_types.clone().into_keys());
+        imports.extend(generics.clone().into_keys());
+
+        types.extend(ref_types);
+        funcs.extend(generics);
+
+        Self {
+            types,
+            external: self.external,
+            typedefs,
+            funcs,
+            defs,
+            namespaces: self.namespaces,
+            imports,
+        }
+    }
 }
 
 impl DataDecl {
+    fn qualify(self, prefix: &str, me: &ParseTree) -> Self {
+        match self {
+            Self::Product(name, args, mems) => Self::Product(
+                name,
+                args,
+                mems.into_iter()
+                    .map(|(name, t)| (name, t.qualify(prefix, me)))
+                    .collect(),
+            ),
+            Self::Sum(name, args, cons) => Self::Sum(
+                name,
+                args,
+                cons.into_iter()
+                    .map(|cons| cons.qualify(prefix, me))
+                    .collect(),
+            ),
+        }
+    }
+
+    fn has_cons(&self, name: &str) -> bool {
+        match self {
+            Self::Product(..) => false,
+            Self::Sum(_, _, cons) => cons.iter().any(|c| c.name == name),
+        }
+    }
+
+    fn resolve(
+        self,
+        rt: &mut HashMap<String, DataDecl>,
+        mods: &HashMap<String, ParseTree>,
+    ) -> Self {
+        match self {
+            Self::Product(name, args, mems) => Self::Product(
+                name,
+                args,
+                mems.into_iter()
+                    .map(|(n, t)| (n, t.resolve(rt, mods)))
+                    .collect(),
+            ),
+            Self::Sum(name, args, cons) => Self::Sum(
+                name,
+                args,
+                cons.into_iter().map(|c| c.resolve(rt, mods)).collect(),
+            ),
+        }
+    }
+
     fn parse(t: &mut TokenStream, name: String, args: Vec<String>) -> Result<Self, String> {
         if t.consume(Token::LCurly).is_some() {
             let mut members = Vec::new();
@@ -154,6 +277,24 @@ impl DataDecl {
 }
 
 impl TypeCons {
+    fn qualify(self, prefix: &str, me: &ParseTree) -> Self {
+        Self {
+            name: format!("{prefix}.{}", self.name),
+            args: self.args.qualify(prefix, me),
+        }
+    }
+
+    fn resolve(
+        self,
+        rt: &mut HashMap<String, DataDecl>,
+        mods: &HashMap<String, ParseTree>,
+    ) -> Self {
+        Self {
+            name: self.name,
+            args: self.args.resolve(rt, mods),
+        }
+    }
+
     fn parse(t: &mut TokenStream) -> Result<Self, String> {
         let name = t.ident()?;
 
@@ -168,7 +309,29 @@ impl TypeCons {
 }
 
 impl FunctionDef {
-    fn parse(t: &mut TokenStream, name: String) -> Result<Self, String> {
+    fn qualify(self, prefix: &str, me: &ParseTree) -> Self {
+        Self {
+            name: self.name,
+            args: self.args.qualify(prefix, me),
+            body: self.body.qualify(prefix, me),
+        }
+    }
+
+    fn resolve(
+        self,
+        rt: &mut HashMap<String, DataDecl>,
+        td: &mut HashMap<String, Type>,
+        g: &mut HashMap<String, Vec<FunctionDef>>,
+        mods: &HashMap<String, ParseTree>,
+    ) -> Self {
+        Self {
+            name: self.name,
+            args: self.args.resolve(rt, mods),
+            body: self.body.resolve(rt, td, g, mods),
+        }
+    }
+
+    fn parse(t: &mut TokenStream, name: String, ns: &HashSet<String>) -> Result<Self, String> {
         // Force function def to start with open paren, but don't consume
         if !t.test(Token::LParen) {
             // Guaranteed to error
@@ -179,13 +342,73 @@ impl FunctionDef {
 
         t.assert(Token::Assign)?;
 
-        let body = Expression::parse(t)?;
+        let body = Expression::parse(t)?.extract_ns(ns);
 
         return Ok(FunctionDef { name, args, body });
     }
 }
 
 impl Type {
+    fn qualify(self, prefix: &str, me: &ParseTree) -> Self {
+        match self {
+            Type::Ident(t) => {
+                if me.types.contains_key(&t) {
+                    Type::Ident(format!("{}.{}", prefix, t))
+                } else {
+                    Type::Ident(t)
+                }
+            }
+            Type::ForAll(args, t) => Type::ForAll(args, Box::new(t.qualify(prefix, me))),
+            Type::Generic(ts, t) => Type::Generic(
+                ts.into_iter().map(|t| t.qualify(prefix, me)).collect(),
+                Box::new(t.qualify(prefix, me)),
+            ),
+            Type::Arrow(a, b) => Type::Arrow(
+                Box::new(a.qualify(prefix, me)),
+                Box::new(b.qualify(prefix, me)),
+            ),
+            Type::Tuple(ts) => Type::Tuple(ts.into_iter().map(|t| t.qualify(prefix, me)).collect()),
+            a => a,
+        }
+    }
+
+    fn resolve(
+        self,
+        ref_types: &mut HashMap<String, DataDecl>,
+        mods: &HashMap<String, ParseTree>,
+    ) -> Self {
+        match self {
+            Self::Namespace(ns, t) => {
+                let ref_type = mods[&ns].types[&t].clone();
+
+                // the ref_type can contain other referenced types from other modules,
+                // so we must resolve those first
+                let mut other_types = HashMap::new();
+                let ref_type = ref_type
+                    .resolve(&mut other_types, mods)
+                    .qualify(&ns, &mods[&ns]);
+
+                ref_types.insert(format!("{ns}.{t}"), ref_type);
+                ref_types.extend(other_types);
+
+                Self::Ident(format!("{ns}.{t}"))
+            }
+            Self::ForAll(vars, t) => Self::ForAll(vars, Box::new(t.resolve(ref_types, mods))),
+            Self::Generic(ts, t) => Self::Generic(
+                ts.into_iter().map(|t| t.resolve(ref_types, mods)).collect(),
+                Box::new(t.resolve(ref_types, mods)),
+            ),
+            Self::Arrow(a, b) => Self::Arrow(
+                Box::new(a.resolve(ref_types, mods)),
+                Box::new(b.resolve(ref_types, mods)),
+            ),
+            Self::Tuple(ts) => {
+                Self::Tuple(ts.into_iter().map(|t| t.resolve(ref_types, mods)).collect())
+            }
+            a => a,
+        }
+    }
+
     pub fn from_str(s: &str) -> Result<Self, String> {
         let mut l = Lexer::default();
         let mut tokens = l.lex(s)?;
@@ -272,9 +495,20 @@ impl Type {
     fn parse_base(t: &mut TokenStream) -> Result<Self, String> {
         Ok(match t.next() {
             Some(Lexeme {
-                token: Token::Ident(i),
+                token: Token::Ident(mut i),
                 ..
-            }) => Self::Ident(i),
+            }) => {
+                while t.consume(Token::Dot).is_some() {
+                    i.push_str(".");
+                    i.push_str(&t.ident()?);
+                }
+
+                if let Some((ns, t)) = i.rsplit_once(".") {
+                    Type::Namespace(ns.to_string(), t.to_string())
+                } else {
+                    Type::Ident(i)
+                }
+            }
             Some(Lexeme {
                 token: Token::U8, ..
             }) => Self::U8,
@@ -309,6 +543,174 @@ impl Type {
 }
 
 impl Expression {
+    // Convert global identifiers to fully qualified name
+    fn qualify(self, prefix: &str, me: &ParseTree) -> Self {
+        match self {
+            Self::Identifier(i) => {
+                if me.typedefs.contains_key(&i) {
+                    Expression::Identifier(format!("{prefix}.{i}"))
+                } else if me.types.values().any(|data| data.has_cons(&i)) {
+                    Expression::Identifier(format!("{prefix}.{i}"))
+                } else {
+                    Self::Identifier(i)
+                }
+            }
+            Expression::Tuple(es) => {
+                Expression::Tuple(es.into_iter().map(|e| e.qualify(prefix, me)).collect())
+            }
+            Expression::ExprList(es) => {
+                Expression::ExprList(es.into_iter().map(|e| e.qualify(prefix, me)).collect())
+            }
+            Expression::Let(p, x, n) => Expression::Let(
+                p.qualify(prefix, me),
+                Box::new(x.qualify(prefix, me)),
+                Box::new(n.qualify(prefix, me)),
+            ),
+            Expression::If(c, a, b) => Expression::If(
+                Box::new(c.qualify(prefix, me)),
+                Box::new(a.qualify(prefix, me)),
+                Box::new(b.qualify(prefix, me)),
+            ),
+            Expression::Match(e, ps) => Expression::Match(
+                Box::new(e.qualify(prefix, me)),
+                ps.into_iter()
+                    .map(|(p, e)| (p.qualify(prefix, me), e.qualify(prefix, me)))
+                    .collect(),
+            ),
+            Expression::Call(m, n) => Expression::Call(
+                Box::new(m.qualify(prefix, me)),
+                Box::new(n.qualify(prefix, me)),
+            ),
+            Expression::Member(e, n) => Expression::Member(Box::new(e.qualify(prefix, me)), n),
+            Expression::Lambda(x, n) => {
+                Expression::Lambda(x.qualify(prefix, me), Box::new(n.qualify(prefix, me)))
+            }
+            a => a,
+        }
+    }
+
+    fn resolve(
+        self,
+        rt: &mut HashMap<String, DataDecl>,
+        td: &mut HashMap<String, Type>,
+        g: &mut HashMap<String, Vec<FunctionDef>>,
+        mods: &HashMap<String, ParseTree>,
+    ) -> Self {
+        match self {
+            Expression::Namespace(ns, n) => {
+                if let Some(t) = mods[&ns].typedefs.get(&n) {
+                    // this is a function/def with a declared tye
+                    let t = t.clone().resolve(rt, mods).qualify(&ns, &mods[&ns]);
+                    td.insert(format!("{ns}.{n}"), t.clone());
+
+                    // we need a copy of generic functions
+                    if let Type::ForAll(args, _) = t {
+                        if args.len() > 0 {
+                            let f = mods[&ns].funcs[&n].clone();
+                            // resolve references inside of f
+                            let f = f
+                                .into_iter()
+                                .map(|fd| fd.resolve(rt, td, g, mods))
+                                .map(|fd| fd.qualify(&ns, &mods[&ns]))
+                                .collect();
+
+                            g.insert(format!("{ns}.{n}"), f);
+                        }
+                    }
+                } else {
+                    // This is a type cons
+                    let t = mods[&ns]
+                        .types
+                        .iter()
+                        .find(|(_, t)| t.has_cons(&n))
+                        .unwrap();
+                    let newt = t.1.clone().resolve(rt, mods).qualify(&ns, &mods[&ns]);
+                    rt.insert(format!("{ns}.{}", t.0), newt);
+                }
+
+                Expression::Identifier(format!("{ns}.{n}"))
+            }
+            Expression::Tuple(es) => {
+                Expression::Tuple(es.into_iter().map(|e| e.resolve(rt, td, g, mods)).collect())
+            }
+            Expression::ExprList(es) => {
+                Expression::ExprList(es.into_iter().map(|e| e.resolve(rt, td, g, mods)).collect())
+            }
+            Expression::Let(p, x, n) => Expression::Let(
+                p.resolve(rt, mods),
+                Box::new(x.resolve(rt, td, g, mods)),
+                Box::new(n.resolve(rt, td, g, mods)),
+            ),
+            Expression::If(c, a, b) => Expression::If(
+                Box::new(c.resolve(rt, td, g, mods)),
+                Box::new(a.resolve(rt, td, g, mods)),
+                Box::new(b.resolve(rt, td, g, mods)),
+            ),
+            Expression::Match(e, ps) => Expression::Match(
+                Box::new(e.resolve(rt, td, g, mods)),
+                ps.into_iter()
+                    .map(|(p, e)| (p.resolve(rt, mods), e.resolve(rt, td, g, mods)))
+                    .collect(),
+            ),
+            Expression::Call(m, n) => Expression::Call(
+                Box::new(m.resolve(rt, td, g, mods)),
+                Box::new(n.resolve(rt, td, g, mods)),
+            ),
+            Expression::Member(e, n) => Expression::Member(Box::new(e.resolve(rt, td, g, mods)), n),
+            Expression::Lambda(x, n) => {
+                Expression::Lambda(x.resolve(rt, mods), Box::new(n.resolve(rt, td, g, mods)))
+            }
+            a => a,
+        }
+    }
+
+    fn extract_ns(self, ns: &HashSet<String>) -> Self {
+        match self {
+            Expression::Member(e, n) => {
+                for ns in ns {
+                    if e.is_ns(ns) {
+                        return Expression::Namespace(ns.to_string(), n);
+                    }
+                }
+
+                Expression::Member(Box::new(e.extract_ns(ns)), n)
+            }
+            Expression::Tuple(es) => {
+                Expression::Tuple(es.into_iter().map(|e| e.extract_ns(ns)).collect())
+            }
+            Expression::ExprList(es) => {
+                Expression::ExprList(es.into_iter().map(|e| e.extract_ns(ns)).collect())
+            }
+            Expression::Let(p, x, then) => {
+                Expression::Let(p, Box::new(x.extract_ns(ns)), Box::new(then.extract_ns(ns)))
+            }
+            Expression::If(c, a, b) => Expression::If(
+                Box::new(c.extract_ns(ns)),
+                Box::new(a.extract_ns(ns)),
+                Box::new(b.extract_ns(ns)),
+            ),
+            Expression::Match(e, ps) => Expression::Match(
+                Box::new(e.extract_ns(ns)),
+                ps.into_iter().map(|(p, e)| (p, e.extract_ns(ns))).collect(),
+            ),
+            Expression::Call(m, n) => {
+                Expression::Call(Box::new(m.extract_ns(ns)), Box::new(n.extract_ns(ns)))
+            }
+            Expression::Lambda(x, m) => Expression::Lambda(x, Box::new(m.extract_ns(ns))),
+            a => a,
+        }
+    }
+
+    fn is_ns(&self, ns: &str) -> bool {
+        if let Expression::Member(e, n) = self {
+            if let Some((left, right)) = ns.rsplit_once(".") {
+                return right == n && e.is_ns(left);
+            }
+        }
+
+        true
+    }
+
     pub fn parse_list_scoped(t: &mut TokenStream) -> Result<Vec<Expression>, String> {
         let mut exprs = vec![];
         while !t.test(Token::RCurly) {
@@ -786,6 +1188,50 @@ impl Expression {
 }
 
 impl Pattern {
+    fn qualify(self, prefix: &str, me: &ParseTree) -> Self {
+        match self {
+            Pattern::Tuple(ps, t) => {
+                Pattern::Tuple(ps.into_iter().map(|p| p.qualify(prefix, me)).collect(), t)
+            }
+            Pattern::Cons(name, args, t) => {
+                let name = if me.types.values().any(|data| data.has_cons(&name)) {
+                    format!("{prefix}.{name}")
+                } else {
+                    name
+                };
+
+                Pattern::Cons(name, Box::new(args.qualify(prefix, me)), t)
+            }
+            a => a,
+        }
+    }
+
+    fn resolve(
+        self,
+        rt: &mut HashMap<String, DataDecl>,
+        mods: &HashMap<String, ParseTree>,
+    ) -> Self {
+        match self {
+            Pattern::Namespace(ns, p, _) => {
+                if let Pattern::Cons(n, args, t) = *p {
+                    let newt = mods[&ns].types[&n]
+                        .clone()
+                        .resolve(rt, mods)
+                        .qualify(&ns, &mods[&ns]);
+                    rt.insert(format!("{ns}.{n}"), newt);
+                    Pattern::Cons(format!("{ns}.{n}"), args, t)
+                } else {
+                    panic!()
+                }
+            }
+            Pattern::Tuple(ps, t) => {
+                Pattern::Tuple(ps.into_iter().map(|p| p.resolve(rt, mods)).collect(), t)
+            }
+            Pattern::Cons(n, args, t) => Pattern::Cons(n, Box::new(args.resolve(rt, mods)), t),
+            a => a,
+        }
+    }
+
     fn parse(t: &mut TokenStream) -> Result<Pattern, String> {
         if let Some(()) = t.consume(Token::LParen) {
             // We are either the unit type or the tuple type
@@ -853,26 +1299,43 @@ impl Pattern {
                 ..
             }) => Ok(Pattern::Str(s, Some(Type::Str))),
             Some(Lexeme {
-                token: Token::Ident(i),
+                token: Token::Ident(mut i),
                 ..
             }) => {
-                // either variable or constructor...
-                if t.consume(Token::Dot).is_some() {
-                    let var = t.ident()?;
+                while t.consume(Token::Dot).is_some() {
+                    i.push_str(".");
+                    i.push_str(&t.ident()?);
+                }
 
+                if let Some((ns, f)) = i.rsplit_once(".") {
+                    // This is a namespaced constructor
                     let args = if t.test(Token::LParen) {
                         Pattern::parse(t)?
                     } else {
                         Pattern::Unit(Some(Type::Unit))
                     };
 
-                    Ok(Pattern::Cons(format!("{i}.{var}"), Box::new(args), None))
-                } else if t.test(Token::LParen) {
-                    let args = Self::parse(t)?;
-
-                    Ok(Pattern::Cons(i, Box::new(args), None))
+                    Ok(Pattern::Namespace(
+                        ns.to_string(),
+                        Box::new(Pattern::Cons(f.to_string(), Box::new(args), None)),
+                        None,
+                    ))
                 } else {
-                    Ok(Pattern::Var(i, None))
+                    // either a variable or a constructor
+                    // lets enforce that constructors *must* start with a capital
+                    // and that variables have to start with lowercase
+
+                    if i.chars().next().unwrap().is_uppercase() {
+                        // This is a namespaced constructor
+                        let args = if t.test(Token::LParen) {
+                            Pattern::parse(t)?
+                        } else {
+                            Pattern::Unit(Some(Type::Unit))
+                        };
+                        Ok(Pattern::Cons(i, Box::new(args), None))
+                    } else {
+                        Ok(Pattern::Var(i, None))
+                    }
                 }
             }
             _ => panic!("unexpected token"),

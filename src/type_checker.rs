@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use crate::parse_tree::{Type, Pattern};
-use crate::unify::Term;
-use crate::unify::unify;
-use crate::unify::apply_unifier;
 use crate::mir::MIRExpression as Expression;
+use crate::parse_tree::{Pattern, Type};
+use crate::unify::apply_unifier;
+use crate::unify::unify;
+use crate::unify::Term;
 
-use crate::mir::MIRTree;
 use crate::builtin::BUILTIN;
+use crate::mir::MIRTree;
 
 type Theta = HashMap<Term<String>, Term<String>>;
 type Gamma<'a> = &'a HashMap<String, Type>;
@@ -32,82 +32,65 @@ impl Type {
             Self::Generic(args, t) => {
                 let name = match &**t {
                     Type::Ident(s) => s.clone(),
-                    _ => panic!("why would you do this to me?")
+                    _ => panic!("why would you do this to me?"),
                 };
 
-                Term::Composite(
-                    name,
-                    args.into_iter()
-                        .map(|a| a.to_term())
-                        .collect()
-                )
-            },
-            Self::Arrow(a, b) => {
-                Term::Composite(
-                    "->".to_string(),
-                    vec![
-                        a.to_term(),
-                        b.to_term(),
-                    ]
-                )
-            },
-            Self::Tuple(ts) => {
-                Term::Composite(
-                    "tuple".to_string(),
-                    ts.into_iter()
-                        .map(|t| t.to_term())
-                        .collect()
-                )
-            },
-            Self::Ident(s) => {
-                Term::Const(s.clone())
+                Term::Composite(name, args.into_iter().map(|a| a.to_term()).collect())
             }
-            Self::Var(n) => {
-                Term::Var(*n)
-            }
-            _ => panic!("plz no")
+            Self::Arrow(a, b) => Term::Composite("->".to_string(), vec![a.to_term(), b.to_term()]),
+            Self::Tuple(ts) => Term::Composite(
+                "tuple".to_string(),
+                ts.into_iter().map(|t| t.to_term()).collect(),
+            ),
+            Self::Ident(s) => Term::Const(s.clone()),
+            Self::Var(n) => Term::Var(*n),
+            _ => panic!("plz no"),
         }
     }
 
     pub fn from_term(t: Term<String>) -> Self {
         match t {
             // Base const types
-            Term::Const(a) if a=="u8" => Self::U8,
-            Term::Const(a) if a=="u16" => Self::U16,
-            Term::Const(a) if a=="u32" => Self::U32,
-            Term::Const(a) if a=="u64" => Self::U64,
-            Term::Const(a) if a=="i8" => Self::I8,
-            Term::Const(a) if a=="i16" => Self::I16,
-            Term::Const(a) if a=="i32" => Self::I32,
-            Term::Const(a) if a=="i64" => Self::I64,
-            Term::Const(a) if a=="str" => Self::Str,
-            Term::Const(a) if a=="()" => Self::Unit,
+            Term::Const(a) if a == "u8" => Self::U8,
+            Term::Const(a) if a == "u16" => Self::U16,
+            Term::Const(a) if a == "u32" => Self::U32,
+            Term::Const(a) if a == "u64" => Self::U64,
+            Term::Const(a) if a == "i8" => Self::I8,
+            Term::Const(a) if a == "i16" => Self::I16,
+            Term::Const(a) if a == "i32" => Self::I32,
+            Term::Const(a) if a == "i64" => Self::I64,
+            Term::Const(a) if a == "str" => Self::Str,
+            Term::Const(a) if a == "()" => Self::Unit,
             Term::Const(a) => Self::Ident(a),
 
             // Composite types
-            Term::Composite(a, b) if a=="tuple" => Self::Tuple(b.into_iter().map(|t| Type::from_term(t)).collect()),
-            Term::Composite(a, b) if a=="->" => Self::Arrow(Box::new(Type::from_term(b[0].clone())), Box::new(Type::from_term(b[1].clone()))),
-            Term::Composite(a, b) => Self::Generic(b.into_iter().map(|t| Type::from_term(t)).collect(), Box::new(Type::Ident(a))),
+            Term::Composite(a, b) if a == "tuple" => {
+                Self::Tuple(b.into_iter().map(|t| Type::from_term(t)).collect())
+            }
+            Term::Composite(a, b) if a == "->" => Self::Arrow(
+                Box::new(Type::from_term(b[0].clone())),
+                Box::new(Type::from_term(b[1].clone())),
+            ),
+            Term::Composite(a, b) => Self::Generic(
+                b.into_iter().map(|t| Type::from_term(t)).collect(),
+                Box::new(Type::Ident(a)),
+            ),
 
             // Var...
-            Term::Var(i) => Self::Var(i)
+            Term::Var(i) => Self::Var(i),
         }
     }
 
     fn map(&self, m: &HashMap<String, Type>) -> Self {
         match self {
             Self::Ident(s) => m.get(s).unwrap_or(&self).clone(),
-            Self::Tuple(ts) => Self::Tuple(
-                ts.into_iter()
-                .map(|t| t.map(m))
-                .collect()
-            ),
+            Self::Tuple(ts) => Self::Tuple(ts.into_iter().map(|t| t.map(m)).collect()),
             Self::Arrow(a, b) => Self::Arrow(Box::new(a.map(m)), Box::new(b.map(m))),
             Self::Generic(vars, a) => Self::Generic(
                 vars.into_iter().map(|t| t.map(m)).collect(),
                 Box::new(a.map(m)),
             ),
-            _ => self.clone()
+            _ => self.clone(),
         }
     }
 }
@@ -125,6 +108,7 @@ impl TypeChecker {
     pub fn check_program(&mut self, tree: &mut MIRTree) -> Result<(), String> {
         // Check all defs
         for (name, def) in tree.defs.iter_mut() {
+            // Don't type check imported functions
             let ty = tree.declarations.get(name).unwrap().clone();
             let subs = self.check_expression(
                 &BUILTIN,
@@ -132,7 +116,7 @@ impl TypeChecker {
                 &tree.declarations,
                 &tree.structs,
                 def,
-                ty.clone()
+                ty.clone(),
             )?;
             def.apply(&subs)
         }
@@ -140,13 +124,14 @@ impl TypeChecker {
         // Check all functions
         for (name, func) in tree.funcs.iter_mut() {
             let ty = tree.declarations.get(name).unwrap().clone();
+
             let subs = self.check_expression(
                 &BUILTIN,
                 &tree.constructors,
                 &tree.declarations,
                 &tree.structs,
                 func,
-                ty.clone()
+                ty.clone(),
             )?;
 
             func.apply(&subs)
@@ -155,7 +140,15 @@ impl TypeChecker {
         Ok(())
     }
 
-    fn check_expression(&mut self, b: Gamma, c: Gamma, d: Gamma, s: GammaStruct, e: &mut Expression, t: Type) -> Result<Theta, String> {
+    fn check_expression(
+        &mut self,
+        b: Gamma,
+        c: Gamma,
+        d: Gamma,
+        s: GammaStruct,
+        e: &mut Expression,
+        t: Type,
+    ) -> Result<Theta, String> {
         let simple = match t {
             Type::ForAll(_, t) => *t,
             _ => t.clone(),
@@ -181,7 +174,7 @@ impl TypeChecker {
 
                 inner.map(&m)
             }
-            a => a.clone()
+            a => a.clone(),
         }
     }
 
@@ -194,29 +187,27 @@ impl TypeChecker {
             (Some(t), _, _) => Some(t),
             (_, Some(t), _) => Some(t),
             (_, _, Some(t)) => Some(t),
-            _ => None
-        }.map(|t| self.gen_fresh_type(t))
+            _ => None,
+        }
+        .map(|t| self.gen_fresh_type(t))
     }
 
     fn judge_unit(&mut self, t: Type, subs: Theta) -> Result<Theta, String> {
         let tname = apply_unifier(t.to_term(), &subs).name();
-        unify(Type::Unit.to_term(), t.to_term(), subs).ok_or(
-            format!("Type Mismatch: Expected () found {:?}", tname)
-        )
+        unify(Type::Unit.to_term(), t.to_term(), subs)
+            .ok_or(format!("Type Mismatch: Expected () found {:?}", tname))
     }
 
     fn judge_num(&mut self, t: Type, subs: Theta) -> Result<Theta, String> {
         let tname = apply_unifier(t.to_term(), &subs).name();
-        unify(Type::I32.to_term(), t.to_term(), subs).ok_or(
-            format!("Type Mismatch: Expected u64 found {:?}", tname)
-        )
+        unify(Type::I32.to_term(), t.to_term(), subs)
+            .ok_or(format!("Type Mismatch: Expected u64 found {:?}", tname))
     }
 
     fn judge_str(&mut self, t: Type, subs: Theta) -> Result<Theta, String> {
         let tname = apply_unifier(t.to_term(), &subs).name();
-        unify(Type::Str.to_term(), t.to_term(), subs).ok_or(
-            format!("Type Mismatch: Expected str found {:?}", tname)
-        )
+        unify(Type::Str.to_term(), t.to_term(), subs)
+            .ok_or(format!("Type Mismatch: Expected str found {:?}", tname))
     }
 
     fn judge_var(
@@ -226,20 +217,23 @@ impl TypeChecker {
         defined: Gamma,
         e: &mut Expression,
         t: Type,
-        subs: Theta
+        subs: Theta,
     ) -> Result<Theta, String> {
-
-        let name = match e { Expression::Identifier(a, None) => a, _ => panic!() };
-        let x = self.apply_gamma_all(&name, builtins, cons, defined).ok_or(
-            format!("Type not known for {name:?}")
-        )?;
+        let name = match e {
+            Expression::Identifier(a, None) => a,
+            _ => panic!(),
+        };
+        let x = self
+            .apply_gamma_all(&name, builtins, cons, defined)
+            .ok_or(format!("Type not known for {name:?}"))?;
 
         let tname = apply_unifier(t.to_term(), &subs).name();
         let xname = apply_unifier(x.to_term(), &subs).name();
 
-        let theta = unify(x.to_term(), t.to_term(), subs).ok_or(
-            format!("Type Mismatch: Expected {:?} found {:?}", xname, tname)
-        )?;
+        let theta = unify(x.to_term(), t.to_term(), subs).ok_or(format!(
+            "Type Mismatch: Expected {:?} found {:?}",
+            xname, tname
+        ))?;
 
         e.set_type(t);
 
@@ -254,7 +248,7 @@ impl TypeChecker {
         s: GammaStruct,
         e: &mut Expression,
         t: Type,
-        mut subs: Theta
+        mut subs: Theta,
     ) -> Result<Theta, String> {
         let mut ts = vec![];
         match e {
@@ -265,15 +259,16 @@ impl TypeChecker {
                     ts.push(tv);
                 }
             }
-            _ => panic!()
+            _ => panic!(),
         }
 
         let tname = apply_unifier(t.to_term(), &subs).name();
         let xname = apply_unifier(Type::Tuple(ts.clone()).to_term(), &subs).name();
 
-        let subs = unify(Type::Tuple(ts).to_term(), t.to_term(), subs).ok_or(
-            format!("Type Mismatch: Expected {:?} found {:?}", xname, tname)
-        )?;
+        let subs = unify(Type::Tuple(ts).to_term(), t.to_term(), subs).ok_or(format!(
+            "Type Mismatch: Expected {:?} found {:?}",
+            xname, tname
+        ))?;
 
         e.set_type(t);
 
@@ -288,14 +283,14 @@ impl TypeChecker {
         s: GammaStruct,
         e: &mut Expression,
         ty: Type,
-        mut subs: Theta
+        mut subs: Theta,
     ) -> Result<Theta, String> {
         let t1 = self.gen_var();
         let t2 = self.gen_var();
 
         let (x, m) = match e {
             Expression::Lambda1(x, m, _) => (x, m),
-            _ => unreachable!()
+            _ => unreachable!(),
         };
 
         let mut d = d.clone();
@@ -306,9 +301,7 @@ impl TypeChecker {
         // unify t1 with lambda arg type first so that struct resolution can work
         subs = match ty.clone() {
             Type::Arrow(a, _) => {
-                unify(a.to_term(), t1.to_term(), subs).ok_or(
-                    format!("Type check failed here")
-                )?
+                unify(a.to_term(), t1.to_term(), subs).ok_or(format!("Type check failed here"))?
             }
             _ => subs,
             /*
@@ -324,11 +317,21 @@ impl TypeChecker {
         subs = self.judge_type(b, c, &d, s, m, t2.clone(), subs)?;
 
         let tname = apply_unifier(ty.to_term(), &subs).name();
-        let xname = apply_unifier(Type::Arrow(Box::new(t1.clone()), Box::new(t2.clone())).to_term(), &subs).name();
+        let xname = apply_unifier(
+            Type::Arrow(Box::new(t1.clone()), Box::new(t2.clone())).to_term(),
+            &subs,
+        )
+        .name();
 
-        let subs = unify(Type::Arrow(Box::new(t1), Box::new(t2.clone())).to_term(), ty.to_term(), subs).ok_or(
-            format!("Type Mismatch: Expected {:?} found {:?}", tname, xname)
-        )?;
+        let subs = unify(
+            Type::Arrow(Box::new(t1), Box::new(t2.clone())).to_term(),
+            ty.to_term(),
+            subs,
+        )
+        .ok_or(format!(
+            "Type Mismatch: Expected {:?} found {:?}",
+            tname, xname
+        ))?;
 
         m.set_type(t2);
         e.set_type(ty);
@@ -344,11 +347,11 @@ impl TypeChecker {
         s: GammaStruct,
         e: &mut Expression,
         ty: Type,
-        mut subs: Theta
+        mut subs: Theta,
     ) -> Result<Theta, String> {
         let (m, n) = match e {
             Expression::Call(m, n, _) => (m, n),
-            _ => panic!()
+            _ => panic!(),
         };
         let t = self.gen_var();
         let call_t = Type::Arrow(Box::new(t.clone()), Box::new(ty.clone()));
@@ -370,11 +373,11 @@ impl TypeChecker {
         s: GammaStruct,
         e: &mut Expression,
         t: Type,
-        mut subs: Theta
+        mut subs: Theta,
     ) -> Result<Theta, String> {
         let (mat, cases) = match e {
             Expression::Match(m, c, _) => (m, c),
-            _ => panic!()
+            _ => panic!(),
         };
 
         let m_type = self.gen_var();
@@ -403,11 +406,11 @@ impl TypeChecker {
         structs: GammaStruct,
         e: &mut Expression,
         t: Type,
-        mut subs: Theta
+        mut subs: Theta,
     ) -> Result<Theta, String> {
         let (m, n) = match e {
             Expression::Member(m, n, _) => (m, n),
-            _ => unreachable!()
+            _ => unreachable!(),
         };
 
         let struct_var = self.gen_var();
@@ -420,9 +423,7 @@ impl TypeChecker {
             Term::Const(n) => n,
             Term::Composite(n, _) => n,
             Term::Var(_) => {
-                return Err(
-                    format!("Type not known for struct")
-                );
+                return Err(format!("Type not known for struct"));
             }
         };
 
@@ -430,23 +431,21 @@ impl TypeChecker {
             if let Some(ty) = members.get(n) {
                 let ty = self.gen_fresh_type(ty);
 
-                subs = unify(ty.to_term(), t.to_term(), subs).ok_or(
-                    format!("nope not yet i'll write this later")
-                )?;
+                subs = unify(ty.to_term(), t.to_term(), subs)
+                    .ok_or(format!("nope not yet i'll write this later"))?;
 
                 m.set_type(struct_var);
                 e.set_type(t);
 
                 Ok(subs)
             } else {
-                Err(
-                    format!("No member '{}' found for struct '{}'", n, struct_name)
-                )
+                Err(format!(
+                    "No member '{}' found for struct '{}'",
+                    n, struct_name
+                ))
             }
         } else {
-            Err(
-                format!("No struct named {} found", struct_name)
-            )
+            Err(format!("No struct named {} found", struct_name))
         }
     }
 
@@ -458,9 +457,12 @@ impl TypeChecker {
         structs: GammaStruct,
         e: &mut Expression,
         t: Type,
-        mut subs: Theta
+        mut subs: Theta,
     ) -> Result<Theta, String> {
-        let es = match e { Expression::List(a, _) => a, _ => panic!() };
+        let es = match e {
+            Expression::List(a, _) => a,
+            _ => panic!(),
+        };
         let last_i = es.len() - 1;
 
         for i in 0..last_i {
@@ -482,7 +484,7 @@ impl TypeChecker {
         structs: GammaStruct,
         e: &mut Expression,
         t: Type,
-        subs: Theta
+        subs: Theta,
     ) -> Result<Theta, String> {
         match e {
             Expression::Unit(..) => self.judge_unit(t, subs),
@@ -503,11 +505,11 @@ impl TypeChecker {
         d: Gamma,
         p: &mut Pattern,
         t: Type,
-        mut subs: Theta
+        mut subs: Theta,
     ) -> Result<Theta, String> {
         let x = match p {
             Pattern::Var(x, _) => x,
-            _ => panic!()
+            _ => panic!(),
         };
 
         let x = self.apply_gamma(&x, d).unwrap();
@@ -515,9 +517,10 @@ impl TypeChecker {
         let tname = apply_unifier(t.to_term(), &subs).name();
         let xname = apply_unifier(x.to_term(), &subs).name();
 
-        subs = unify(x.to_term(), t.to_term(), subs).ok_or(
-            format!("Type Mismatch: Expected {:?} found {:?}", xname, tname)
-        )?;
+        subs = unify(x.to_term(), t.to_term(), subs).ok_or(format!(
+            "Type Mismatch: Expected {:?} found {:?}",
+            xname, tname
+        ))?;
 
         p.set_type(t);
 
@@ -530,12 +533,12 @@ impl TypeChecker {
         d: Gamma,
         p: &mut Pattern,
         t: Type,
-        mut subs: Theta
+        mut subs: Theta,
     ) -> Result<Theta, String> {
         let mut ts = vec![];
         let ps = match p {
             Pattern::Tuple(es, _) => es,
-            _ => panic!()
+            _ => panic!(),
         };
 
         for pat in ps {
@@ -549,9 +552,10 @@ impl TypeChecker {
         let tname = apply_unifier(t.to_term(), &subs).name();
         let xname = apply_unifier(Type::Tuple(ts.clone()).to_term(), &subs).name();
 
-        subs = unify(Type::Tuple(ts).to_term(), t.to_term(), subs).ok_or(
-            format!("Type Mismatch: Expected {:?} found {:?}", xname, tname)
-        )?;
+        subs = unify(Type::Tuple(ts).to_term(), t.to_term(), subs).ok_or(format!(
+            "Type Mismatch: Expected {:?} found {:?}",
+            xname, tname
+        ))?;
 
         p.set_type(t);
 
@@ -564,11 +568,11 @@ impl TypeChecker {
         d: Gamma,
         p: &mut Pattern,
         t: Type,
-        mut subs: Theta
+        mut subs: Theta,
     ) -> Result<Theta, String> {
         let (m, n) = match p {
             Pattern::Cons(m, n, _) => (m, n),
-            _ => panic!()
+            _ => panic!(),
         };
 
         let newt = self.gen_var();
@@ -579,7 +583,7 @@ impl TypeChecker {
             &HashMap::new(),
             &mut Expression::Identifier(m.clone(), None),
             Type::Arrow(Box::new(newt.clone()), Box::new(t.clone())),
-            subs
+            subs,
         )?;
 
         subs = self.judge_pattern_helper(c, d, n, newt.clone(), subs)?;
@@ -596,9 +600,10 @@ impl TypeChecker {
         d: Gamma,
         p: &mut Pattern,
         t: Type,
-        subs: Theta
+        subs: Theta,
     ) -> Result<Theta, String> {
         match p {
+            Pattern::Namespace(..) => panic!(),
             Pattern::Unit(..) => self.judge_unit(t, subs),
             Pattern::Num(..) => self.judge_num(t, subs),
             Pattern::Str(..) => self.judge_str(t, subs),
@@ -614,19 +619,19 @@ impl TypeChecker {
         d: MutGamma,
         p: &mut Pattern,
         t: Type,
-        subs: Theta
+        subs: Theta,
     ) -> Result<Theta, String> {
         let vars = p.free_vars();
 
         // check that there are no duplicate vars
         {
             let mut m = HashSet::new();
-            for v in vars.iter() { m.insert(v); }
+            for v in vars.iter() {
+                m.insert(v);
+            }
 
             if m.len() != vars.len() {
-                return Err(
-                    "Duplicate Variables in pattern".to_string(),
-                )
+                return Err("Duplicate Variables in pattern".to_string());
             }
         }
 
