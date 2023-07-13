@@ -245,12 +245,6 @@ impl LIRExpression {
     fn compile(self, module: &mut Module) -> Result<Option<String>, Box<dyn Error>> {
         match self {
             Self::If(cond, yes, no, t) => {
-                let out = module.var();
-
-                if t != LLVMType::Void {
-                    writeln!(module, "\t{out} = alloca {t}")?;
-                }
-
                 let cond = cond.compile(module)?.unwrap();
 
                 let yeslab = module.label();
@@ -261,23 +255,23 @@ impl LIRExpression {
 
                 writeln!(module, "{}:", yeslab)?;
                 let yes = yes.compile(module)?;
-                if t != LLVMType::Void {
-                    writeln!(module, "\tstore {t} {}, ptr {out}", yes.unwrap())?;
-                }
                 writeln!(module, "\tbr label %{endlab}")?;
 
                 writeln!(module, "{}:", nolab)?;
                 let no = no.compile(module)?;
-                if t != LLVMType::Void {
-                    writeln!(module, "\tstore {t} {}, ptr {out}", no.unwrap())?;
-                }
                 writeln!(module, "\tbr label %{endlab}")?;
 
                 writeln!(module, "{}:", endlab)?;
-                let fin = module.var();
+
                 if t != LLVMType::Void {
-                    writeln!(module, "\t{fin} = load {t}, ptr {out}")?;
-                    Ok(Some(fin))
+                    let out = module.var();
+                    writeln!(
+                        module,
+                        "\t{out} = phi {t} [{}, %{yeslab}], [{}, %{nolab}]",
+                        yes.unwrap(),
+                        no.unwrap()
+                    )?;
+                    Ok(Some(out))
                 } else {
                     Ok(None)
                 }
@@ -494,10 +488,7 @@ impl LIRExpression {
 
                 Ok(Some(out))
             }
-            Self::Error(_) => {
-                writeln!(module, "unreachable")?;
-                Ok(Some("poison".to_string()))
-            }
+            Self::Error(_) => Ok(Some("poison".to_string())),
             Self::CastTuple(exp, ty, _) => {
                 let base = exp.ty();
                 let exp = exp.compile(module)?.unwrap();
