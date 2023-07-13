@@ -19,6 +19,7 @@ impl ParseTree {
             external: HashSet::new(),
             namespaces: HashSet::new(),
             imports: HashSet::new(),
+            import_funcs: HashMap::new(),
         };
 
         loop {
@@ -136,7 +137,9 @@ impl ParseTree {
     /// Generic functions have their bodies copied into our tree
     pub fn resolve(self, mods: &HashMap<String, Self>) -> Self {
         let mut ref_types = HashMap::new();
-        let mut typedefs = self
+        let mut type_decls = HashMap::new();
+
+        let mut typedefs: HashMap<String, Type> = self
             .typedefs
             .into_iter()
             .map(|(name, td)| (name, td.resolve(&mut ref_types, mods)))
@@ -156,7 +159,7 @@ impl ParseTree {
                 (
                     name,
                     fs.into_iter()
-                        .map(|f| f.resolve(&mut ref_types, &mut typedefs, &mut generics, mods))
+                        .map(|f| f.resolve(&mut ref_types, &mut type_decls, &mut generics, mods))
                         .collect(),
                 )
             })
@@ -168,7 +171,7 @@ impl ParseTree {
             .map(|(name, d)| {
                 (
                     name,
-                    d.resolve(&mut ref_types, &mut typedefs, &mut generics, mods),
+                    d.resolve(&mut ref_types, &mut type_decls, &mut generics, mods),
                 )
             })
             .collect();
@@ -176,8 +179,10 @@ impl ParseTree {
         let mut imports = HashSet::new();
         imports.extend(ref_types.clone().into_keys());
         imports.extend(generics.clone().into_keys());
+        imports.extend(type_decls.clone().into_keys());
 
         types.extend(ref_types);
+        typedefs.extend(type_decls.clone());
         funcs.extend(generics);
 
         Self {
@@ -188,6 +193,7 @@ impl ParseTree {
             defs,
             namespaces: self.namespaces,
             imports,
+            import_funcs: type_decls,
         }
     }
 }
@@ -601,10 +607,8 @@ impl Expression {
                 if let Some(t) = mods[&ns].typedefs.get(&n) {
                     // this is a function/def with a declared tye
                     let t = t.clone().resolve(rt, mods).qualify(&ns, &mods[&ns]);
-                    td.insert(format!("{ns}.{n}"), t.clone());
 
-                    // we need a copy of generic functions
-                    if let Type::ForAll(args, _) = t {
+                    let t = if let Type::ForAll(args, t) = t {
                         if args.len() > 0 {
                             let f = mods[&ns].funcs[&n].clone();
                             // resolve references inside of f
@@ -615,8 +619,15 @@ impl Expression {
                                 .collect();
 
                             g.insert(format!("{ns}.{n}"), f);
+                            Box::new(Type::ForAll(args, t))
+                        } else {
+                            t
                         }
-                    }
+                    } else {
+                        Box::new(t)
+                    };
+
+                    td.insert(format!("{ns}.{n}"), *t.clone());
                 } else {
                     // This is a type cons
                     let t = mods[&ns]

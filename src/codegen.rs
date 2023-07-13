@@ -59,7 +59,7 @@ impl Module {
             .insert("arg.0".to_string(), "%arg.0".to_string());
     }
 
-    pub fn compile(&mut self, tree: LIRTree) -> Result<(), Box<dyn Error>> {
+    pub fn compile(&mut self, tree: LIRTree, prefix: &str) -> Result<(), Box<dyn Error>> {
         // output builtin functions
         writeln!(self, "{}", &BUILTIN_ASM)?;
 
@@ -87,6 +87,15 @@ impl Module {
 
         writeln!(self)?;
 
+        // Output imported function prototypes
+        for (name, t) in tree.import_funcs {
+            let (out, args) = match t {
+                LLVMType::Func(a, b) => (a, b),
+                _ => panic!(),
+            };
+            writeln!(self, "declare {out} @{name} ({args})")?;
+        }
+
         // Output all named structs
         for (name, t) in tree.structs.iter() {
             writeln!(self, "%{} = type {}\n", name, t)?;
@@ -105,6 +114,14 @@ impl Module {
         }
 
         writeln!(self)?;
+
+        let prefixed = |s: &str| {
+            if prefix == "" {
+                s.to_string()
+            } else {
+                format!("{prefix}.{s}")
+            }
+        };
 
         // Output struct constructors
         for (name, t) in tree.structs {
@@ -207,6 +224,7 @@ impl Module {
         for (name, expr) in tree.funcs {
             // get function type
             let (from, to) = tree.func_types.get(&name).unwrap();
+            let name = prefixed(&name);
 
             if *from == LLVMType::Void {
                 writeln!(self, "define {to} @{name}() {{")?;

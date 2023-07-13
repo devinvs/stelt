@@ -21,6 +21,7 @@ pub struct MIRTree {
     pub declarations: HashMap<String, Type>,
 
     pub imports: HashSet<String>,
+    pub import_funcs: HashMap<String, Type>,
 }
 
 impl MIRTree {
@@ -129,6 +130,8 @@ impl MIRTree {
             );
         });
 
+        dbg!(&tree.imports);
+
         Self {
             external: tree.external,
             types: tree.types,
@@ -139,6 +142,7 @@ impl MIRTree {
             declarations,
             structs,
             imports: tree.imports,
+            import_funcs: tree.import_funcs,
         }
     }
 

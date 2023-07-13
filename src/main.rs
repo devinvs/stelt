@@ -53,7 +53,7 @@ fn compile(path: &Path) {
 
     // queue of modules to be parsed
     let mut mod_queue = VecDeque::new();
-    mod_queue.push_back(mod_name);
+    mod_queue.push_back(mod_name.clone());
 
     // Parse each file using a breadth first search technique, using imported
     // namespace names to locate the source file corresponding to the namespace
@@ -103,6 +103,9 @@ fn compile(path: &Path) {
 
         let out = File::create(out_path).unwrap();
         let mut module = Module::new(Box::new(out));
-        module.compile(lir).unwrap();
+
+        let prefix = if *name == mod_name { "" } else { name };
+
+        module.compile(lir, prefix).unwrap();
     }
 }

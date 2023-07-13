@@ -1,5 +1,2 @@
-type Maybe<a> = None | Some(a)
-
-type unwrap<a>: Maybe<a> -> a
-unwrap(Some(a)) = a
-
+type square: i32 -> i32
+square(x) = x * x

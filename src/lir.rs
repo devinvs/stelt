@@ -11,6 +11,9 @@ use crate::parse_tree::Type;
 
 #[derive(Debug)]
 pub struct LIRTree {
+    /// Set of functions defined in other llvm modules
+    pub import_funcs: HashMap<String, LLVMType>,
+
     /// Set of external function names
     pub external: HashSet<String>,
 
@@ -37,6 +40,7 @@ impl MIRTree {
         globals.insert("arg.0".to_string());
 
         globals.extend(crate::builtin::BUILTIN.keys().map(|s| s.clone()));
+        globals.extend(self.import_funcs.clone().into_keys());
 
         let mut func_types = HashMap::new();
         let mut funcs = HashMap::new();
@@ -94,6 +98,7 @@ impl MIRTree {
                 global_funcs.insert(e.clone());
             }
         }
+        global_funcs.extend(self.import_funcs.clone().into_keys());
 
         let mut externs = HashSet::new();
         externs.extend(self.external.iter().map(|s| s.clone()));
@@ -101,7 +106,10 @@ impl MIRTree {
         // lower all the mir functions to lir expressions
         for (f, expr) in self.funcs {
             globals.insert(f.clone());
-            funcs.insert(f, expr.lower(&variants, &global_funcs, &externs));
+            let e = expr.lower(&variants, &global_funcs, &externs);
+            dbg!(&global_funcs);
+            dbg!(&e);
+            funcs.insert(f, e);
         }
 
         for n in self.external.iter() {
@@ -161,7 +169,14 @@ impl MIRTree {
             extern_types.insert(f.clone(), (from, to));
         }
 
+        let import_funcs = self
+            .import_funcs
+            .into_iter()
+            .map(|(name, t)| (name, LLVMType::from_type(t)))
+            .collect();
+
         LIRTree {
+            import_funcs,
             external: self.external,
             extern_types,
             func_types,
