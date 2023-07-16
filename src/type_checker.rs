@@ -44,6 +44,7 @@ impl Type {
             ),
             Self::Ident(s) => Term::Const(s.clone()),
             Self::Var(n) => Term::Var(*n),
+            Self::Box(t) => Term::Composite("*".to_string(), vec![t.to_term()]),
             _ => panic!("plz no"),
         }
     }

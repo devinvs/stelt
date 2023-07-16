@@ -1,12 +1,15 @@
 use crate::parse_tree::Type;
 use crate::parse_tree::TypeCons;
 
+use std::collections::HashMap;
+
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum LLVMType {
     I1,
     I8,
     I32,
-    Ptr,
+    Ptr(Box<LLVMType>),
+    Str,
     Void,
     Func(Box<LLVMType>, Box<LLVMType>),
     Struct(Vec<LLVMType>),
@@ -19,7 +22,7 @@ impl LLVMType {
         match t {
             Type::I32 => Self::I32,
             Type::I8 => Self::I8,
-            Type::Str => Self::Ptr,
+            Type::Str => Self::Str,
             Type::Unit => Self::Void,
             Type::Arrow(a, b) => Self::Func(
                 Box::new(LLVMType::from_type(*a)),
@@ -31,6 +34,7 @@ impl LLVMType {
             }
             Type::Ident(n) => Self::Named(n),
             Type::Generic(..) => Self::Named(t.to_string()),
+            Type::Box(n) => Self::Ptr(Box::new(LLVMType::from_type(*n))),
             a => unimplemented!("{a:?}"),
         }
     }
@@ -65,7 +69,7 @@ impl LLVMType {
         Self::from_type(t.args)
     }
 
-    pub fn size(&self, mut curr: usize) -> usize {
+    pub fn size(&self, mut curr: usize, types: &HashMap<String, usize>) -> usize {
         let my_align = self.alignment();
         curr += curr % my_align;
 
@@ -74,19 +78,22 @@ impl LLVMType {
             Self::I8 => curr += 8,
             Self::I1 => curr += 1,
             Self::I32 => curr += 32,
-            Self::Ptr => curr += 64,
+            Self::Ptr(_) => curr += 64,
+            Self::Str => curr += 64,
             Self::Struct(ts) => {
                 for t in ts {
                     let t_align = t.alignment();
                     curr += curr % t_align;
-                    curr = t.size(curr)
+                    curr = t.size(curr, types);
                 }
             }
             Self::Array(t, num) => {
-                curr += t.size(0) * num;
+                curr += t.size(0, types) * num;
             }
             Self::Func(..) => curr += 64,
-            Self::Named(_) => panic!("size unknown for named type"),
+            Self::Named(name) => {
+                curr += types.get(name).expect(&format!("Failed to find {name:?}"));
+            }
         };
 
         curr
@@ -98,11 +105,12 @@ impl LLVMType {
             Self::I1 => 8,
             Self::I8 => 8,
             Self::I32 => 32,
-            Self::Ptr => 64,
+            Self::Ptr(_) => 64,
+            Self::Str => 64,
             Self::Struct(..) => 64,
             Self::Array(..) => 64,
             Self::Func(..) => 64,
-            Self::Named(n) => panic!("alignment unknown for named type: {n}"),
+            Self::Named(..) => 64,
         }
     }
 }
@@ -113,7 +121,8 @@ impl std::fmt::Display for LLVMType {
             Self::I1 => f.write_str("i1"),
             Self::I8 => f.write_str("i8"),
             Self::I32 => f.write_str("i32"),
-            Self::Ptr => f.write_str("ptr"),
+            Self::Ptr(_) => f.write_str("ptr"),
+            Self::Str => f.write_str("ptr"),
             Self::Void => f.write_str("void"),
             Self::Struct(ts) => {
                 f.write_str("{")?;

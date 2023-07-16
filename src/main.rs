@@ -76,13 +76,14 @@ fn compile(path: &Path) {
     let mut modules_mir = HashMap::new();
     for (name, tree) in modules.iter() {
         let tree = tree.clone();
-        let tree = tree.resolve(&modules);
+        let tree = tree.resolve(&modules, if *name == mod_name { "" } else { name });
         modules_mir.insert(name, MIRTree::from(tree));
     }
 
     // Now compile :)
     for (name, mut mir) in modules_mir.into_iter() {
         let mut checker = TypeChecker::default();
+        eprintln!("{:#?}", mir.funcs);
         eprintln!("check {name}");
         match checker.check_program(&mut mir) {
             Ok(_) => {}
@@ -92,20 +93,16 @@ fn compile(path: &Path) {
             }
         }
 
-        eprintln!("with concrete types {name}");
         let mir = mir.with_concrete_types();
 
-        eprintln!("lir {name}");
-        let lir = mir.lower();
         //eprintln!("{:#?}", lir.funcs);
+        let lir = mir.lower();
 
         let out_path = parent.join(Path::new(&format!("{}.ll", name)));
 
         let out = File::create(out_path).unwrap();
         let mut module = Module::new(Box::new(out));
 
-        let prefix = if *name == mod_name { "" } else { name };
-
-        module.compile(lir, prefix).unwrap();
+        module.compile(lir).unwrap();
     }
 }

@@ -12,6 +12,7 @@ pub struct Module {
     strs: Vec<String>,
 
     named_vars: HashMap<String, String>,
+    last_lab: String,
 
     // index for anonymous variables
     i: usize,
@@ -37,6 +38,7 @@ impl Module {
             w,
             strs: Vec::new(),
             named_vars,
+            last_lab: String::new(),
 
             i: 1,
             labi: 1,
@@ -59,7 +61,7 @@ impl Module {
             .insert("arg.0".to_string(), "%arg.0".to_string());
     }
 
-    pub fn compile(&mut self, tree: LIRTree, prefix: &str) -> Result<(), Box<dyn Error>> {
+    pub fn compile(&mut self, tree: LIRTree) -> Result<(), Box<dyn Error>> {
         // output builtin functions
         writeln!(self, "{}", &BUILTIN_ASM)?;
 
@@ -70,11 +72,11 @@ impl Module {
             write!(self, "declare {to} @{name}(")?;
 
             for (i, f) in from.iter().enumerate() {
-                let attrs = if *f == LLVMType::Ptr {
-                    " nocapture"
-                } else {
-                    ""
+                let attrs = match *f {
+                    LLVMType::Ptr(_) | LLVMType::Str => " nocapture",
+                    _ => "",
                 };
+
                 if i == 0 {
                     write!(self, "{f}{attrs}")?;
                 } else {
@@ -89,7 +91,7 @@ impl Module {
 
         // Output imported function prototypes
         for (name, t) in tree.import_funcs {
-            let (out, args) = match t {
+            let (args, out) = match t {
                 LLVMType::Func(a, b) => (a, b),
                 _ => panic!(),
             };
@@ -114,14 +116,6 @@ impl Module {
         }
 
         writeln!(self)?;
-
-        let prefixed = |s: &str| {
-            if prefix == "" {
-                s.to_string()
-            } else {
-                format!("{prefix}.{s}")
-            }
-        };
 
         // Output struct constructors
         for (name, t) in tree.structs {
@@ -161,16 +155,39 @@ impl Module {
         // Output enum constructors
         for (name, _) in tree.enums {
             for (i, (varname, t)) in tree.variants[&name].iter().enumerate() {
-                let (t, structargs) = match t.clone() {
+                let (t, structargs, need_box) = match t.clone() {
                     LLVMType::Struct(mut ts) => {
                         ts.remove(0);
 
                         if ts.len() == 0 {
-                            (LLVMType::Void, true)
+                            (LLVMType::Void, true, vec![])
                         } else if ts.len() == 1 {
-                            (ts[0].clone(), false)
+                            let need_box = if let LLVMType::Ptr(_) = ts[0] {
+                                true
+                            } else {
+                                false
+                            };
+                            (ts[0].clone(), false, vec![need_box])
                         } else {
-                            (LLVMType::Struct(ts), true)
+                            let mut need_box = vec![];
+                            (
+                                LLVMType::Struct(
+                                    ts.into_iter()
+                                        .map(|t| match t {
+                                            LLVMType::Ptr(a) => {
+                                                need_box.push(true);
+                                                *a
+                                            }
+                                            _ => {
+                                                need_box.push(false);
+                                                t
+                                            }
+                                        })
+                                        .collect(),
+                                ),
+                                true,
+                                need_box,
+                            )
                         }
                     }
                     _ => unreachable!(),
@@ -201,6 +218,17 @@ impl Module {
                         let i_ptr = self.var();
 
                         writeln!(self, "\t{v} = extractvalue {t} %in, {i}")?;
+
+                        let (v, t2) = if need_box[i] {
+                            let x = self.var();
+                            let size = t2.size(0, &tree.type_sizes) / 8;
+                            writeln!(self, "\t{x} = call ptr @malloc(i32 {size})")?;
+                            writeln!(self, "\tstore {t2} {v}, ptr {x}")?;
+                            (x, LLVMType::Ptr(Box::new(LLVMType::Void)))
+                        } else {
+                            (v, t2)
+                        };
+
                         writeln!(self, "\t{i_ptr} = getelementptr inbounds %{name}.{varname}, ptr %ptr, i32 0, i32 {}", i+1)?;
                         writeln!(self, "\tstore {t2} {v}, ptr {i_ptr}")?;
                     }
@@ -224,7 +252,6 @@ impl Module {
         for (name, expr) in tree.funcs {
             // get function type
             let (from, to) = tree.func_types.get(&name).unwrap();
-            let name = prefixed(&name);
 
             if *from == LLVMType::Void {
                 writeln!(self, "define {to} @{name}() {{")?;
@@ -261,6 +288,7 @@ impl Module {
 
 impl LIRExpression {
     fn compile(self, module: &mut Module) -> Result<Option<String>, Box<dyn Error>> {
+        let et = self.ty();
         match self {
             Self::If(cond, yes, no, t) => {
                 let cond = cond.compile(module)?.unwrap();
@@ -272,14 +300,19 @@ impl LIRExpression {
                 writeln!(module, "\tbr i1 {cond}, label %{yeslab}, label %{nolab}")?;
 
                 writeln!(module, "{}:", yeslab)?;
+                module.last_lab = yeslab.clone();
                 let yes = yes.compile(module)?;
+                let yeslab = module.last_lab.clone();
                 writeln!(module, "\tbr label %{endlab}")?;
 
                 writeln!(module, "{}:", nolab)?;
+                module.last_lab = nolab.clone();
                 let no = no.compile(module)?;
+                let nolab = module.last_lab.clone();
                 writeln!(module, "\tbr label %{endlab}")?;
 
                 writeln!(module, "{}:", endlab)?;
+                module.last_lab = endlab.clone();
 
                 if t != LLVMType::Void {
                     let out = module.var();
@@ -485,7 +518,7 @@ impl LIRExpression {
 
                 es[last_i].clone().compile(module)
             }
-            Self::GetTuple(tup, i, _) => {
+            Self::GetTuple(tup, i, it) => {
                 let t = tup.ty();
                 let tup = tup.compile(module)?.unwrap();
                 let out = module.var();
@@ -518,6 +551,13 @@ impl LIRExpression {
                 writeln!(module, "\tstore {base} {exp}, ptr {ptr}")?;
                 writeln!(module, "\t{out} = load %{ty}, ptr {ptr}")?;
 
+                Ok(Some(out))
+            }
+            Self::Unbox(e, ty) => {
+                let out = module.var();
+                let ptr = e.compile(module)?.unwrap();
+
+                writeln!(module, "\t{out} = load {ty}, ptr {ptr}")?;
                 Ok(Some(out))
             }
             a => unimplemented!("{a:?}"),

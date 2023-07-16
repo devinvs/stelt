@@ -23,6 +23,30 @@ pub enum DataDecl {
     Sum(String, Vec<String>, Vec<TypeCons>),
 }
 
+impl DataDecl {
+    pub fn remove_recursion(self, name: &str, data: &mut HashMap<String, DataDecl>) -> Self {
+        match self {
+            Self::Product(tname, args, mems) => Self::Product(
+                tname,
+                args,
+                mems.into_iter()
+                    .map(|(n, t)| (n, t.remove_recursion(name, data)))
+                    .collect(),
+            ),
+            Self::Sum(tname, args, cons) => Self::Sum(
+                tname,
+                args,
+                cons.into_iter()
+                    .map(|cons| TypeCons {
+                        name: cons.name,
+                        args: cons.args.remove_recursion(name, data),
+                    })
+                    .collect(),
+            ),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 /// A constructor for a single variant of a sum type
 pub struct TypeCons {
@@ -54,9 +78,51 @@ pub enum Type {
     // Type variable used for parsing. Only present in ir.
     // DOES NOT PARSE
     Var(usize),
+    Box(Box<Type>), // funny
 }
 
 impl Type {
+    fn remove_recursion(self, name: &str, data: &mut HashMap<String, DataDecl>) -> Self {
+        match self {
+            Type::Ident(i) => {
+                if name == i {
+                    Type::Box(Box::new(Type::Ident(i)))
+                } else if data.contains_key(&i) {
+                    let d = data[&i].clone();
+                    *data.get_mut(&i).unwrap() = d.remove_recursion(name, data);
+                    Type::Ident(i)
+                } else {
+                    Type::Ident(i)
+                }
+            }
+            Type::Generic(args, t) => {
+                if Type::Generic(args.clone(), t.clone()).to_string() == name {
+                    Type::Box(Box::new(Type::Generic(args, t)))
+                } else {
+                    Type::Generic(args, Box::new(t.remove_recursion(name, data)))
+                }
+            }
+            Type::Arrow(a, b) => Type::Arrow(
+                Box::new(a.remove_recursion(name, data)),
+                Box::new(b.remove_recursion(name, data)),
+            ),
+            Type::Tuple(ts) => Type::Tuple(
+                ts.into_iter()
+                    .map(|t| t.remove_recursion(name, data))
+                    .collect(),
+            ),
+            Type::ForAll(vars, t) => {
+                if vars.contains(&name.to_string()) {
+                    Type::ForAll(vars, t)
+                } else {
+                    Type::ForAll(vars, Box::new(t.remove_recursion(name, data)))
+                }
+            }
+            Type::Namespace(_, _) => panic!(),
+            a => a,
+        }
+    }
+
     pub fn to_string(&self) -> String {
         match self {
             Type::Generic(args, t) => format!(
@@ -84,8 +150,7 @@ impl Type {
             Type::I64 => "i64".to_string(),
             Type::Str => "str".to_string(),
             Type::Unit => "()".to_string(),
-
-            _ => panic!(),
+            a => panic!("{:?}", a),
         }
     }
 }

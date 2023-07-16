@@ -31,6 +31,8 @@ pub struct LIRTree {
 
     /// Map of function names to their expressions
     pub funcs: HashMap<String, LIRExpression>,
+
+    pub type_sizes: HashMap<String, usize>,
 }
 
 impl MIRTree {
@@ -62,11 +64,12 @@ impl MIRTree {
 
         // for each type enum get the max size of its variants,
         // add paddning of bytes to the base type
+        let mut type_sizes = HashMap::new();
         for (name, vars) in variants.iter() {
             let mut size = 8;
 
             for (_, var) in vars {
-                size = size.max(var.size(size));
+                size = size.max(var.size(size, &type_sizes));
             }
 
             // align to the byte boundary
@@ -79,6 +82,8 @@ impl MIRTree {
                     LLVMType::Array(Box::new(LLVMType::I8), size / 8),
                 ]),
             ));
+
+            type_sizes.insert(name.clone(), size);
         }
 
         // get list of global function and constructor names
@@ -107,8 +112,6 @@ impl MIRTree {
         for (f, expr) in self.funcs {
             globals.insert(f.clone());
             let e = expr.lower(&variants, &global_funcs, &externs);
-            dbg!(&global_funcs);
-            dbg!(&e);
             funcs.insert(f, e);
         }
 
@@ -184,6 +187,7 @@ impl MIRTree {
             structs,
             enums,
             variants,
+            type_sizes,
         }
     }
 }
@@ -226,6 +230,8 @@ pub enum LIRExpression {
     CheckTuple(Box<LIRExpression>, usize, LLVMType),
     CastTuple(Box<LIRExpression>, String, LLVMType),
 
+    Box(Box<LIRExpression>, LLVMType),
+    Unbox(Box<LIRExpression>, LLVMType),
     Error(String),
 }
 
@@ -300,6 +306,8 @@ impl LIRExpression {
                 }
                 free
             }
+            Self::Box(e, _) => e.free_non_globals(vars),
+            Self::Unbox(e, _) => e.free_non_globals(vars),
         }
     }
 
@@ -509,6 +517,14 @@ impl LIRExpression {
                 let t = LLVMType::Named(name.clone());
                 (Self::CastTuple(Box::new(tup), name, t), cs)
             }
+            Self::Box(e, t) => {
+                let (e, cs) = e.extract_funcs(id, types, globals, subs);
+                (Self::Box(Box::new(e), t), cs)
+            }
+            Self::Unbox(e, t) => {
+                let (e, cs) = e.extract_funcs(id, types, globals, subs);
+                (Self::Unbox(Box::new(e), t), cs)
+            }
             _ => (self, HashMap::new()),
         }
     }
@@ -522,7 +538,7 @@ impl LIRExpression {
             Self::Error(_) => LLVMType::Void,
             Self::Identifier(_, t) => t.clone(),
             Self::Lambda1(_, _, t) => t.clone(),
-            Self::Str(..) => LLVMType::Ptr,
+            Self::Str(..) => LLVMType::Str,
             Self::Let1(_, _, _, t) => t.clone(),
             Self::If(_, _, _, t) => t.clone(),
             Self::Num(_) => LLVMType::I32,
@@ -531,6 +547,8 @@ impl LIRExpression {
             Self::CheckTuple(_, _, t) => t.clone(),
             Self::CastTuple(_, _, t) => t.clone(),
             Self::ExternCall(_, _, t) => t.clone(),
+            Self::Box(_, t) => t.clone(),
+            Self::Unbox(_, t) => t.clone(),
         }
     }
 
@@ -574,6 +592,8 @@ impl LIRExpression {
 
                 Self::List(new, t)
             }
+            Self::Box(exp, t) => Self::Box(Box::new(exp.replace(id, e)), t),
+            Self::Unbox(exp, t) => Self::Unbox(Box::new(exp.replace(id, e)), t),
             a => a,
         }
     }
@@ -591,6 +611,7 @@ impl MIRExpression {
                 let f = f.lower(vars, global, externs);
                 let args = args.lower(vars, global, externs);
 
+                // auto box args if necessary
                 if let LIRExpression::Identifier(n, _) = &f {
                     if externs.contains(n) {
                         let args = match args {
@@ -837,14 +858,39 @@ impl MIRExpression {
             let p = &ps[0];
             let rest = Self::match_components(&ps[1..], n + 1, exp.clone(), yes, no.clone(), vars);
 
-            Self::match_pattern(
-                p.clone(),
-                LIRExpression::GetTuple(Box::new(exp.clone()), n, LLVMType::from_type(p.ty())),
-                rest,
-                no,
-                exp.ty(),
-                vars,
-            )
+            let pt = LLVMType::from_type(p.ty());
+            let et = match exp.ty() {
+                LLVMType::Struct(ts) => ts.get(n).cloned().unwrap_or(LLVMType::Void),
+                _ => panic!(),
+            };
+
+            // check for unbox
+            let et_is_ptr = if let LLVMType::Ptr(_) = et {
+                true
+            } else {
+                false
+            };
+
+            let pt_is_ptr = if let LLVMType::Ptr(_) = pt {
+                true
+            } else {
+                false
+            };
+
+            let newe = if et_is_ptr && !pt_is_ptr {
+                LIRExpression::Unbox(
+                    Box::new(LIRExpression::GetTuple(
+                        Box::new(exp.clone()),
+                        n,
+                        LLVMType::Ptr(Box::new(LLVMType::Void)), // type shouldn't matter fingers crossed
+                    )),
+                    pt,
+                )
+            } else {
+                LIRExpression::GetTuple(Box::new(exp.clone()), n, pt)
+            };
+
+            Self::match_pattern(p.clone(), newe, rest, no, exp.ty(), vars)
         }
     }
 }

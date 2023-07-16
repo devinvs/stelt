@@ -130,8 +130,6 @@ impl MIRTree {
             );
         });
 
-        dbg!(&tree.imports);
-
         Self {
             external: tree.external,
             types: tree.types,
@@ -220,6 +218,14 @@ impl MIRTree {
         self.types = concrete_types;
         self.typedefs = concrete_decls;
         self.funcs = concrete_funcs;
+
+        // remove recursion from recursive types with boxing
+        let data = self.types.clone();
+        for (name, d) in data.into_iter() {
+            let d = d.remove_recursion(&name, &mut self.types);
+            *self.types.get_mut(&name).unwrap() = d;
+        }
+
         self
     }
 }

@@ -9,6 +9,14 @@ use crate::Token;
 
 use crate::parse_tree::{DataDecl, Expression, FunctionDef, ParseTree, Pattern, Type, TypeCons};
 
+fn prefixed(pref: &str, n: &str) -> String {
+    if pref == "" {
+        n.to_string()
+    } else {
+        format!("{pref}.{n}")
+    }
+}
+
 impl ParseTree {
     pub fn parse(t: &mut TokenStream) -> Result<Self, String> {
         let mut me = Self {
@@ -135,31 +143,55 @@ impl ParseTree {
     /// Type references are copied into our tree
     /// Functions and defs have their type decls copied
     /// Generic functions have their bodies copied into our tree
-    pub fn resolve(self, mods: &HashMap<String, Self>) -> Self {
+    ///
+    /// Finally we prefix our own types with our own module name
+    pub fn resolve(self, mods: &HashMap<String, Self>, mod_name: &str) -> Self {
         let mut ref_types = HashMap::new();
         let mut type_decls = HashMap::new();
 
         let mut typedefs: HashMap<String, Type> = self
             .typedefs
-            .into_iter()
-            .map(|(name, td)| (name, td.resolve(&mut ref_types, mods)))
+            .iter()
+            .map(|(name, td)| {
+                (
+                    if self.external.contains(name) {
+                        name.clone()
+                    } else {
+                        prefixed(mod_name, name)
+                    },
+                    td.clone()
+                        .resolve(&mut ref_types, mods)
+                        .qualify(mod_name, &self),
+                )
+            })
             .collect();
 
         let mut types: HashMap<String, DataDecl> = self
             .types
-            .into_iter()
-            .map(|(name, data)| (name, data.resolve(&mut ref_types, mods)))
+            .iter()
+            .map(|(name, data)| {
+                (
+                    prefixed(mod_name, name),
+                    data.clone()
+                        .resolve(&mut ref_types, mods)
+                        .qualify(mod_name, &self),
+                )
+            })
             .collect();
 
         let mut generics = HashMap::new();
         let mut funcs: HashMap<String, Vec<FunctionDef>> = self
             .funcs
-            .into_iter()
+            .iter()
             .map(|(name, fs)| {
                 (
-                    name,
+                    prefixed(mod_name, name),
                     fs.into_iter()
-                        .map(|f| f.resolve(&mut ref_types, &mut type_decls, &mut generics, mods))
+                        .map(|f| {
+                            f.clone()
+                                .resolve(&mut ref_types, &mut type_decls, &mut generics, mods)
+                                .qualify(mod_name, &self)
+                        })
                         .collect(),
                 )
             })
@@ -167,11 +199,13 @@ impl ParseTree {
 
         let defs: HashMap<String, Expression> = self
             .defs
-            .into_iter()
+            .iter()
             .map(|(name, d)| {
                 (
-                    name,
-                    d.resolve(&mut ref_types, &mut type_decls, &mut generics, mods),
+                    prefixed(mod_name, name),
+                    d.clone()
+                        .resolve(&mut ref_types, &mut type_decls, &mut generics, mods)
+                        .qualify(mod_name, &self),
                 )
             })
             .collect();
@@ -285,7 +319,7 @@ impl DataDecl {
 impl TypeCons {
     fn qualify(self, prefix: &str, me: &ParseTree) -> Self {
         Self {
-            name: format!("{prefix}.{}", self.name),
+            name: prefixed(prefix, &self.name),
             args: self.args.qualify(prefix, me),
         }
     }
@@ -359,7 +393,7 @@ impl Type {
         match self {
             Type::Ident(t) => {
                 if me.types.contains_key(&t) {
-                    Type::Ident(format!("{}.{}", prefix, t))
+                    Type::Ident(prefixed(prefix, &t))
                 } else {
                     Type::Ident(t)
                 }
@@ -553,10 +587,12 @@ impl Expression {
     fn qualify(self, prefix: &str, me: &ParseTree) -> Self {
         match self {
             Self::Identifier(i) => {
-                if me.typedefs.contains_key(&i) {
-                    Expression::Identifier(format!("{prefix}.{i}"))
+                if me.external.contains(&i) {
+                    Self::Identifier(i)
+                } else if me.typedefs.contains_key(&i) {
+                    Expression::Identifier(prefixed(prefix, &i))
                 } else if me.types.values().any(|data| data.has_cons(&i)) {
-                    Expression::Identifier(format!("{prefix}.{i}"))
+                    Expression::Identifier(prefixed(prefix, &i))
                 } else {
                     Self::Identifier(i)
                 }
@@ -1133,7 +1169,16 @@ impl Expression {
             Some(Lexeme {
                 token: Token::Ident(i),
                 ..
-            }) => Ok(Self::Identifier(i)),
+            }) => {
+                if i.chars().next().unwrap().is_uppercase() && !t.test(Token::LParen) {
+                    Ok(Self::Call(
+                        Box::new(Self::Identifier(i)),
+                        Box::new(Self::Unit),
+                    ))
+                } else {
+                    Ok(Self::Identifier(i))
+                }
+            }
             Some(Lexeme {
                 token: Token::LParen,
                 ..
@@ -1206,7 +1251,7 @@ impl Pattern {
             }
             Pattern::Cons(name, args, t) => {
                 let name = if me.types.values().any(|data| data.has_cons(&name)) {
-                    format!("{prefix}.{name}")
+                    prefixed(prefix, &name)
                 } else {
                     name
                 };
@@ -1335,7 +1380,6 @@ impl Pattern {
                     // either a variable or a constructor
                     // lets enforce that constructors *must* start with a capital
                     // and that variables have to start with lowercase
-
                     if i.chars().next().unwrap().is_uppercase() {
                         // This is a namespaced constructor
                         let args = if t.test(Token::LParen) {

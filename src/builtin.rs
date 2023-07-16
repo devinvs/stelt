@@ -1,6 +1,6 @@
+use crate::parse_tree::Type;
 use lazy_static::lazy_static;
 use std::collections::HashMap;
-use crate::parse_tree::Type;
 
 lazy_static! {
     pub static ref BUILTIN: HashMap<String, Type> = {
@@ -15,7 +15,6 @@ lazy_static! {
 
         m
     };
-
 }
 
 pub const BUILTIN_ASM: &str = r#"
@@ -60,4 +59,6 @@ define private i1 @eq({i32, i32} %in) alwaysinline {
     %res = icmp eq i32 %a, %b
     ret i1 %res
 }
+
+declare ptr @malloc(i32) nounwind
 "#;
