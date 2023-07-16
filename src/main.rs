@@ -11,12 +11,26 @@ use stelt::Module;
 use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 
+fn print_usage() {
+    eprintln!("Usage: steltc [FILE]");
+    eprintln!("Usage: steltc [FILE] [OUT_DIR]");
+    std::process::exit(1);
+}
+
 fn main() {
-    compile(Path::new("./main.st"));
+    let args: Vec<String> = std::env::args().collect();
+
+    if args.len() < 2 {
+        print_usage();
+    }
+
+    let path = Path::new(&args[1]);
+    let outdir = Path::new(args.get(2).map(|s| s.as_str()).unwrap_or("./"));
+
+    compile(path, outdir);
 }
 
 fn parse(path: &Path) -> Program {
-    eprintln!("parse {path:?}");
     let mut file = File::open(path).unwrap();
     let mut buf = String::with_capacity(file.metadata().unwrap().len() as usize);
     file.read_to_string(&mut buf).unwrap();
@@ -43,7 +57,7 @@ fn parse(path: &Path) -> Program {
     program
 }
 
-fn compile(path: &Path) {
+fn compile(path: &Path, outdir: &Path) {
     // Base directory of file path
     let parent = path.parent().unwrap();
     let mod_name = path.file_stem().unwrap().to_str().unwrap().to_string();
@@ -83,8 +97,6 @@ fn compile(path: &Path) {
     // Now compile :)
     for (name, mut mir) in modules_mir.into_iter() {
         let mut checker = TypeChecker::default();
-        eprintln!("{:#?}", mir.funcs);
-        eprintln!("check {name}");
         match checker.check_program(&mut mir) {
             Ok(_) => {}
             Err(e) => {
@@ -98,7 +110,7 @@ fn compile(path: &Path) {
         //eprintln!("{:#?}", lir.funcs);
         let lir = mir.lower();
 
-        let out_path = parent.join(Path::new(&format!("{}.ll", name)));
+        let out_path = outdir.join(Path::new(&format!("{}.ll", name)));
 
         let out = File::create(out_path).unwrap();
         let mut module = Module::new(Box::new(out));

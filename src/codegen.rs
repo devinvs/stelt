@@ -288,7 +288,6 @@ impl Module {
 
 impl LIRExpression {
     fn compile(self, module: &mut Module) -> Result<Option<String>, Box<dyn Error>> {
-        let et = self.ty();
         match self {
             Self::If(cond, yes, no, t) => {
                 let cond = cond.compile(module)?.unwrap();
@@ -518,7 +517,7 @@ impl LIRExpression {
 
                 es[last_i].clone().compile(module)
             }
-            Self::GetTuple(tup, i, it) => {
+            Self::GetTuple(tup, i, _) => {
                 let t = tup.ty();
                 let tup = tup.compile(module)?.unwrap();
                 let out = module.var();
