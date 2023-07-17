@@ -119,7 +119,7 @@ impl Module {
 
         // Output struct constructors
         for (name, t) in tree.structs {
-            writeln!(self, "define %{name} @{name} ({t} %in) {{")?;
+            writeln!(self, "define private fastcc %{name} @{name} ({t} %in) {{")?;
 
             let out = match t.clone() {
                 LLVMType::Struct(ts) => {
@@ -194,9 +194,12 @@ impl Module {
                 };
 
                 if t == LLVMType::Void {
-                    writeln!(self, "define %{name} @{varname} () {{")?;
+                    writeln!(self, "define private fastcc %{name} @{varname} () {{")?;
                 } else {
-                    writeln!(self, "define %{name} @{varname} ({t} %in) {{")?;
+                    writeln!(
+                        self,
+                        "define private fastcc %{name} @{varname} ({t} %in) {{"
+                    )?;
                 }
 
                 writeln!(self, "\t%ptr = alloca %{name}")?;
@@ -254,9 +257,9 @@ impl Module {
             let (from, to) = tree.func_types.get(&name).unwrap();
 
             if *from == LLVMType::Void {
-                writeln!(self, "define {to} @{name}() {{")?;
+                writeln!(self, "define fastcc {to} @{name}() {{")?;
             } else {
-                writeln!(self, "define {to} @{name}({from} %arg.0) {{")?;
+                writeln!(self, "define fastcc {to} @{name}({from} %arg.0) {{")?;
             }
 
             let var = expr.compile(self)?;
@@ -382,11 +385,11 @@ impl LIRExpression {
                 };
 
                 if t == LLVMType::Void {
-                    writeln!(module, "\tcall {t} @{f}{args}")?; // FIX!!!
+                    writeln!(module, "\tcall fastcc {t} @{f}{args}")?; // FIX!!!
                     Ok(None)
                 } else {
                     // get type of function
-                    writeln!(module, "\t{out} = call {t} @{f}{args}")?; // FIX!!!
+                    writeln!(module, "\t{out} = call fastcc {t} @{f}{args}")?; // FIX!!!
 
                     Ok(Some(out))
                 }
@@ -458,11 +461,11 @@ impl LIRExpression {
                 };
 
                 if t == LLVMType::Void {
-                    writeln!(module, "\tcall {t} {f}{args}")?; // FIX!!!
+                    writeln!(module, "\tcall fastcc {t} {f}{args}")?; // FIX!!!
                     Ok(None)
                 } else {
                     // get type of function
-                    writeln!(module, "\t{out} = call {t} {f}{args}")?; // FIX!!!
+                    writeln!(module, "\t{out} = call fastcc {t} {f}{args}")?; // FIX!!!
 
                     Ok(Some(out))
                 }
