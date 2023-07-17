@@ -128,7 +128,7 @@ impl Module {
                     let ty = &ts[0];
 
                     writeln!(self, "\t{w} = extractvalue {t} %in, 0")?;
-                    writeln!(self, "\t{v} = insertvalue %{name} undef, {ty} {w}, 0")?;
+                    writeln!(self, "\t{v} = insertvalue %{name} poison, {ty} {w}, 0")?;
 
                     for (i, ty) in ts[1..].iter().enumerate() {
                         let old = v;
@@ -411,7 +411,7 @@ impl LIRExpression {
                 let closure = f.compile(module)?.unwrap();
 
                 let mut args = match arg_count {
-                    0 => "undef".to_string(),
+                    0 => "poison".to_string(),
                     1 => {
                         // create a tuple
                         let tup = LIRExpression::Tuple(vec![*args], *arg_t.clone());
@@ -482,7 +482,7 @@ impl LIRExpression {
                 let v = e.clone().compile(module)?.unwrap();
                 writeln!(
                     module,
-                    "\t{out} = insertvalue {t} undef, {} {}, 0",
+                    "\t{out} = insertvalue {t} poison, {} {}, 0",
                     e.ty(),
                     v
                 )?;

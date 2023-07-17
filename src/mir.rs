@@ -381,7 +381,7 @@ impl MIRExpression {
                 vec![
                     (
                         Pattern::Cons(
-                            "true".into(),
+                            "True".into(),
                             Box::new(Pattern::Unit(Some(Type::Unit))),
                             None,
                         ),
@@ -389,7 +389,7 @@ impl MIRExpression {
                     ),
                     (
                         Pattern::Cons(
-                            "false".into(),
+                            "False".into(),
                             Box::new(Pattern::Unit(Some(Type::Unit))),
                             None,
                         ),

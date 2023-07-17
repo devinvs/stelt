@@ -9,6 +9,28 @@ use crate::Token;
 
 use crate::parse_tree::{DataDecl, Expression, FunctionDef, ParseTree, Pattern, Type, TypeCons};
 
+use lazy_static::lazy_static;
+
+lazy_static! {
+    static ref PRELUDE: ParseTree = {
+        let s = include_str!("./prelude.st");
+        let mut l = Lexer::default();
+        let mut tokens = l.lex(s).unwrap();
+
+        let me = ParseTree {
+            types: HashMap::new(),
+            typedefs: HashMap::new(),
+            funcs: HashMap::new(),
+            defs: HashMap::new(),
+            external: HashSet::new(),
+            namespaces: HashSet::new(),
+            imports: HashSet::new(),
+            import_funcs: HashMap::new(),
+        };
+        ParseTree::parse_with(&mut tokens, me).unwrap()
+    };
+}
+
 fn prefixed(pref: &str, n: &str) -> String {
     if pref == "" {
         n.to_string()
@@ -19,17 +41,10 @@ fn prefixed(pref: &str, n: &str) -> String {
 
 impl ParseTree {
     pub fn parse(t: &mut TokenStream) -> Result<Self, String> {
-        let mut me = Self {
-            types: HashMap::new(),
-            typedefs: HashMap::new(),
-            funcs: HashMap::new(),
-            defs: HashMap::new(),
-            external: HashSet::new(),
-            namespaces: HashSet::new(),
-            imports: HashSet::new(),
-            import_funcs: HashMap::new(),
-        };
+        Self::parse_with(t, PRELUDE.clone())
+    }
 
+    pub fn parse_with(t: &mut TokenStream, mut me: Self) -> Result<Self, String> {
         loop {
             match t.peek() {
                 Some(Lexeme {

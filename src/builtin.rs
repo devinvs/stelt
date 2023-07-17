@@ -11,7 +11,7 @@ lazy_static! {
         m.insert("mul".into(), Type::from_str("(i32, i32) -> i32").unwrap());
         m.insert("div".into(), Type::from_str("(i32, i32) -> i32").unwrap());
         m.insert("mod".into(), Type::from_str("(i32, i32) -> i32").unwrap());
-        m.insert("eq".into(), Type::from_str("(i32, i32) -> bool").unwrap());
+        m.insert("eq".into(), Type::from_str("(i32, i32) -> Bool").unwrap());
 
         m
     };
