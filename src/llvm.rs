@@ -8,6 +8,7 @@ pub enum LLVMType {
     I1,
     I8,
     I32,
+    U64,
     Ptr(Box<LLVMType>),
     Str,
     Void,
@@ -35,6 +36,7 @@ impl LLVMType {
             Type::Ident(n) => Self::Named(n),
             Type::Generic(..) => Self::Named(t.to_string()),
             Type::Box(n) => Self::Ptr(Box::new(LLVMType::from_type(*n))),
+            Type::U64 => Self::U64,
             a => unimplemented!("{a:?}"),
         }
     }
@@ -78,6 +80,7 @@ impl LLVMType {
             Self::I8 => curr += 8,
             Self::I1 => curr += 1,
             Self::I32 => curr += 32,
+            Self::U64 => curr += 64,
             Self::Ptr(_) => curr += 64,
             Self::Str => curr += 64,
             Self::Struct(ts) => {
@@ -105,6 +108,7 @@ impl LLVMType {
             Self::I1 => 8,
             Self::I8 => 8,
             Self::I32 => 32,
+            Self::U64 => 64,
             Self::Ptr(_) => 64,
             Self::Str => 64,
             Self::Struct(..) => 64,
@@ -121,6 +125,7 @@ impl std::fmt::Display for LLVMType {
             Self::I1 => f.write_str("i1"),
             Self::I8 => f.write_str("i8"),
             Self::I32 => f.write_str("i32"),
+            Self::U64 => f.write_str("i64"),
             Self::Ptr(_) => f.write_str("ptr"),
             Self::Str => f.write_str("ptr"),
             Self::Void => f.write_str("void"),

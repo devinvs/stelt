@@ -485,8 +485,16 @@ impl Lexer {
                 }
 
                 // Single char Operators
-                '+' | '-' | '*' | '/' | '%' | '<' | '>' | '=' | '|' | '&' | '^' | '!' | '~'
-                | '.' | '?' => {
+                '+' | '-' | '*' | '/' | '%' | '<' | '>' | '=' | '|' | '&' | '^' | '~' | '.'
+                | '?' => {
+                    self.push_token(&mut tokens, &mut stack);
+                    tokens.push(Lexeme {
+                        token: MAP.get(c.to_string().as_str()).unwrap().clone(),
+                    });
+                    self.start += 1;
+                    self.end = self.start;
+                }
+                '!' if stack.is_empty() => {
                     self.push_token(&mut tokens, &mut stack);
                     tokens.push(Lexeme {
                         token: MAP.get(c.to_string().as_str()).unwrap().clone(),

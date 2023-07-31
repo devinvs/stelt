@@ -233,6 +233,8 @@ pub enum LIRExpression {
     Box(Box<LIRExpression>, LLVMType),
     Unbox(Box<LIRExpression>, LLVMType),
     Error(String),
+
+    LLVM(String, String, LLVMType),
 }
 
 impl LIRExpression {
@@ -308,6 +310,7 @@ impl LIRExpression {
             }
             Self::Box(e, _) => e.free_non_globals(vars),
             Self::Unbox(e, _) => e.free_non_globals(vars),
+            Self::LLVM(..) => vec![],
         }
     }
 
@@ -549,6 +552,7 @@ impl LIRExpression {
             Self::ExternCall(_, _, t) => t.clone(),
             Self::Box(_, t) => t.clone(),
             Self::Unbox(_, t) => t.clone(),
+            Self::LLVM(_, _, t) => t.clone(),
         }
     }
 
@@ -613,6 +617,25 @@ impl MIRExpression {
 
                 // auto box args if necessary
                 if let LIRExpression::Identifier(n, _) = &f {
+                    // the llvm macro directly injects llvm code
+                    // for the expression
+                    if n.starts_with("llvm!") {
+                        match args {
+                            LIRExpression::Tuple(es, _) => {
+                                let (out, body) = match (&es[0], &es[1]) {
+                                    (LIRExpression::Str(a), LIRExpression::Str(b)) => (a, b),
+                                    _ => panic!(),
+                                };
+
+                                return LIRExpression::LLVM(
+                                    out.to_string(),
+                                    body.to_string(),
+                                    LLVMType::from_type(t.unwrap()),
+                                );
+                            }
+                            _ => panic!(),
+                        }
+                    }
                     if externs.contains(n) {
                         let args = match args {
                             LIRExpression::Unit => vec![],

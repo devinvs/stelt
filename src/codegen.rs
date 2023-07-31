@@ -59,6 +59,7 @@ impl Module {
         self.named_vars.clear();
         self.named_vars
             .insert("arg.0".to_string(), "%arg.0".to_string());
+        self.i = 1;
     }
 
     pub fn compile(&mut self, tree: LIRTree) -> Result<(), Box<dyn Error>> {
@@ -560,6 +561,10 @@ impl LIRExpression {
                 let ptr = e.compile(module)?.unwrap();
 
                 writeln!(module, "\t{out} = load {ty}, ptr {ptr}")?;
+                Ok(Some(out))
+            }
+            Self::LLVM(out, body, _) => {
+                writeln!(module, "{}", body)?;
                 Ok(Some(out))
             }
             a => unimplemented!("{a:?}"),

@@ -181,10 +181,11 @@ impl MIRTree {
                     let oldty = generic_decls[&name].clone();
                     let subs = oldty.get_generic_subs(&ty);
 
-                    let f = self.funcs[&name].clone().sub_types(&subs);
-
-                    // add new function body substituting generic types for concrete types
-                    concrete_funcs.insert(newname, f);
+                    if let Some(f) = self.funcs.get(&name) {
+                        // add new function body substituting generic types for concrete types
+                        let f = f.clone().sub_types(&subs);
+                        concrete_funcs.insert(newname, f);
+                    }
                 }
             }
         }
