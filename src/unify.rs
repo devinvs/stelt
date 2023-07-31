@@ -3,8 +3,9 @@ use std::collections::HashMap;
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum Term<T: std::cmp::Eq + std::hash::Hash + Clone> {
     Var(usize),
+    Number(usize),
     Const(T),
-    Composite(T, Vec<Term<T>>)
+    Composite(T, Vec<Term<T>>),
 }
 
 impl Term<String> {
@@ -12,24 +13,24 @@ impl Term<String> {
         match self {
             Self::Var(_) => "?".to_string(),
             Self::Const(s) => s.clone(),
-            Self::Composite(s, ts) => {
-                match s.as_str() {
-                    "->" => format!("{} -> {}", ts[0].name(), ts[1].name()),
-                    "list" => format!("[{}]", ts[0].name()),
-                    "tuple" => format!("({})", ts.iter().map(|t| t.name()).collect::<Vec<_>>().join(", ")),
-                    a => format!("{a}<{}>", ts.iter().map(|t| t.name()).collect::<Vec<_>>().join(", "))
-                }
-            }
+            Self::Composite(s, ts) => match s.as_str() {
+                "->" => format!("{} -> {}", ts[0].name(), ts[1].name()),
+                "list" => format!("[{}]", ts[0].name()),
+                "tuple" => format!(
+                    "({})",
+                    ts.iter().map(|t| t.name()).collect::<Vec<_>>().join(", ")
+                ),
+                a => format!(
+                    "{a}<{}>",
+                    ts.iter().map(|t| t.name()).collect::<Vec<_>>().join(", ")
+                ),
+            },
+            Self::Number(_) => "i?".to_string(),
         }
     }
 }
 
-
-fn occurs_check<'a, T>(
-    x: &'a Term<T>,
-    t: &'a Term<T>,
-    subs: &mut HashMap<Term<T>, Term<T>>,
-) -> bool
+fn occurs_check<'a, T>(x: &'a Term<T>, t: &'a Term<T>, subs: &mut HashMap<Term<T>, Term<T>>) -> bool
 where
     T: std::cmp::Eq + std::hash::Hash + Clone,
 {
@@ -65,24 +66,28 @@ where
 
 pub fn apply_unifier<T>(mut s: Term<T>, subs: &HashMap<Term<T>, Term<T>>) -> Term<T>
 where
-    T: std::cmp::Eq + std::hash::Hash + Clone
+    T: std::cmp::Eq + std::hash::Hash + Clone + std::fmt::Debug,
 {
+    eprintln!("apply unifier: {s:?}");
     while subs.contains_key(&s) {
         s = subs.get(&s).unwrap().clone();
     }
 
     match s {
-        Term::Composite(t, ts) => Term::Composite(t, ts.into_iter().map(|t| apply_unifier(t, subs)).collect()),
-        a => a
+        Term::Composite(t, ts) => {
+            Term::Composite(t, ts.into_iter().map(|t| apply_unifier(t, subs)).collect())
+        }
+        a => a,
     }
 }
 
-
-pub fn unify<T>(s: Term<T>, t: Term<T>, mut subs: HashMap<Term<T>, Term<T>>) -> Option<HashMap<Term<T>, Term<T>>>
-where
-    T: std::cmp::Eq + std::hash::Hash + Clone + std::fmt::Debug,
-{
-    let mut stack: Vec<(Term<T>, Term<T>)> = vec![(s, t)];
+pub fn unify(
+    s: Term<String>,
+    t: Term<String>,
+    mut subs: HashMap<Term<String>, Term<String>>,
+) -> Option<HashMap<Term<String>, Term<String>>> {
+    eprintln!("unify start: {:?} {:?}", s, t);
+    let mut stack: Vec<(Term<String>, Term<String>)> = vec![(s, t)];
 
     while !stack.is_empty() {
         let (mut s, mut t) = stack.pop().unwrap();
@@ -95,31 +100,72 @@ where
             t = subs.get(&t).unwrap().clone()
         }
 
+        eprintln!("unify {s:?} {t:?}");
+
         if s != t {
             match (&s, &t) {
                 (&Term::Var(_), &Term::Var(_)) => {
                     subs.insert(s.clone(), t.clone());
                 }
-                (&Term::Var(_), _) => if occurs_check(&s, &t, &mut subs) {
+                (&Term::Number(_), &Term::Number(_)) => {
                     subs.insert(s.clone(), t.clone());
-                } else {
-                    return None;
-                },
-                (_, &Term::Var(_)) => if occurs_check(&t, &s, &mut subs) {
+                }
+                (&Term::Var(_), &Term::Number(_)) => {
+                    subs.insert(s.clone(), t.clone());
+                }
+                (&Term::Number(_), &Term::Var(_)) => {
                     subs.insert(t.clone(), s.clone());
-                } else {
-                    return None;
-                },
+                }
+                (&Term::Var(_), _) => {
+                    if occurs_check(&s, &t, &mut subs) {
+                        subs.insert(s.clone(), t.clone());
+                    } else {
+                        return None;
+                    }
+                }
+                (_, &Term::Var(_)) => {
+                    if occurs_check(&t, &s, &mut subs) {
+                        subs.insert(t.clone(), s.clone());
+                    } else {
+                        return None;
+                    }
+                }
+                (&Term::Number(_), a)
+                    if a == &Term::Const("u8".to_string())
+                        || a == &Term::Const("u16".to_string())
+                        || a == &Term::Const("u32".to_string())
+                        || a == &Term::Const("u64".to_string())
+                        || a == &Term::Const("i8".to_string())
+                        || a == &Term::Const("i16".to_string())
+                        || a == &Term::Const("i32".to_string())
+                        || a == &Term::Const("i64".to_string()) =>
+                {
+                    subs.insert(s.clone(), a.clone());
+                }
+                (a, &Term::Number(_))
+                    if a == &Term::Const("u8".to_string())
+                        || a == &Term::Const("u16".to_string())
+                        || a == &Term::Const("u32".to_string())
+                        || a == &Term::Const("u64".to_string())
+                        || a == &Term::Const("i8".to_string())
+                        || a == &Term::Const("i16".to_string())
+                        || a == &Term::Const("i32".to_string())
+                        || a == &Term::Const("i64".to_string()) =>
+                {
+                    subs.insert(t.clone(), a.clone());
+                }
                 (
                     &Term::Composite(ref s_name, ref s_terms),
                     &Term::Composite(ref t_name, ref t_terms),
-                ) => if s_name == t_name && s_terms.len() == t_terms.len() {
-                    for (s, t) in s_terms.iter().zip(t_terms) {
-                        stack.push((s.clone(), t.clone()));
+                ) => {
+                    if s_name == t_name && s_terms.len() == t_terms.len() {
+                        for (s, t) in s_terms.iter().zip(t_terms) {
+                            stack.push((s.clone(), t.clone()));
+                        }
+                    } else {
+                        return None;
                     }
-                } else {
-                    return None;
-                },
+                }
                 (_, _) => return None,
             }
         }

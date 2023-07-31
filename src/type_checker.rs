@@ -44,6 +44,7 @@ impl Type {
             ),
             Self::Ident(s) => Term::Const(s.clone()),
             Self::Var(n) => Term::Var(*n),
+            Self::NumVar(n) => Term::Number(*n),
             Self::Box(t) => Term::Composite("*".to_string(), vec![t.to_term()]),
             _ => panic!("plz no"),
         }
@@ -79,6 +80,7 @@ impl Type {
 
             // Var...
             Term::Var(i) => Self::Var(i),
+            Term::Number(_) => Self::U32,
         }
     }
 
@@ -155,12 +157,20 @@ impl TypeChecker {
             _ => t.clone(),
         };
 
+        eprintln!("check {e:?}");
         let subs = self.judge_type(b, c, d, s, e, simple.clone(), HashMap::new())?;
+        eprintln!("done");
         Ok(subs)
     }
 
     fn gen_var(&mut self) -> Type {
         let t = Type::Var(self.next_var);
+        self.next_var += 1;
+        t
+    }
+
+    fn gen_num_var(&mut self) -> Type {
+        let t = Type::NumVar(self.next_var);
         self.next_var += 1;
         t
     }
@@ -201,8 +211,9 @@ impl TypeChecker {
 
     fn judge_num(&mut self, t: Type, subs: Theta) -> Result<Theta, String> {
         let tname = apply_unifier(t.to_term(), &subs).name();
-        unify(Type::I32.to_term(), t.to_term(), subs)
-            .ok_or(format!("Type Mismatch: Expected u64 found {:?}", tname))
+        let v = self.gen_num_var();
+        unify(v.to_term(), t.to_term(), subs)
+            .ok_or(format!("Type Mismatch: Expected {v:?} found {:?}", tname))
     }
 
     fn judge_str(&mut self, t: Type, subs: Theta) -> Result<Theta, String> {
@@ -423,7 +434,7 @@ impl TypeChecker {
         let struct_name = match term {
             Term::Const(n) => n,
             Term::Composite(n, _) => n,
-            Term::Var(_) => {
+            Term::Number(_) | Term::Var(_) => {
                 return Err(format!("Type not known for struct"));
             }
         };
