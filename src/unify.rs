@@ -68,7 +68,6 @@ pub fn apply_unifier<T>(mut s: Term<T>, subs: &HashMap<Term<T>, Term<T>>) -> Ter
 where
     T: std::cmp::Eq + std::hash::Hash + Clone + std::fmt::Debug,
 {
-    eprintln!("apply unifier: {s:?}");
     while subs.contains_key(&s) {
         s = subs.get(&s).unwrap().clone();
     }
@@ -86,7 +85,6 @@ pub fn unify(
     t: Term<String>,
     mut subs: HashMap<Term<String>, Term<String>>,
 ) -> Option<HashMap<Term<String>, Term<String>>> {
-    eprintln!("unify start: {:?} {:?}", s, t);
     let mut stack: Vec<(Term<String>, Term<String>)> = vec![(s, t)];
 
     while !stack.is_empty() {
@@ -99,8 +97,6 @@ pub fn unify(
         while subs.contains_key(&t) {
             t = subs.get(&t).unwrap().clone()
         }
-
-        eprintln!("unify {s:?} {t:?}");
 
         if s != t {
             match (&s, &t) {

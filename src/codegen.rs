@@ -1,7 +1,6 @@
 use crate::lir::{LIRExpression, LIRTree};
 use std::collections::HashMap;
 
-use crate::builtin::BUILTIN_ASM;
 use std::error::Error;
 use std::io::Write;
 
@@ -63,9 +62,6 @@ impl Module {
     }
 
     pub fn compile(&mut self, tree: LIRTree) -> Result<(), Box<dyn Error>> {
-        // output builtin functions
-        writeln!(self, "{}", &BUILTIN_ASM)?;
-
         // Output extern functions
         for name in tree.external {
             let (from, to) = tree.extern_types.get(&name).unwrap();

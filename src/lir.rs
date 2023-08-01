@@ -41,7 +41,6 @@ impl MIRTree {
         let mut globals = HashSet::new();
         globals.insert("arg.0".to_string());
 
-        globals.extend(crate::builtin::BUILTIN.keys().map(|s| s.clone()));
         globals.extend(self.import_funcs.clone().into_keys());
 
         let mut func_types = HashMap::new();
@@ -66,29 +65,35 @@ impl MIRTree {
         // add paddning of bytes to the base type
         let mut type_sizes = HashMap::new();
         for (name, vars) in variants.iter() {
-            let mut size = 8;
+            let mut size = 0;
 
             for (_, var) in vars {
-                size = size.max(var.size(size, &type_sizes));
+                let s = var.size(0, &type_sizes);
+                eprintln!("var {var} = {s}");
+                size = size.max(s);
             }
 
             // align to the byte boundary
             size += size % 8;
 
-            enums.push((
-                name.clone(),
+            eprintln!("{name} = {size}");
+
+            let enm = if size == 8 {
+                LLVMType::Struct(vec![LLVMType::I8])
+            } else {
                 LLVMType::Struct(vec![
                     LLVMType::I8,
                     LLVMType::Array(Box::new(LLVMType::I8), size / 8),
-                ]),
-            ));
+                ])
+            };
+
+            enums.push((name.clone(), enm));
 
             type_sizes.insert(name.clone(), size);
         }
 
         // get list of global function and constructor names
         let mut global_funcs = HashSet::new();
-        global_funcs.extend(crate::builtin::BUILTIN.keys().map(|s| s.clone()));
         for (f, _) in self.funcs.iter() {
             global_funcs.insert(f.clone());
         }

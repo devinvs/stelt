@@ -7,7 +7,6 @@ use crate::unify::apply_unifier;
 use crate::unify::unify;
 use crate::unify::Term;
 
-use crate::builtin::BUILTIN;
 use crate::mir::MIRTree;
 
 type Theta = HashMap<Term<String>, Term<String>>;
@@ -114,7 +113,7 @@ impl TypeChecker {
             // Don't type check imported functions
             let ty = tree.declarations.get(name).unwrap().clone();
             let subs = self.check_expression(
-                &BUILTIN,
+                &HashMap::new(),
                 &tree.constructors,
                 &tree.declarations,
                 &tree.structs,
@@ -129,7 +128,7 @@ impl TypeChecker {
             let ty = tree.declarations.get(name).unwrap().clone();
 
             let subs = self.check_expression(
-                &BUILTIN,
+                &HashMap::new(),
                 &tree.constructors,
                 &tree.declarations,
                 &tree.structs,
@@ -157,9 +156,7 @@ impl TypeChecker {
             _ => t.clone(),
         };
 
-        eprintln!("check {e:?}");
         let subs = self.judge_type(b, c, d, s, e, simple.clone(), HashMap::new())?;
-        eprintln!("done");
         Ok(subs)
     }
 
