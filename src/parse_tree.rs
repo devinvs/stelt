@@ -5,13 +5,33 @@ use std::collections::LinkedList as List;
 #[derive(Debug, Clone)]
 pub struct ParseTree {
     pub types: HashMap<String, DataDecl>,
+
+    pub external: HashSet<String>,
     pub typedefs: HashMap<String, Type>,
+
+    pub typefuns: HashMap<String, TypeFun>,
+    pub impls: Vec<Impl>,
+
     pub funcs: HashMap<String, Vec<FunctionDef>>,
     pub defs: HashMap<String, Expression>,
-    pub external: HashSet<String>,
+
     pub namespaces: HashSet<String>,
     pub imports: HashSet<String>,
     pub import_funcs: HashMap<String, Type>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TypeFun {
+    pub name: String,
+    pub vars: Vec<String>,
+    pub ty: Type,
+}
+
+#[derive(Debug, Clone)]
+pub struct Impl {
+    pub fn_name: String,
+    pub args: Vec<Type>,
+    pub body: Vec<FunctionDef>,
 }
 
 #[derive(Debug, Clone)]

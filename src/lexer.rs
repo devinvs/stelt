@@ -11,7 +11,7 @@ lazy_static! {
         m.insert("def", Token::Def);
         m.insert("let", Token::Let);
         m.insert("type", Token::Type);
-        m.insert("trait", Token::Trait);
+        m.insert("typefn", Token::Typefn);
         m.insert("impl", Token::Impl);
         m.insert("for", Token::For);
         m.insert("if", Token::If);
@@ -146,7 +146,7 @@ pub enum Token {
     Def,
     Type,
     Let,
-    Trait,
+    Typefn,
     Impl,
     For,
     If,
@@ -219,7 +219,7 @@ impl Token {
             Self::Def => "def",
             Self::Type => "type",
             Self::Let => "let",
-            Self::Trait => "trait",
+            Self::Typefn => "typefn",
             Self::Impl => "impl",
             Self::For => "for",
             Self::If => "if",

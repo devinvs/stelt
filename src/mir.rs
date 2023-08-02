@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use crate::parse_tree::{DataDecl, Expression, ParseTree, Pattern, Type, TypeCons};
 
 use crate::unify::apply_unifier;
+use crate::unify::unify;
 use crate::unify::Term;
 
 type Theta = HashMap<Term<String>, Term<String>>;
@@ -16,6 +17,7 @@ pub struct MIRTree {
     pub structs: HashMap<String, HashMap<String, Type>>,
     pub funcs: HashMap<String, MIRExpression>,
     pub defs: HashMap<String, MIRExpression>,
+    pub impl_map: HashMap<String, Vec<(String, Type)>>,
 
     pub constructors: HashMap<String, Type>,
     pub declarations: HashMap<String, Type>,
@@ -25,11 +27,50 @@ pub struct MIRTree {
 }
 
 impl MIRTree {
-    pub fn from(tree: ParseTree) -> Self {
-        // Add all user defined type definitions to declaratiosn
+    pub fn from(mut tree: ParseTree) -> Self {
+        let mut typedefs = tree.typedefs;
         let mut declarations = HashMap::new();
 
-        for (name, t) in tree.typedefs.iter() {
+        // Type functions type check as a forall type
+        for (name, typefn) in tree.typefuns.clone() {
+            let t = match typefn.ty {
+                Type::ForAll(mut vars, t) => {
+                    vars.extend(typefn.vars);
+                    Type::ForAll(vars, t)
+                }
+                t => Type::ForAll(typefn.vars, Box::new(t)),
+            };
+            declarations.insert(name, t);
+        }
+
+        // Generate a new name for each typefn impl, adding its type and body to the funcs
+        // Additionally create a map of each (typefn, type) to the new name
+        let mut impl_map = HashMap::<String, Vec<(String, Type)>>::new();
+        for imp in tree.impls {
+            let typefn = tree.typefuns.get(&imp.fn_name).unwrap();
+            let new_name = crate::gen_var(&format!("{}$", imp.fn_name));
+
+            let mut subs = HashMap::new();
+            for (var, arg) in typefn.vars.iter().zip(imp.args.iter()) {
+                subs.insert(var.clone(), arg.clone());
+            }
+
+            let real_type = typefn.ty.clone().replace_all(&subs);
+            if let Some(impls) = impl_map.get_mut(&typefn.name) {
+                impls.push((new_name.clone(), real_type.clone()));
+            } else {
+                impl_map.insert(
+                    typefn.name.clone(),
+                    vec![(new_name.clone(), real_type.clone())],
+                );
+            }
+
+            typedefs.insert(new_name.clone(), real_type);
+            tree.funcs.insert(new_name, imp.body);
+        }
+
+        // Add all user defined type definitions to declaratiosn
+        for (name, t) in typedefs.iter() {
             declarations.insert(name.clone(), t.clone());
         }
 
@@ -133,18 +174,24 @@ impl MIRTree {
         Self {
             external: tree.external,
             types: tree.types,
-            typedefs: tree.typedefs,
+            typedefs,
             funcs,
             defs,
             constructors,
             declarations,
             structs,
+            impl_map,
             imports: tree.imports,
             import_funcs: tree.import_funcs,
         }
     }
 
     pub fn with_concrete_types(mut self) -> Self {
+        // First resolve all typefn generics calls to their impl function name
+        for func in self.funcs.values_mut() {
+            *func = func.clone().resolve_typefn(&self.impl_map);
+        }
+
         let mut generic_decls = HashMap::new();
         let mut concrete_decls = HashMap::new();
 
@@ -305,7 +352,7 @@ impl MIRExpression {
     fn from(tree: Expression, cons: &HashMap<String, Type>) -> Self {
         match tree {
             Expression::Namespace(..) => panic!(),
-            Expression::Num(n) => Self::Num(n, Some(Type::I32)),
+            Expression::Num(n) => Self::Num(n, None),
             Expression::Str(s) => Self::Str(s, Some(Type::Str)),
             Expression::Unit => Self::Unit(Some(Type::Unit)),
             Expression::Identifier(i) => Self::Identifier(i, None),
@@ -399,6 +446,59 @@ impl MIRExpression {
                 ],
                 None,
             ),
+        }
+    }
+
+    fn resolve_typefn(self, impl_map: &HashMap<String, Vec<(String, Type)>>) -> Self {
+        match self {
+            Self::Identifier(s, Some(t)) => {
+                if let Some(impls) = impl_map.get(&s) {
+                    for (name, ty) in impls {
+                        // Try to unify the impl type with id type
+                        let subs = HashMap::new();
+                        let gen_ty = ty.clone().fresh();
+
+                        if let Some(subs) = unify(t.to_term(), gen_ty.to_term(), subs) {
+                            if apply_unifier(gen_ty.to_term(), &subs) == t.to_term() {
+                                return Self::Identifier(name.clone(), Some(t));
+                            }
+                        }
+                    }
+
+                    panic!("Could not find impl for typefn {}", s)
+                } else {
+                    Self::Identifier(s, Some(t))
+                }
+            }
+            Self::List(exprs, t) => Self::List(
+                exprs
+                    .into_iter()
+                    .map(|e| e.resolve_typefn(impl_map))
+                    .collect(),
+                t,
+            ),
+            Self::Tuple(exprs, t) => Self::Tuple(
+                exprs
+                    .into_iter()
+                    .map(|e| e.resolve_typefn(impl_map))
+                    .collect(),
+                t,
+            ),
+            Self::Match(x, pats, t) => Self::Match(
+                Box::new(x.resolve_typefn(impl_map)),
+                pats.into_iter()
+                    .map(|(p, e)| (p, e.resolve_typefn(impl_map)))
+                    .collect(),
+                t,
+            ),
+            Self::Call(m, n, t) => Self::Call(
+                Box::new(m.resolve_typefn(impl_map)),
+                Box::new(n.resolve_typefn(impl_map)),
+                t,
+            ),
+            Self::Lambda1(x, m, t) => Self::Lambda1(x, Box::new(m.resolve_typefn(impl_map)), t),
+            Self::Member(x, m, t) => Self::Member(Box::new(x.resolve_typefn(impl_map)), m, t),
+            a => a,
         }
     }
 
@@ -583,6 +683,23 @@ impl Pattern {
 }
 
 impl Type {
+    fn fresh(self) -> Self {
+        let mut i = 0;
+
+        match self {
+            Type::ForAll(vars, inner) => {
+                let mut m = HashMap::new();
+                for v in vars {
+                    m.insert(v.clone(), Type::Var(i));
+                    i += 1
+                }
+
+                inner.map(&m)
+            }
+            a => a,
+        }
+    }
+
     fn get_generic_subs(&self, other: &Type) -> HashMap<String, Type> {
         if let Type::ForAll(vars, t) = self {
             let mut name_to_id = HashMap::new();

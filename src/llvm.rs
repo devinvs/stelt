@@ -7,7 +7,12 @@ use std::collections::HashMap;
 pub enum LLVMType {
     I1,
     I8,
+    U8,
+    I16,
+    U16,
     I32,
+    U32,
+    I64,
     U64,
     Ptr(Box<LLVMType>),
     Str,
@@ -21,8 +26,14 @@ pub enum LLVMType {
 impl LLVMType {
     pub fn from_type(t: Type) -> Self {
         match t {
-            Type::I32 => Self::I32,
             Type::I8 => Self::I8,
+            Type::U8 => Self::U8,
+            Type::I16 => Self::I16,
+            Type::U16 => Self::U16,
+            Type::I32 => Self::I32,
+            Type::U32 => Self::U32,
+            Type::I64 => Self::I64,
+            Type::U64 => Self::U64,
             Type::Str => Self::Str,
             Type::Unit => Self::Void,
             Type::Arrow(a, b) => Self::Func(
@@ -36,8 +47,7 @@ impl LLVMType {
             Type::Ident(n) => Self::Named(n),
             Type::Generic(..) => Self::Named(t.to_string()),
             Type::Box(n) => Self::Ptr(Box::new(LLVMType::from_type(*n))),
-            Type::U64 => Self::U64,
-            a => unimplemented!("{a:?}"),
+            _ => panic!(),
         }
     }
 
@@ -77,9 +87,14 @@ impl LLVMType {
 
         match self {
             Self::Void => {}
-            Self::I8 => curr += 8,
             Self::I1 => curr += 1,
+            Self::I8 => curr += 8,
+            Self::U8 => curr += 8,
+            Self::I16 => curr += 16,
+            Self::U16 => curr += 16,
             Self::I32 => curr += 32,
+            Self::U32 => curr += 32,
+            Self::I64 => curr += 64,
             Self::U64 => curr += 64,
             Self::Ptr(_) => curr += 64,
             Self::Str => curr += 64,
@@ -107,7 +122,12 @@ impl LLVMType {
             Self::Void => 0,
             Self::I1 => 8,
             Self::I8 => 8,
+            Self::U8 => 8,
+            Self::I16 => 16,
+            Self::U16 => 16,
             Self::I32 => 32,
+            Self::U32 => 32,
+            Self::I64 => 64,
             Self::U64 => 64,
             Self::Ptr(_) => 64,
             Self::Str => 64,
@@ -124,7 +144,12 @@ impl std::fmt::Display for LLVMType {
         match self {
             Self::I1 => f.write_str("i1"),
             Self::I8 => f.write_str("i8"),
+            Self::U8 => f.write_str("i8"),
+            Self::I16 => f.write_str("i16"),
+            Self::U16 => f.write_str("i16"),
             Self::I32 => f.write_str("i32"),
+            Self::U32 => f.write_str("i32"),
+            Self::I64 => f.write_str("i64"),
             Self::U64 => f.write_str("i64"),
             Self::Ptr(_) => f.write_str("ptr"),
             Self::Str => f.write_str("ptr"),

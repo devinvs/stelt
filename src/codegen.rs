@@ -473,7 +473,7 @@ impl LIRExpression {
 
                 Ok(Some(format!("@str.{i}")))
             }
-            Self::Num(n) => Ok(Some(n.to_string())),
+            Self::Num(n, _) => Ok(Some(n.to_string())),
             Self::Tuple(es, t) => {
                 let mut out = module.var();
                 let mut es = es.into_iter();

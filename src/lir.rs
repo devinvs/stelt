@@ -69,14 +69,11 @@ impl MIRTree {
 
             for (_, var) in vars {
                 let s = var.size(0, &type_sizes);
-                eprintln!("var {var} = {s}");
                 size = size.max(s);
             }
 
             // align to the byte boundary
             size += size % 8;
-
-            eprintln!("{name} = {size}");
 
             let enm = if size == 8 {
                 LLVMType::Struct(vec![LLVMType::I8])
@@ -226,8 +223,8 @@ pub enum LIRExpression {
     List(Vec<LIRExpression>, LLVMType),
 
     // Constant Fields
-    Num(u64),    // A Number Literal
-    Str(String), // A String Literal, stores index into constant string array
+    Num(u64, LLVMType), // A Number Literal
+    Str(String),        // A String Literal, stores index into constant string array
     Unit,
     Tuple(Vec<LIRExpression>, LLVMType),
 
@@ -549,7 +546,7 @@ impl LIRExpression {
             Self::Str(..) => LLVMType::Str,
             Self::Let1(_, _, _, t) => t.clone(),
             Self::If(_, _, _, t) => t.clone(),
-            Self::Num(_) => LLVMType::I32,
+            Self::Num(_, t) => t.clone(),
             Self::Tuple(_, t) => t.clone(),
             Self::List(_, t) => t.clone(),
             Self::CheckTuple(_, _, t) => t.clone(),
@@ -743,7 +740,7 @@ impl MIRExpression {
                 }
             }
             Self::Identifier(s, t) => LIRExpression::Identifier(s, LLVMType::from_type(t.unwrap())),
-            Self::Num(n, _) => LIRExpression::Num(n),
+            Self::Num(n, t) => LIRExpression::Num(n, LLVMType::from_type(t.unwrap())),
             Self::Tuple(es, t) => LIRExpression::Tuple(
                 es.into_iter()
                     .map(|e| e.lower(vars, global, externs))
@@ -799,11 +796,11 @@ impl MIRExpression {
                 // since this passed type checking this always evaluates to true
                 yes
             }
-            Pattern::Num(n, _) => LIRExpression::If(
+            Pattern::Num(n, t) => LIRExpression::If(
                 Box::new(LIRExpression::GlobalCall(
                     "eq".into(),
                     Box::new(LIRExpression::Tuple(
-                        vec![exp, LIRExpression::Num(n)],
+                        vec![exp, LIRExpression::Num(n, LLVMType::from_type(t.unwrap()))],
                         LLVMType::Struct(vec![LLVMType::I32, LLVMType::I32]),
                     )),
                     LLVMType::I1,

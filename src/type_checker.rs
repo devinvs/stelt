@@ -79,11 +79,11 @@ impl Type {
 
             // Var...
             Term::Var(i) => Self::Var(i),
-            Term::Number(_) => Self::U32,
+            Term::Number(i) => Self::NumVar(i),
         }
     }
 
-    fn map(&self, m: &HashMap<String, Type>) -> Self {
+    pub fn map(&self, m: &HashMap<String, Type>) -> Self {
         match self {
             Self::Ident(s) => m.get(s).unwrap_or(&self).clone(),
             Self::Tuple(ts) => Self::Tuple(ts.into_iter().map(|t| t.map(m)).collect()),
@@ -135,7 +135,6 @@ impl TypeChecker {
                 func,
                 ty.clone(),
             )?;
-
             func.apply(&subs)
         }
 
@@ -206,9 +205,10 @@ impl TypeChecker {
             .ok_or(format!("Type Mismatch: Expected () found {:?}", tname))
     }
 
-    fn judge_num(&mut self, t: Type, subs: Theta) -> Result<Theta, String> {
+    fn judge_num(&mut self, e: &mut Expression, t: Type, subs: Theta) -> Result<Theta, String> {
         let tname = apply_unifier(t.to_term(), &subs).name();
         let v = self.gen_num_var();
+        e.set_type(v.clone());
         unify(v.to_term(), t.to_term(), subs)
             .ok_or(format!("Type Mismatch: Expected {v:?} found {:?}", tname))
     }
@@ -240,8 +240,8 @@ impl TypeChecker {
         let xname = apply_unifier(x.to_term(), &subs).name();
 
         let theta = unify(x.to_term(), t.to_term(), subs).ok_or(format!(
-            "Type Mismatch: Expected {:?} found {:?}",
-            xname, tname
+            "Type Mismatch: Expected {:?} found {:?}\n{:?}",
+            xname, tname, name
         ))?;
 
         e.set_type(t);
@@ -338,8 +338,8 @@ impl TypeChecker {
             subs,
         )
         .ok_or(format!(
-            "Type Mismatch: Expected {:?} found {:?}",
-            tname, xname
+            "Type Mismatch: Expected {:?} found {:?}\n{:?}",
+            tname, xname, m
         ))?;
 
         m.set_type(t2);
@@ -497,7 +497,7 @@ impl TypeChecker {
     ) -> Result<Theta, String> {
         match e {
             Expression::Unit(..) => self.judge_unit(t, subs),
-            Expression::Num(..) => self.judge_num(t, subs),
+            Expression::Num(..) => self.judge_num(e, t, subs),
             Expression::Str(..) => self.judge_str(t, subs),
             Expression::Identifier(..) => self.judge_var(builtins, cons, defs, e, t, subs),
             Expression::Tuple(..) => self.judge_tuple(builtins, cons, defs, structs, e, t, subs),
@@ -507,6 +507,19 @@ impl TypeChecker {
             Expression::Member(..) => self.judge_member(builtins, cons, defs, structs, e, t, subs),
             Expression::List(..) => self.judge_multiple(builtins, cons, defs, structs, e, t, subs),
         }
+    }
+
+    fn judge_pattern_num(
+        &mut self,
+        e: &mut Pattern,
+        t: Type,
+        subs: Theta,
+    ) -> Result<Theta, String> {
+        let tname = apply_unifier(t.to_term(), &subs).name();
+        let v = self.gen_num_var();
+        e.set_type(v.clone());
+        unify(v.to_term(), t.to_term(), subs)
+            .ok_or(format!("Type Mismatch: Expected {v:?} found {:?}", tname))
     }
 
     fn judge_pattern_var(
@@ -614,7 +627,7 @@ impl TypeChecker {
         match p {
             Pattern::Namespace(..) => panic!(),
             Pattern::Unit(..) => self.judge_unit(t, subs),
-            Pattern::Num(..) => self.judge_num(t, subs),
+            Pattern::Num(..) => self.judge_pattern_num(p, t, subs),
             Pattern::Str(..) => self.judge_str(t, subs),
             Pattern::Var(..) => self.judge_pattern_var(d, p, t, subs),
             Pattern::Tuple(..) => self.judge_pattern_tuple(c, d, p, t, subs),

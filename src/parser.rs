@@ -7,7 +7,9 @@ use crate::lexer::Lexer;
 use crate::lexer::TokenStream;
 use crate::Token;
 
-use crate::parse_tree::{DataDecl, Expression, FunctionDef, ParseTree, Pattern, Type, TypeCons};
+use crate::parse_tree::{
+    DataDecl, Expression, FunctionDef, Impl, ParseTree, Pattern, Type, TypeCons, TypeFun,
+};
 
 use lazy_static::lazy_static;
 
@@ -26,6 +28,8 @@ lazy_static! {
             namespaces: HashSet::new(),
             imports: HashSet::new(),
             import_funcs: HashMap::new(),
+            typefuns: HashMap::new(),
+            impls: Vec::new(),
         };
         ParseTree::parse_with(&mut tokens, me).unwrap()
     };
@@ -47,6 +51,76 @@ impl ParseTree {
     pub fn parse_with(t: &mut TokenStream, mut me: Self) -> Result<Self, String> {
         loop {
             match t.peek() {
+                Some(Lexeme { token: Token::Impl }) => {
+                    t.assert(Token::Impl)?;
+                    let name = t.ident()?;
+
+                    let mut args = vec![];
+                    t.assert(Token::LParen)?;
+                    while let Ok(ty) = Type::parse(t) {
+                        args.push(ty);
+                        if t.consume(Token::Comma).is_none() {
+                            break;
+                        }
+                    }
+                    t.assert(Token::RParen)?;
+
+                    let mut funcs = vec![];
+                    while t.peek()
+                        == Some(&Lexeme {
+                            token: Token::Ident(name.clone()),
+                        })
+                    {
+                        let name = t.ident()?;
+                        let func = FunctionDef::parse(t, name, &me.namespaces)?;
+                        funcs.push(func);
+                    }
+
+                    me.impls.push(Impl {
+                        fn_name: name,
+                        args,
+                        body: funcs,
+                    });
+                }
+                Some(Lexeme {
+                    token: Token::Typefn,
+                }) => {
+                    t.assert(Token::Typefn)?;
+
+                    let name = t.ident()?;
+                    let mut gen_args = vec![];
+                    if t.consume(Token::LArrow).is_some() {
+                        while let Ok(id) = t.ident() {
+                            gen_args.push(id);
+                            if t.consume(Token::Comma).is_none() {
+                                break;
+                            }
+                        }
+                        t.assert(Token::RArrow)?;
+                    }
+
+                    let mut args = vec![];
+                    t.assert(Token::LParen)?;
+                    while let Ok(id) = t.ident() {
+                        args.push(id);
+                        if t.consume(Token::Comma).is_none() {
+                            break;
+                        }
+                    }
+
+                    t.assert(Token::RParen)?;
+                    t.assert(Token::Assign)?;
+                    let ty = Type::parse(t)?;
+
+                    me.typefuns.insert(
+                        name.clone(),
+                        TypeFun {
+                            name,
+                            vars: args,
+                            ty: Type::ForAll(gen_args, Box::new(ty)),
+                        },
+                    );
+                }
                 Some(Lexeme {
                     token: Token::Import,
                 }) => {
@@ -243,6 +317,10 @@ impl ParseTree {
             namespaces: self.namespaces,
             imports,
             import_funcs: type_decls,
+
+            // TODO: fix later
+            impls: self.impls,
+            typefuns: self.typefuns,
         }
     }
 }

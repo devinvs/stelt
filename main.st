@@ -1,15 +1,13 @@
-import print
-
-extern type puts: str -> ()
-
-type List<a> = Nil | Cons(a, List<a>)
-
-type sum: List<i32> -> i32
-sum(Nil) = 0
-sum(Cons(x, xs)) = x + sum(xs)
-
-type main: () -> ()
-main() = {
-    print.putd(sum(Cons(5, Nil)))
-    puts("hello world")
+type fib: u64 -> u64
+fib(n) = if n==0 {
+	1
+} else {
+	if n==1 {
+		1
+	} else {
+		fib(n-1) + fib(n-2)
+	}
 }
+
+type main: () -> u64
+main() = fib(20)
