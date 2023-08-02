@@ -453,19 +453,11 @@ impl MIRExpression {
         match self {
             Self::Identifier(s, Some(t)) => {
                 if let Some(impls) = impl_map.get(&s) {
-                    for (name, ty) in impls {
-                        // Try to unify the impl type with id type
-                        let subs = HashMap::new();
-                        let gen_ty = ty.clone().fresh();
-
-                        if let Some(subs) = unify(t.to_term(), gen_ty.to_term(), subs) {
-                            if apply_unifier(gen_ty.to_term(), &subs) == t.to_term() {
-                                return Self::Identifier(name.clone(), Some(t));
-                            }
-                        }
-                    }
-
-                    panic!("Could not find impl for typefn {}", s)
+                    Self::Identifier(
+                        resolve_typefn(impls, t.clone())
+                            .expect("Could not find impl for typefn: {s}"),
+                        Some(t),
+                    )
                 } else {
                     Self::Identifier(s, Some(t))
                 }
@@ -905,4 +897,20 @@ impl TypeCons {
             args: self.args.clone().replace(from, to),
         }
     }
+}
+
+pub fn resolve_typefn(impls: &Vec<(String, Type)>, t: Type) -> Option<String> {
+    for (name, ty) in impls {
+        // Try to unify the impl type with id type
+        let subs = HashMap::new();
+        let gen_ty = ty.clone().fresh();
+
+        if let Some(subs) = unify(t.to_term(), gen_ty.to_term(), subs) {
+            if apply_unifier(gen_ty.to_term(), &subs) == t.to_term() {
+                return Some(name.clone());
+            }
+        }
+    }
+
+    None
 }

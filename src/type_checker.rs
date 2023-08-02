@@ -108,12 +108,24 @@ pub struct TypeChecker {
 
 impl TypeChecker {
     pub fn check_program(&mut self, tree: &mut MIRTree) -> Result<(), String> {
+        let mut builtins = HashMap::new();
+        builtins.insert(
+            "llvm!".to_string(),
+            Type::ForAll(
+                vec!["a".to_string()],
+                Box::new(Type::Arrow(
+                    Box::new(Type::Tuple(vec![Type::Str, Type::Str])),
+                    Box::new(Type::Ident("a".to_string())),
+                )),
+            ),
+        );
+
         // Check all defs
         for (name, def) in tree.defs.iter_mut() {
             // Don't type check imported functions
             let ty = tree.declarations.get(name).unwrap().clone();
             let subs = self.check_expression(
-                &HashMap::new(),
+                &builtins,
                 &tree.constructors,
                 &tree.declarations,
                 &tree.structs,
@@ -128,7 +140,7 @@ impl TypeChecker {
             let ty = tree.declarations.get(name).unwrap().clone();
 
             let subs = self.check_expression(
-                &HashMap::new(),
+                &builtins,
                 &tree.constructors,
                 &tree.declarations,
                 &tree.structs,

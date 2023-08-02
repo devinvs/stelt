@@ -2,14 +2,6 @@ type Bool = False | True
 type Maybe<a> = None | Some(a)
 type List<a> = Nil | Cons(a, List<a>)
 
-// The llvm macro is handled specially by the compiler.
-// In place of the expression the compiler will inject the
-// llvm string verbatim
-//
-// Takes the output variable name and the llvm body
-type llvm!<a> : (str, str) -> a
-
-
 //
 // Here lies the math spam. This is what I get for having so many int types
 //
