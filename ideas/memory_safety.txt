@@ -1,0 +1,48 @@
+A few different prongs to memory safety:
+
+1. by default all values, including massive structs/arrays, are on the stack
+	- This means that memory management is automatic
+	- so is copying...
+
+2. types that have lifetimes (such as box, buffer, fd, etc) are affine types, meaning:
+	- the drop typefn must be implemented in order to know how to deconstruct
+	- values must move linearly through the code
+	- when passed to a function where the passed in value doesn't escape, pass as second-class ref
+	- in order to do cartesian product you must clone() or otherwise (dupfd() for fd)
+	- Thus, once an affine type is out of scope, it is dropped.
+
+	- Do all datastructures containing affine types have to be affine?
+		+ gut says yes...
+		+ Yes, because otherwise I could copy an affine type by putting
+		  into a struct and then copying struct
+
+		+ should I call these linear?
+		+ or maybe owned?
+		+ or maybe uniqued?
+		+ so many options...
+
+
+I want to support custom allocators...
+basically you can annotate the alloc/free functions for a type
+
+for instance:
+
+typefn alloc(a) = () -> Box<a>
+typefn free(a) = Box<a> -> ()
+
+// this will use the arena allocator to allocate List
+#[alloc=(arena_alloc, arena_free)]
+type List<a> = Nil | Cons(a, List<a>)
+
+// use malloc/free for List_i32
+#[alloc=(malloc, free)]
+type List_i32 = List<i32>
+
+---
+
+in order to implement this we need a few features that are not yet implemented:
+- annotations
+- newtypes
+- static memory allocation (at program start)
+- atoms (so you can mutate static memory)
+- the whole linear type thing

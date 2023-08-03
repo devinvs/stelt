@@ -1,0 +1,10 @@
+need exhaustiveness checks for pattern matching.
+
+for base type t (such as numbers, str) must have binding or _
+also functions
+
+for tuple (a, b, c) = check(a) && check(b) && check(c)
+
+for sum type A | B(x) | ... = has(A) && has(B) && check(x) && ...
+
+struct is like enum
