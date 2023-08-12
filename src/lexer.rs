@@ -15,10 +15,12 @@ lazy_static! {
         m.insert("impl", Token::Impl);
         m.insert("for", Token::For);
         m.insert("if", Token::If);
+        m.insert("then", Token::Then);
         m.insert("else", Token::Else);
         m.insert("match", Token::Match);
         m.insert("extern", Token::Extern);
         m.insert("import", Token::Import);
+        m.insert("in", Token::In);
 
         // Built types
         m.insert("u8", Token::U8);
@@ -65,6 +67,8 @@ lazy_static! {
         m.insert(">", Token::RArrow);
         m.insert(",", Token::Comma);
         m.insert(":", Token::Colon);
+
+        m.insert("_", Token::Underscore);
 
         m
     };
@@ -150,10 +154,13 @@ pub enum Token {
     Impl,
     For,
     If,
+    Then,
     Else,
     Match,
     Extern,
     Import,
+    In,
+    Underscore,
 
     // Builtin Types
     U8,
@@ -214,6 +221,9 @@ pub enum Token {
 impl Token {
     pub fn name(&self) -> String {
         match self {
+            Self::Then => "then",
+            Self::In => "in",
+            Self::Underscore => "_",
             Self::Extern => "extern",
             Self::FatArrow => "=>",
             Self::Def => "def",

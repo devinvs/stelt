@@ -12,7 +12,7 @@ type Theta = HashMap<Term<String>, Term<String>>;
 #[derive(Debug)]
 pub struct MIRTree {
     pub external: HashSet<String>,
-    pub types: HashMap<String, DataDecl>,
+    pub types: Vec<(String, DataDecl)>,
     pub typedefs: HashMap<String, Type>,
     pub structs: HashMap<String, HashMap<String, Type>>,
     pub funcs: HashMap<String, MIRExpression>,
@@ -187,11 +187,6 @@ impl MIRTree {
     }
 
     pub fn with_concrete_types(mut self) -> Self {
-        // First resolve all typefn generics calls to their impl function name
-        for func in self.funcs.values_mut() {
-            *func = func.clone().resolve_typefn(&self.impl_map);
-        }
-
         let mut generic_decls = HashMap::new();
         let mut concrete_decls = HashMap::new();
 
@@ -213,12 +208,24 @@ impl MIRTree {
 
         let mut concrete_funcs = HashMap::new();
 
+        let cons = self
+            .types
+            .iter()
+            .filter_map(|t| match &t.1 {
+                DataDecl::Product(..) => None,
+                DataDecl::Sum(_, _, cons) => {
+                    Some(cons.iter().map(|tc| tc.name.clone()).collect::<Vec<_>>())
+                }
+            })
+            .flatten()
+            .collect();
+
         // for every concrete function type extract the calls to generic functions
         // and add them to the concrete functions as well
         for name in concrete_decls.clone().into_keys() {
             if let Some(body) = self.funcs.get(&name) {
                 let body = body.clone();
-                let (f, calls) = body.extract_calls(&generic_decls);
+                let (f, calls) = body.extract_calls(&generic_decls, &cons);
                 concrete_funcs.insert(name.clone(), f);
 
                 for (name, newname, ty) in calls {
@@ -263,7 +270,66 @@ impl MIRTree {
             *t = newt;
         }
 
-        self.types = concrete_types;
+        // finally, for every concrete type extract the generics from their members and constructors
+        let mut other_concretes = HashMap::new();
+        for (_, t) in concrete_types.iter_mut() {
+            *t = match t {
+                DataDecl::Product(n, v, mems) => {
+                    let mems = mems
+                        .into_iter()
+                        .map(|(name, t)| {
+                            let (newt, concs) = t.clone().extract_generics(&generic_types);
+                            for conc in concs {
+                                other_concretes.insert(conc.name(), conc);
+                            }
+                            (name.clone(), newt)
+                        })
+                        .collect();
+
+                    DataDecl::Product(n.clone(), v.clone(), mems)
+                }
+                DataDecl::Sum(n, v, cons) => {
+                    let cons = cons
+                        .into_iter()
+                        .map(|TypeCons { name, args }| {
+                            let (newt, concs) = args.clone().extract_generics(&generic_types);
+                            for conc in concs {
+                                other_concretes.insert(conc.name(), conc);
+                            }
+                            TypeCons {
+                                name: name.clone(),
+                                args: newt,
+                            }
+                        })
+                        .collect();
+
+                    DataDecl::Sum(n.clone(), v.clone(), cons)
+                }
+            };
+        }
+
+        concrete_types.extend(other_concretes);
+        // change type constructor names to have their type as a prefix
+
+        for (_, data) in concrete_types.iter_mut() {
+            let name = data.name();
+            match data {
+                DataDecl::Product(..) => {}
+                DataDecl::Sum(_, _, cons) => {
+                    for cons in cons.iter_mut() {
+                        let newname = format!("{}${}$", cons.name, name);
+                        cons.name = newname;
+                    }
+                }
+            }
+        }
+
+        // resolve all typefn calls to their impl function name
+        for func in concrete_funcs.values_mut() {
+            *func = func.clone().resolve_typefn(&self.impl_map);
+        }
+
+        self.types = concrete_types.into_iter().collect();
         self.typedefs = concrete_decls;
         self.funcs = concrete_funcs;
 
@@ -271,7 +337,12 @@ impl MIRTree {
         let data = self.types.clone();
         for (name, d) in data.into_iter() {
             let d = d.remove_recursion(&name, &mut self.types);
-            *self.types.get_mut(&name).unwrap() = d;
+            *self
+                .types
+                .iter_mut()
+                .find(|(n, _)| *n == name)
+                .map(|(_, a)| a)
+                .unwrap() = d;
         }
 
         self
@@ -454,8 +525,9 @@ impl MIRExpression {
             Self::Identifier(s, Some(t)) => {
                 if let Some(impls) = impl_map.get(&s) {
                     Self::Identifier(
-                        resolve_typefn(impls, t.clone())
-                            .expect("Could not find impl for typefn: {s}"),
+                        resolve_typefn(impls, t.clone()).expect(&format!(
+                            "Could not find impl for typefn: {s} of type {t:?}"
+                        )),
                         Some(t),
                     )
                 } else {
@@ -559,6 +631,7 @@ impl MIRExpression {
     fn extract_calls(
         self,
         generics: &HashMap<String, Type>,
+        cons: &HashSet<String>,
     ) -> (Self, Vec<(String, String, Type)>) {
         match self {
             MIRExpression::Identifier(name, t) => {
@@ -569,6 +642,14 @@ impl MIRExpression {
                         MIRExpression::Identifier(newname.clone(), t.clone()),
                         vec![(name, newname, t.unwrap())],
                     )
+                } else if cons.contains(&name) {
+                    let out_t = match t.clone().unwrap() {
+                        Type::Arrow(_, t) => t,
+                        _ => panic!(),
+                    };
+                    let newname = format!("{name}${}$", out_t.to_string());
+
+                    (MIRExpression::Identifier(newname, t), vec![])
                 } else {
                     (MIRExpression::Identifier(name, t), vec![])
                 }
@@ -578,7 +659,7 @@ impl MIRExpression {
                 let mut newes = vec![];
 
                 for e in es {
-                    let (e, gens) = e.extract_calls(generics);
+                    let (e, gens) = e.extract_calls(generics, cons);
                     newes.push(e);
                     v.extend(gens);
                 }
@@ -590,7 +671,7 @@ impl MIRExpression {
                 let mut newes = vec![];
 
                 for e in es {
-                    let (e, gens) = e.extract_calls(generics);
+                    let (e, gens) = e.extract_calls(generics, cons);
                     newes.push(e);
                     v.extend(gens);
                 }
@@ -598,27 +679,28 @@ impl MIRExpression {
                 (MIRExpression::Tuple(newes, t), v)
             }
             MIRExpression::Call(f, args, t) => {
-                let (f, mut gens) = f.extract_calls(generics);
-                let (args, gens2) = args.extract_calls(generics);
+                let (f, mut gens) = f.extract_calls(generics, cons);
+                let (args, gens2) = args.extract_calls(generics, cons);
                 gens.extend(gens2);
 
                 (MIRExpression::Call(Box::new(f), Box::new(args), t), gens)
             }
             MIRExpression::Lambda1(arg, body, t) => {
-                let (body, gens) = body.extract_calls(generics);
+                let (body, gens) = body.extract_calls(generics, cons);
                 (MIRExpression::Lambda1(arg, Box::new(body), t), gens)
             }
             MIRExpression::Member(e, mem, t) => {
-                let (e, gens) = e.extract_calls(generics);
+                let (e, gens) = e.extract_calls(generics, cons);
                 (MIRExpression::Member(Box::new(e), mem, t), gens)
             }
             MIRExpression::Match(e, ps, t) => {
                 // I don't think that we need to check the patterns, but I'm not entirely sure
-                let (e, mut gens) = e.extract_calls(generics);
+                let (e, mut gens) = e.extract_calls(generics, cons);
 
                 let mut new_ps = vec![];
                 for (p, e) in ps {
-                    let (e, gens2) = e.extract_calls(generics);
+                    let (e, gens2) = e.extract_calls(generics, cons);
+                    let p = p.extract_generics();
                     gens.extend(gens2);
                     new_ps.push((p, e));
                 }
@@ -631,9 +713,26 @@ impl MIRExpression {
 }
 
 impl Pattern {
+    fn extract_generics(self) -> Self {
+        match self {
+            Self::Cons(name, args, t) => {
+                let newname = format!("{name}${}$", t.as_ref().unwrap().to_string());
+
+                let args = args.extract_generics();
+
+                Self::Cons(newname, Box::new(args), t)
+            }
+            Self::Tuple(ps, t) => {
+                Self::Tuple(ps.into_iter().map(|p| p.extract_generics()).collect(), t)
+            }
+            a => a,
+        }
+    }
+
     fn sub_types(self, subs: &HashMap<String, Type>) -> Self {
         let t = self.ty().replace_all(subs);
         match self {
+            Pattern::Any(..) => Pattern::Any(Some(t)),
             Pattern::Namespace(..) => panic!(),
             Pattern::Var(x, _) => Pattern::Var(x, Some(t)),
             Pattern::Unit(_) => Pattern::Unit(Some(t)),
@@ -783,7 +882,7 @@ impl Type {
                 );
 
                 let newt = gen_ty.substitute(newname.clone(), &new_vals);
-                concrete.push(newt);
+                concrete.push(newt.clone());
 
                 (Type::Ident(newname), concrete)
             }

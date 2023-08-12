@@ -4,7 +4,7 @@ use std::collections::LinkedList as List;
 
 #[derive(Debug, Clone)]
 pub struct ParseTree {
-    pub types: HashMap<String, DataDecl>,
+    pub types: Vec<(String, DataDecl)>,
 
     pub external: HashSet<String>,
     pub typedefs: HashMap<String, Type>,
@@ -44,7 +44,7 @@ pub enum DataDecl {
 }
 
 impl DataDecl {
-    pub fn remove_recursion(self, name: &str, data: &mut HashMap<String, DataDecl>) -> Self {
+    pub fn remove_recursion(self, name: &str, data: &mut Vec<(String, DataDecl)>) -> Self {
         match self {
             Self::Product(tname, args, mems) => Self::Product(
                 tname,
@@ -92,8 +92,8 @@ pub enum Type {
     I16,
     I32,
     I64,
-    Str,
     Unit,
+    Str,
 
     // Type variable used for parsing. Only present in ir.
     // DOES NOT PARSE
@@ -103,14 +103,21 @@ pub enum Type {
 }
 
 impl Type {
-    fn remove_recursion(self, name: &str, data: &mut HashMap<String, DataDecl>) -> Self {
+    fn remove_recursion(self, name: &str, data: &mut Vec<(String, DataDecl)>) -> Self {
         match self {
             Type::Ident(i) => {
                 if name == i {
                     Type::Box(Box::new(Type::Ident(i)))
-                } else if data.contains_key(&i) {
-                    let d = data[&i].clone();
-                    *data.get_mut(&i).unwrap() = d.remove_recursion(name, data);
+                } else if let Some(d) = data
+                    .iter_mut()
+                    .find(|(a, _)| *a == i)
+                    .map(|(_, a)| a.clone())
+                {
+                    *data
+                        .iter_mut()
+                        .find(|(a, _)| *a == i)
+                        .map(|(_, a)| a)
+                        .unwrap() = d.clone().remove_recursion(name, data);
                     Type::Ident(i)
                 } else {
                     Type::Ident(i)
@@ -218,8 +225,8 @@ pub enum Expression {
     Namespace(String, String),
 
     // Constant Fields
-    Num(u64),    // A Number Literal
-    Str(String), // A String Literal
+    Str(String),
+    Num(u64), // A Number Literal
     Unit,
 }
 
@@ -235,6 +242,8 @@ pub enum Pattern {
     Tuple(Vec<Pattern>, Option<Type>),
     Cons(String, Box<Pattern>, Option<Type>),
     Namespace(String, Box<Pattern>, Option<Type>),
+
+    Any(Option<Type>),
 }
 
 impl Pattern {
@@ -262,6 +271,7 @@ impl Pattern {
 
     pub fn ty(&self) -> Type {
         match self {
+            Pattern::Any(t) => t,
             Pattern::Var(_, t) => t,
             Pattern::Unit(t) => t,
             Pattern::Num(_, t) => t,
@@ -276,6 +286,7 @@ impl Pattern {
 
     pub fn set_type(&mut self, ty: Type) {
         match self {
+            Pattern::Any(t) => *t = Some(ty),
             Pattern::Var(_, t) => *t = Some(ty),
             Pattern::Unit(t) => *t = Some(ty),
             Pattern::Num(_, t) => *t = Some(ty),

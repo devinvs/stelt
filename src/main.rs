@@ -106,8 +106,6 @@ fn compile(path: &Path, outdir: &Path) {
         }
 
         let mir = mir.with_concrete_types();
-
-        //eprintln!("{:#?}", lir.funcs);
         let lir = mir.lower();
 
         let out_path = outdir.join(Path::new(&format!("{}.ll", name)));

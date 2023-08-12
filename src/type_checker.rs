@@ -246,7 +246,7 @@ impl TypeChecker {
         };
         let x = self
             .apply_gamma_all(&name, builtins, cons, defined)
-            .ok_or(format!("Type not known for {name:?}"))?;
+            .ok_or(format!("judge_var: Type not known for {name:?}"))?;
 
         let tname = apply_unifier(t.to_term(), &subs).name();
         let xname = apply_unifier(x.to_term(), &subs).name();
@@ -327,7 +327,6 @@ impl TypeChecker {
             _ => subs,
             /*
             a => {
-                eprintln!("{x:?}  {m:?}");
                 return Err(String {
                     range: Some(r),
                     msg: format!("Expected lambda found {:?}", a)
@@ -637,6 +636,7 @@ impl TypeChecker {
         subs: Theta,
     ) -> Result<Theta, String> {
         match p {
+            Pattern::Any(..) => Ok(subs),
             Pattern::Namespace(..) => panic!(),
             Pattern::Unit(..) => self.judge_unit(t, subs),
             Pattern::Num(..) => self.judge_pattern_num(p, t, subs),

@@ -81,7 +81,7 @@ impl LLVMType {
         Self::from_type(t.args)
     }
 
-    pub fn size(&self, mut curr: usize, types: &HashMap<String, usize>) -> usize {
+    pub fn size(&self, mut curr: usize, types: &HashMap<String, usize>) -> Option<usize> {
         let my_align = self.alignment();
         curr += curr % my_align;
 
@@ -102,19 +102,19 @@ impl LLVMType {
                 for t in ts {
                     let t_align = t.alignment();
                     curr += curr % t_align;
-                    curr = t.size(curr, types);
+                    curr = t.size(curr, types)?;
                 }
             }
             Self::Array(t, num) => {
-                curr += t.size(0, types) * num;
+                curr += t.size(0, types)? * num;
             }
             Self::Func(..) => curr += 64,
             Self::Named(name) => {
-                curr += types.get(name).expect(&format!("Failed to find {name:?}"));
+                curr += types.get(name)?;
             }
         };
 
-        curr
+        Some(curr)
     }
 
     pub fn alignment(&self) -> usize {

@@ -20,7 +20,7 @@ lazy_static! {
         let mut tokens = l.lex(s).unwrap();
 
         let me = ParseTree {
-            types: HashMap::new(),
+            types: Vec::new(),
             typedefs: HashMap::new(),
             funcs: HashMap::new(),
             defs: HashMap::new(),
@@ -176,7 +176,7 @@ impl ParseTree {
                             ..
                         }) => {
                             let ty = DataDecl::parse(t, name.clone(), args)?;
-                            me.types.insert(name, ty);
+                            me.types.push((name, ty));
                         }
                         Some(Lexeme {
                             token: Token::Colon,
@@ -255,7 +255,7 @@ impl ParseTree {
             })
             .collect();
 
-        let mut types: HashMap<String, DataDecl> = self
+        let mut types: Vec<(String, DataDecl)> = self
             .types
             .iter()
             .map(|(name, data)| {
@@ -485,7 +485,7 @@ impl Type {
     fn qualify(self, prefix: &str, me: &ParseTree) -> Self {
         match self {
             Type::Ident(t) => {
-                if me.types.contains_key(&t) {
+                if me.types.iter().any(|(a, _)| *a == t) {
                     Type::Ident(prefixed(prefix, &t))
                 } else {
                     Type::Ident(t)
@@ -512,7 +512,12 @@ impl Type {
     ) -> Self {
         match self {
             Self::Namespace(ns, t) => {
-                let ref_type = mods[&ns].types[&t].clone();
+                let ref_type = mods[&ns]
+                    .types
+                    .iter()
+                    .find(|(n, _)| *n == t)
+                    .map(|(_, ty)| ty.clone())
+                    .unwrap();
 
                 // the ref_type can contain other referenced types from other modules,
                 // so we must resolve those first
@@ -594,7 +599,7 @@ impl Type {
 
             Ok(Self::Generic(
                 vec![inner],
-                Box::new(Self::Ident("List".to_string())),
+                Box::new(Self::Ident("list".to_string())),
             ))
         } else {
             Ok(Self::parse_generic(t)?)
@@ -618,7 +623,7 @@ impl Type {
         } else if t.consume(Token::Question).is_some() {
             Ok(Self::Generic(
                 vec![base],
-                Box::new(Self::Ident("Maybe".into())),
+                Box::new(Self::Ident("maybe".into())),
             ))
         } else {
             Ok(base)
@@ -684,7 +689,12 @@ impl Expression {
                     Self::Identifier(i)
                 } else if me.typedefs.contains_key(&i) {
                     Expression::Identifier(prefixed(prefix, &i))
-                } else if me.types.values().any(|data| data.has_cons(&i)) {
+                } else if me
+                    .types
+                    .iter()
+                    .map(|(_, a)| a)
+                    .any(|data| data.has_cons(&i))
+                {
                     Expression::Identifier(prefixed(prefix, &i))
                 } else {
                     Self::Identifier(i)
@@ -851,32 +861,12 @@ impl Expression {
         true
     }
 
-    pub fn parse_list_scoped(t: &mut TokenStream) -> Result<Vec<Expression>, String> {
-        let mut exprs = vec![];
-        while !t.test(Token::RCurly) {
-            let e = match Self::parse(t)? {
-                Self::Let(pat, val, _) => {
-                    let rest = Self::parse_list_scoped(t)?;
-                    let body = match rest.len() {
-                        0 => Expression::Unit,
-                        1 => rest.into_iter().next().unwrap(),
-                        _ => Self::ExprList(rest),
-                    };
-
-                    Self::Let(pat, val, Box::new(body))
-                }
-                a => a,
-            };
-
-            exprs.push(e);
-        }
-
-        Ok(exprs)
-    }
-
     pub fn parse_list(t: &mut TokenStream) -> Result<Self, String> {
         t.assert(Token::LCurly)?;
-        let exprs = Self::parse_list_scoped(t)?;
+        let mut exprs = Vec::new();
+        while !t.test(Token::RCurly) {
+            exprs.push(Self::parse(t)?);
+        }
         t.assert(Token::RCurly)?;
 
         match exprs.len() {
@@ -896,15 +886,21 @@ impl Expression {
 
             let lam = Self::lambda(t)?;
 
-            Ok(Self::Let(pat, Box::new(lam), Box::new(Self::Unit)))
+            t.assert(Token::In)?;
+
+            let expr = Self::parse(t)?;
+
+            Ok(Self::Let(pat, Box::new(lam), Box::new(expr)))
         } else if let Some(()) = t.consume(Token::If) {
             let cond = Self::parse(t)?;
 
-            let then = Self::parse_list(t)?;
+            t.assert(Token::Then)?;
+
+            let then = Self::parse(t)?;
 
             t.assert(Token::Else)?;
 
-            let else_ = Self::parse_list(t)?;
+            let else_ = Self::parse(t)?;
 
             Ok(Self::If(Box::new(cond), Box::new(then), Box::new(else_)))
         } else if let Some(()) = t.consume(Token::Match) {
@@ -1307,7 +1303,7 @@ impl Expression {
         }
     }
 
-    fn cons_from_es(es: &[Self]) -> Self {
+    pub fn cons_from_es(es: &[Self]) -> Self {
         if es.is_empty() {
             return Self::Call(
                 Box::new(Self::Identifier("Nil".to_string())),
@@ -1343,7 +1339,12 @@ impl Pattern {
                 Pattern::Tuple(ps.into_iter().map(|p| p.qualify(prefix, me)).collect(), t)
             }
             Pattern::Cons(name, args, t) => {
-                let name = if me.types.values().any(|data| data.has_cons(&name)) {
+                let name = if me
+                    .types
+                    .iter()
+                    .map(|(_, a)| a)
+                    .any(|data| data.has_cons(&name))
+                {
                     prefixed(prefix, &name)
                 } else {
                     name
@@ -1363,8 +1364,12 @@ impl Pattern {
         match self {
             Pattern::Namespace(ns, p, _) => {
                 if let Pattern::Cons(n, args, t) = *p {
-                    let newt = mods[&ns].types[&n]
-                        .clone()
+                    let newt = mods[&ns]
+                        .types
+                        .iter()
+                        .find(|(n2, _)| *n2 == n)
+                        .map(|(_, t)| t.clone())
+                        .unwrap()
                         .resolve(rt, mods)
                         .qualify(&ns, &mods[&ns]);
                     rt.insert(format!("{ns}.{n}"), newt);
@@ -1440,6 +1445,9 @@ impl Pattern {
                 ))
             }
             Some(Lexeme {
+                token: Token::Underscore,
+            }) => Ok(Pattern::Any(None)),
+            Some(Lexeme {
                 token: Token::Num(n),
                 ..
             }) => Ok(Pattern::Num(n, Some(Type::I32))),
@@ -1486,7 +1494,7 @@ impl Pattern {
                     }
                 }
             }
-            _ => panic!("unexpected token"),
+            a => panic!("unexpected token: {a:?}"),
         }
     }
 }

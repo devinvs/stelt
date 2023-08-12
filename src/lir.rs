@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::collections::VecDeque;
 
 use crate::llvm::LLVMType;
 
@@ -14,9 +15,117 @@ macro_rules! eq_type {
     ($i:expr) => {
         Type::Arrow(
             Box::new(Type::Tuple(vec![$i.clone(), $i.clone()])),
-            Box::new(Type::Ident("Bool".to_string())),
+            Box::new(Type::Ident("bool".to_string())),
         )
     };
+}
+impl std::fmt::Display for LIRExpression {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.fmt_string(0))
+    }
+}
+
+impl LIRExpression {
+    fn fmt_string(&self, tabs: usize) -> String {
+        let mut tab = (0..tabs)
+            .into_iter()
+            .map(|_| "  ")
+            .collect::<Vec<_>>()
+            .join("");
+
+        tab.insert(0, '\n');
+
+        let mut tab_next = tab.clone();
+        tab_next.push_str("  ");
+
+        match self {
+            LIRExpression::Identifier(s, _) => s.to_string(),
+            LIRExpression::Num(n, _) => format!("{}", n),
+            LIRExpression::List(es, _) => {
+                format!(
+                    "({}{tab})",
+                    es.iter()
+                        .map(|e| e.fmt_string(tabs + 1))
+                        .collect::<Vec<_>>()
+                        .join(&tab_next)
+                )
+            }
+            LIRExpression::Call(func, args, _) => {
+                format!(
+                    "(call{tab_next}{}{tab_next}{}{tab})",
+                    func.fmt_string(tabs + 1),
+                    args.fmt_string(tabs + 1)
+                )
+            }
+            LIRExpression::ExternCall(func, args, _) => {
+                format!(
+                    "(externcall{tab_next}{}{tab_next}{}{tab})",
+                    func.to_string(),
+                    args.iter()
+                        .map(|e| e.fmt_string(tabs + 1))
+                        .collect::<Vec<_>>()
+                        .join("")
+                        .to_string()
+                )
+            }
+            LIRExpression::GlobalCall(func, args, _) => {
+                format!(
+                    "(globalcall{tab_next}{}{tab_next}{}{tab})",
+                    func.to_string(),
+                    args.to_string()
+                )
+            }
+            LIRExpression::Tuple(es, _) => {
+                format!(
+                    "(tuple {})",
+                    es.iter()
+                        .map(|e| e.fmt_string(tabs + 1))
+                        .collect::<Vec<_>>()
+                        .join("")
+                )
+            }
+            LIRExpression::Lambda1(var, body, _) => {
+                format!(
+                    "(lambda {}{tab_next}{}{tab})",
+                    var.as_ref().unwrap(),
+                    body.to_string()
+                )
+            }
+            LIRExpression::Let1(name, val, body, _) => {
+                format!(
+                    "(let {}={}{tab_next}{}{tab})",
+                    name,
+                    val.fmt_string(tabs + 1),
+                    body.fmt_string(tabs + 1)
+                )
+            }
+            LIRExpression::If(cond, yes, no, _) => {
+                format!(
+                    "(if {}{tab_next}{}{tab_next}{}{tab})",
+                    cond.to_string(),
+                    yes.to_string(),
+                    no.to_string()
+                )
+            }
+            LIRExpression::Str(s) => {
+                format!("\"{s}\"")
+            }
+            LIRExpression::Unit => "()".to_string(),
+            LIRExpression::GetTuple(t, i, _) => {
+                format!("(get {i} {})", t.fmt_string(tabs + 1))
+            }
+            LIRExpression::CheckTuple(t, i, _) => {
+                format!("(check {i} {})", t.fmt_string(tabs + 1))
+            }
+            LIRExpression::Box(e, _) => format!("(box {})", e.fmt_string(tabs + 1)),
+            LIRExpression::Unbox(e, _) => format!("(unbox {})", e.fmt_string(tabs + 1)),
+            LIRExpression::LLVM(out, e, _) => {
+                format!("(llvm {out}{tab_next}{e}{tab})")
+            }
+            LIRExpression::Error(s) => format!("(error {s})"),
+            LIRExpression::CastTuple(t, ty, _) => format!("(cast {ty} {})", t.fmt_string(tabs + 1)),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -28,8 +137,8 @@ pub struct LIRTree {
     pub external: HashSet<String>,
 
     /// Named Types
-    pub structs: Vec<(String, LLVMType)>,
-    pub enums: Vec<(String, LLVMType)>,
+    pub structs: HashMap<String, LLVMType>,
+    pub enums: HashMap<String, LLVMType>,
 
     /// Enum Variants
     pub variants: HashMap<String, Vec<(String, LLVMType)>>,
@@ -57,9 +166,9 @@ impl MIRTree {
         let mut funcs = HashMap::new();
 
         // convert all types into their llvm forms
-        let mut structs = vec![];
+        let mut structs = HashMap::new();
         let mut variants = HashMap::new();
-        let mut enums = vec![];
+        let mut enums = HashMap::new();
 
         for (name, t) in self.types {
             match t {
@@ -67,19 +176,31 @@ impl MIRTree {
                     let vars = LLVMType::from_enum(cons);
                     variants.insert(name, vars);
                 }
-                DataDecl::Product(_, _, mems) => structs.push((name, LLVMType::from_struct(mems))),
+                DataDecl::Product(_, _, mems) => {
+                    structs.insert(name, LLVMType::from_struct(mems));
+                }
             }
         }
 
         // for each type enum get the max size of its variants,
         // add padding of bytes to the base type
+        // needs to be breath first cause dependencies
+        let mut queue = VecDeque::new();
+        queue.extend(variants.iter());
+
         let mut type_sizes = HashMap::new();
-        for (name, vars) in variants.iter() {
+        'outer: while let Some((name, vars)) = queue.pop_front() {
             let mut size = 0;
 
             for (_, var) in vars {
-                let s = var.size(0, &type_sizes);
-                size = size.max(s);
+                let s = var.size(1, &type_sizes);
+
+                if s.is_none() {
+                    queue.push_back((name, vars));
+                    continue 'outer;
+                }
+
+                size = size.max(s.unwrap());
             }
 
             // align to the byte boundary
@@ -90,11 +211,11 @@ impl MIRTree {
             } else {
                 LLVMType::Struct(vec![
                     LLVMType::I8,
-                    LLVMType::Array(Box::new(LLVMType::I8), size / 8),
+                    LLVMType::Array(Box::new(LLVMType::I8), (size / 8) - 1),
                 ])
             };
 
-            enums.push((name.clone(), enm));
+            enums.insert(name.clone(), enm);
 
             type_sizes.insert(name.clone(), size);
         }
@@ -519,7 +640,7 @@ impl LIRExpression {
                     cs.extend(newcs.into_iter());
                 }
 
-                (Self::List(newes, LLVMType::Struct(ts)), cs)
+                (Self::List(newes, ts.last().unwrap().clone()), cs)
             }
             Self::GetTuple(tup, i, t) => {
                 let (tup, cs) = tup.extract_funcs(id, types, globals, subs);
@@ -822,6 +943,7 @@ impl MIRExpression {
                 // since this passed type checking this always evaluates to true
                 yes
             }
+            Pattern::Var(x, _) if x == "_" => yes,
             Pattern::Num(n, t) => LIRExpression::If(
                 Box::new(LIRExpression::GlobalCall(
                     // Find the name of the function who implements eq for this num type
@@ -893,6 +1015,7 @@ impl MIRExpression {
                     Self::match_pattern(*args, exp, yes, no, ty, vars, eq_impls)
                 }
             }
+            Pattern::Any(_) => yes,
             a => unimplemented!("{a:?}"),
         }
     }
