@@ -1061,7 +1061,7 @@ impl Expression {
     }
 
     fn relexpr(t: &mut TokenStream) -> Result<Self, String> {
-        let conc = Self::concexpr(t)?;
+        let conc = Self::addexpr(t)?;
 
         if let Some(()) = t.consume(Token::LArrow) {
             let end = Self::relexpr(t)?;
@@ -1089,20 +1089,6 @@ impl Expression {
             ))
         } else {
             Ok(conc)
-        }
-    }
-
-    fn concexpr(t: &mut TokenStream) -> Result<Self, String> {
-        let add = Self::addexpr(t)?;
-
-        if let Some(()) = t.consume(Token::Concat) {
-            let end = Self::concexpr(t)?;
-            Ok(Self::Call(
-                Box::new(Self::Identifier("Cons".into())),
-                Box::new(Self::Tuple(vec![add, end])),
-            ))
-        } else {
-            Ok(add)
         }
     }
 
@@ -1199,6 +1185,12 @@ impl Expression {
         if t.test(Token::LParen) {
             let t = Self::tuple(t)?;
             Ok(Self::Call(Box::new(primary), Box::new(t)))
+        } else if t.consume(Token::Concat).is_some() {
+            let end = Self::parse(t)?;
+            Ok(Self::Call(
+                Box::new(Self::Identifier("Cons".into())),
+                Box::new(Self::Tuple(vec![primary, end])),
+            ))
         } else if t.consume(Token::Dot).is_some() {
             // Struct membership
             // must be followed by an identifier, which can then be followed
