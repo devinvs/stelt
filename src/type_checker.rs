@@ -26,7 +26,6 @@ impl Type {
             Self::I16 => Term::Const("i16".to_string()),
             Self::I32 => Term::Const("i32".to_string()),
             Self::I64 => Term::Const("i64".to_string()),
-            Self::Str => Term::Const("str".to_string()),
             Self::Unit => Term::Const("()".to_string()),
             Self::Generic(args, t) => {
                 let name = match &**t {
@@ -44,7 +43,6 @@ impl Type {
             Self::Ident(s) => Term::Const(s.clone()),
             Self::Var(n) => Term::Var(*n),
             Self::NumVar(n) => Term::Number(*n),
-            Self::Box(t) => Term::Composite("*".to_string(), vec![t.to_term()]),
             _ => panic!("plz no"),
         }
     }
@@ -60,7 +58,6 @@ impl Type {
             Term::Const(a) if a == "i16" => Self::I16,
             Term::Const(a) if a == "i32" => Self::I32,
             Term::Const(a) if a == "i64" => Self::I64,
-            Term::Const(a) if a == "str" => Self::Str,
             Term::Const(a) if a == "()" => Self::Unit,
             Term::Const(a) => Self::Ident(a),
 
@@ -92,6 +89,7 @@ impl Type {
                 vars.into_iter().map(|t| t.map(m)).collect(),
                 Box::new(a.map(m)),
             ),
+            Self::Box(t) => Self::Box(Box::new(t.map(m))),
             _ => self.clone(),
         }
     }
@@ -114,7 +112,10 @@ impl TypeChecker {
             Type::ForAll(
                 vec!["a".to_string()],
                 Box::new(Type::Arrow(
-                    Box::new(Type::Tuple(vec![Type::Str, Type::Str])),
+                    Box::new(Type::Tuple(vec![
+                        Type::Generic(vec![Type::U32], Box::new(Type::Ident("list".to_string()))),
+                        Type::Generic(vec![Type::U32], Box::new(Type::Ident("list".to_string()))),
+                    ])),
                     Box::new(Type::Ident("a".to_string())),
                 )),
             ),
@@ -225,12 +226,6 @@ impl TypeChecker {
             .ok_or(format!("Type Mismatch: Expected {v:?} found {:?}", tname))
     }
 
-    fn judge_str(&mut self, t: Type, subs: Theta) -> Result<Theta, String> {
-        let tname = apply_unifier(t.to_term(), &subs).name();
-        unify(Type::Str.to_term(), t.to_term(), subs)
-            .ok_or(format!("Type Mismatch: Expected str found {:?}", tname))
-    }
-
     fn judge_var(
         &mut self,
         builtins: Gamma,
@@ -253,7 +248,7 @@ impl TypeChecker {
 
         let theta = unify(x.to_term(), t.to_term(), subs).ok_or(format!(
             "Type Mismatch: Expected {:?} found {:?}\n{:?}",
-            xname, tname, name
+            tname, xname, name,
         ))?;
 
         e.set_type(t);
@@ -406,7 +401,6 @@ impl TypeChecker {
         for (pat, exp) in cases {
             let mut newd = d.clone();
             subs = self.judge_pattern(c, &mut newd, pat, m_type.clone(), subs)?;
-
             subs = self.judge_type(b, c, &newd, s, exp, t.clone(), subs)?;
 
             pat.set_type(m_type.clone());
@@ -509,7 +503,6 @@ impl TypeChecker {
         match e {
             Expression::Unit(..) => self.judge_unit(t, subs),
             Expression::Num(..) => self.judge_num(e, t, subs),
-            Expression::Str(..) => self.judge_str(t, subs),
             Expression::Identifier(..) => self.judge_var(builtins, cons, defs, e, t, subs),
             Expression::Tuple(..) => self.judge_tuple(builtins, cons, defs, structs, e, t, subs),
             Expression::Lambda1(..) => self.judge_lambda(builtins, cons, defs, structs, e, t, subs),
@@ -640,7 +633,6 @@ impl TypeChecker {
             Pattern::Namespace(..) => panic!(),
             Pattern::Unit(..) => self.judge_unit(t, subs),
             Pattern::Num(..) => self.judge_pattern_num(p, t, subs),
-            Pattern::Str(..) => self.judge_str(t, subs),
             Pattern::Var(..) => self.judge_pattern_var(d, p, t, subs),
             Pattern::Tuple(..) => self.judge_pattern_tuple(c, d, p, t, subs),
             Pattern::Cons(..) => self.judge_pattern_cons(c, d, p, t, subs),

@@ -31,7 +31,6 @@ lazy_static! {
         m.insert("i16", Token::I16);
         m.insert("i32", Token::I32);
         m.insert("i64", Token::I64);
-        m.insert("str", Token::Str);
 
         // Operators
         m.insert("+", Token::Plus);
@@ -171,7 +170,6 @@ pub enum Token {
     I16,
     I32,
     I64,
-    Str,
 
     // Operators
     Plus,
@@ -244,7 +242,6 @@ impl Token {
             Self::I16 => "i16",
             Self::I32 => "i32",
             Self::I64 => "i64",
-            Self::Str => "str",
             Self::Plus => "+",
             Self::Mul => "*",
             Self::Sub => "-",

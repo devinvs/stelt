@@ -19,111 +19,38 @@ macro_rules! eq_type {
         )
     };
 }
-impl std::fmt::Display for LIRExpression {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.fmt_string(0))
-    }
-}
 
 impl LIRExpression {
-    fn fmt_string(&self, tabs: usize) -> String {
-        let mut tab = (0..tabs)
-            .into_iter()
-            .map(|_| "  ")
-            .collect::<Vec<_>>()
-            .join("");
+    fn str_from_cons(expr: &LIRExpression) -> String {
+        match expr {
+            LIRExpression::Call(f, args, _) => {
+                let f = match *f.clone() {
+                    LIRExpression::Identifier(n, _) => n,
+                    _ => panic!(),
+                };
 
-        tab.insert(0, '\n');
+                if f.starts_with("Cons") {
+                    match *args.clone() {
+                        LIRExpression::Tuple(es, _) => {
+                            let c = match es[0] {
+                                LIRExpression::Num(n, _) => char::from_u32(n as u32).unwrap(),
+                                _ => panic!(),
+                            };
+                            let mut s = String::new();
+                            s.push(c);
 
-        let mut tab_next = tab.clone();
-        tab_next.push_str("  ");
-
-        match self {
-            LIRExpression::Identifier(s, _) => s.to_string(),
-            LIRExpression::Num(n, _) => format!("{}", n),
-            LIRExpression::List(es, _) => {
-                format!(
-                    "({}{tab})",
-                    es.iter()
-                        .map(|e| e.fmt_string(tabs + 1))
-                        .collect::<Vec<_>>()
-                        .join(&tab_next)
-                )
+                            s.push_str(&LIRExpression::str_from_cons(&es[1]));
+                            s
+                        }
+                        _ => panic!(),
+                    }
+                } else if f.starts_with("Nil") {
+                    "".to_string()
+                } else {
+                    panic!()
+                }
             }
-            LIRExpression::Call(func, args, _) => {
-                format!(
-                    "(call{tab_next}{}{tab_next}{}{tab})",
-                    func.fmt_string(tabs + 1),
-                    args.fmt_string(tabs + 1)
-                )
-            }
-            LIRExpression::ExternCall(func, args, _) => {
-                format!(
-                    "(externcall{tab_next}{}{tab_next}{}{tab})",
-                    func.to_string(),
-                    args.iter()
-                        .map(|e| e.fmt_string(tabs + 1))
-                        .collect::<Vec<_>>()
-                        .join("")
-                        .to_string()
-                )
-            }
-            LIRExpression::GlobalCall(func, args, _) => {
-                format!(
-                    "(globalcall{tab_next}{}{tab_next}{}{tab})",
-                    func.to_string(),
-                    args.to_string()
-                )
-            }
-            LIRExpression::Tuple(es, _) => {
-                format!(
-                    "(tuple {})",
-                    es.iter()
-                        .map(|e| e.fmt_string(tabs + 1))
-                        .collect::<Vec<_>>()
-                        .join("")
-                )
-            }
-            LIRExpression::Lambda1(var, body, _) => {
-                format!(
-                    "(lambda {}{tab_next}{}{tab})",
-                    var.as_ref().unwrap(),
-                    body.to_string()
-                )
-            }
-            LIRExpression::Let1(name, val, body, _) => {
-                format!(
-                    "(let {}={}{tab_next}{}{tab})",
-                    name,
-                    val.fmt_string(tabs + 1),
-                    body.fmt_string(tabs + 1)
-                )
-            }
-            LIRExpression::If(cond, yes, no, _) => {
-                format!(
-                    "(if {}{tab_next}{}{tab_next}{}{tab})",
-                    cond.to_string(),
-                    yes.to_string(),
-                    no.to_string()
-                )
-            }
-            LIRExpression::Str(s) => {
-                format!("\"{s}\"")
-            }
-            LIRExpression::Unit => "()".to_string(),
-            LIRExpression::GetTuple(t, i, _) => {
-                format!("(get {i} {})", t.fmt_string(tabs + 1))
-            }
-            LIRExpression::CheckTuple(t, i, _) => {
-                format!("(check {i} {})", t.fmt_string(tabs + 1))
-            }
-            LIRExpression::Box(e, _) => format!("(box {})", e.fmt_string(tabs + 1)),
-            LIRExpression::Unbox(e, _) => format!("(unbox {})", e.fmt_string(tabs + 1)),
-            LIRExpression::LLVM(out, e, _) => {
-                format!("(llvm {out}{tab_next}{e}{tab})")
-            }
-            LIRExpression::Error(s) => format!("(error {s})"),
-            LIRExpression::CastTuple(t, ty, _) => format!("(cast {ty} {})", t.fmt_string(tabs + 1)),
+            a => panic!("found {a:?}"),
         }
     }
 }
@@ -355,6 +282,9 @@ pub enum LIRExpression {
 
     List(Vec<LIRExpression>, LLVMType),
 
+    LetThunk(String, Box<LIRExpression>, Box<LIRExpression>, LLVMType),
+    GotoThunk(String, LLVMType),
+
     // Constant Fields
     Num(u64, LLVMType), // A Number Literal
     Str(String),        // A String Literal, stores index into constant string array
@@ -446,6 +376,13 @@ impl LIRExpression {
             Self::Box(e, _) => e.free_non_globals(vars),
             Self::Unbox(e, _) => e.free_non_globals(vars),
             Self::LLVM(..) => vec![],
+            Self::LetThunk(_, a, b, _) => {
+                let mut free = vec![];
+                free.extend(a.free_non_globals(vars));
+                free.extend(b.free_non_globals(vars));
+                free
+            }
+            Self::GotoThunk(_, _) => vec![],
         }
     }
 
@@ -663,12 +600,28 @@ impl LIRExpression {
                 let (e, cs) = e.extract_funcs(id, types, globals, subs);
                 (Self::Unbox(Box::new(e), t), cs)
             }
+            Self::LetThunk(name, thunk, first, _) => {
+                let (thunk, mut cs) = thunk.extract_funcs(id, types, globals, subs);
+                let id = freshen_var(id.clone(), &cs);
+                let (first, firstcs) = first.extract_funcs(&id, types, globals, subs);
+
+                cs.extend(firstcs.into_iter());
+
+                let t = first.ty();
+
+                (
+                    Self::LetThunk(name, Box::new(thunk), Box::new(first), t),
+                    cs,
+                )
+            }
             _ => (self, HashMap::new()),
         }
     }
 
     pub fn ty(&self) -> LLVMType {
         match self {
+            Self::LetThunk(_, _, _, t) => t.clone(),
+            Self::GotoThunk(_, t) => t.clone(),
             Self::GetTuple(_, _, t) => t.clone(),
             Self::Unit => LLVMType::Void,
             Self::Call(_, _, t) => t.clone(),
@@ -758,10 +711,8 @@ impl MIRExpression {
                     if n.starts_with("llvm!") {
                         match args {
                             LIRExpression::Tuple(es, _) => {
-                                let (out, body) = match (&es[0], &es[1]) {
-                                    (LIRExpression::Str(a), LIRExpression::Str(b)) => (a, b),
-                                    _ => panic!(),
-                                };
+                                let out = LIRExpression::str_from_cons(&es[0]);
+                                let body = LIRExpression::str_from_cons(&es[1]);
 
                                 return LIRExpression::LLVM(
                                     out.to_string(),
@@ -797,7 +748,6 @@ impl MIRExpression {
 
                 LIRExpression::Call(Box::new(f), Box::new(args), LLVMType::from_type(t.unwrap()))
             }
-            Self::Str(s, _) => LIRExpression::Str(s),
             Self::Lambda1(arg, body, t) => {
                 let (in_t, out_t) = match t.clone().unwrap() {
                     Type::Arrow(in_t, out_t) => {
@@ -819,7 +769,7 @@ impl MIRExpression {
                     )
                 } else {
                     LIRExpression::Lambda1(
-                        arg,
+                        None,
                         Box::new(body.lower(vars, global, externs, eq_impls)),
                         LLVMType::from_type(t.unwrap()),
                     )
@@ -895,9 +845,9 @@ impl MIRExpression {
     }
 
     fn match_code(
-        x: String,
-        pats: &[(Pattern, MIRExpression)],
-        ty: LLVMType,
+        x: String,                         // name of expr matching against
+        pats: &[(Pattern, MIRExpression)], // list of patterns and their expressions
+        ty: LLVMType,                      // output type of the match statement
         vars: &HashMap<String, Vec<(String, LLVMType)>>,
         global: &HashSet<String>,
         externs: &HashSet<String>,
@@ -906,6 +856,7 @@ impl MIRExpression {
         if pats.is_empty() {
             LIRExpression::Error("No patterns matched".to_string())
         } else {
+            let thunk_name = crate::gen_var("thunk");
             let fail = Self::match_code(
                 x.clone(),
                 &pats[1..],
@@ -915,17 +866,28 @@ impl MIRExpression {
                 externs,
                 eq_impls,
             );
-            let (pat, exp) = &pats[0];
 
-            Self::match_pattern(
+            let (pat, exp) = &pats[0];
+            let thunk = LIRExpression::GotoThunk(thunk_name.clone(), fail.ty());
+
+            // ty is the output type of this match statement
+            // pat.ty() is the type of the pattern
+            // exp.ty() is the type of the expression and should match ty
+            // assert_eq!(ty, LLVMType::from_type(exp.ty()));
+
+            let first = Self::match_pattern(
                 pat.clone(),
+                // since this passed type checking the type of our match variable x
+                // should be the same type as the pattern
                 LIRExpression::Identifier(x, LLVMType::from_type(pat.ty())),
                 exp.clone().lower(vars, global, externs, eq_impls),
-                fail,
-                ty,
+                thunk,
+                ty.clone(),
                 vars,
                 eq_impls,
-            )
+            );
+
+            LIRExpression::LetThunk(thunk_name, Box::new(fail), Box::new(first), ty)
         }
     }
 
@@ -943,27 +905,33 @@ impl MIRExpression {
                 // since this passed type checking this always evaluates to true
                 yes
             }
-            Pattern::Var(x, _) if x == "_" => yes,
             Pattern::Num(n, t) => LIRExpression::If(
-                Box::new(LIRExpression::GlobalCall(
-                    // Find the name of the function who implements eq for this num type
-                    resolve_typefn(eq_impls, eq_type!(t.as_ref().unwrap())).unwrap(),
-                    Box::new(LIRExpression::Tuple(
-                        vec![exp, LIRExpression::Num(n, LLVMType::from_type(t.unwrap()))],
-                        LLVMType::Struct(vec![LLVMType::I32, LLVMType::I32]),
+                Box::new(LIRExpression::CheckTuple(
+                    Box::new(LIRExpression::GlobalCall(
+                        // Find the name of the function who implements eq for this num type
+                        resolve_typefn(eq_impls, eq_type!(t.as_ref().unwrap())).unwrap(),
+                        Box::new(LIRExpression::Tuple(
+                            vec![
+                                exp,
+                                LIRExpression::Num(n, LLVMType::from_type(t.clone().unwrap())),
+                            ],
+                            LLVMType::Struct(vec![
+                                LLVMType::from_type(t.clone().unwrap()),
+                                LLVMType::from_type(t.unwrap()),
+                            ]),
+                        )),
+                        LLVMType::Named("bool".to_string()),
                     )),
+                    1,
                     LLVMType::I1,
                 )),
                 Box::new(yes),
                 Box::new(no),
                 ty,
             ),
-            Pattern::Var(x, t) => LIRExpression::Let1(
-                x,
-                Box::new(exp),
-                Box::new(yes),
-                LLVMType::from_type(t.unwrap()),
-            ),
+            Pattern::Var(x, _) => {
+                LIRExpression::Let1(x, Box::new(exp), Box::new(yes.clone()), yes.ty())
+            }
             Pattern::Tuple(ps, _) => {
                 // due to type checking this is already guaranteed to be a tuple, so instead we
                 // just verify/gen ir for the components
@@ -974,6 +942,7 @@ impl MIRExpression {
                 let tname = t.to_string();
 
                 if let Some(var) = vars.get(&tname) {
+                    // number of enum to check against,
                     let (enum_id, (_, enum_t)) =
                         var.iter().enumerate().find(|s| s.1 .0 == n).unwrap();
 
@@ -1046,7 +1015,7 @@ impl MIRExpression {
             let pt = LLVMType::from_type(p.ty());
             let et = match exp.ty() {
                 LLVMType::Struct(ts) => ts.get(n).cloned().unwrap_or(LLVMType::Void),
-                _ => panic!(),
+                a => panic!("{a:?}"),
             };
 
             // check for unbox

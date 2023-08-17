@@ -32,6 +32,7 @@ lazy_static! {
             impls: Vec::new(),
         };
         ParseTree::parse_with(&mut tokens, me).unwrap()
+        // me
     };
 }
 
@@ -501,6 +502,7 @@ impl Type {
                 Box::new(b.qualify(prefix, me)),
             ),
             Type::Tuple(ts) => Type::Tuple(ts.into_iter().map(|t| t.qualify(prefix, me)).collect()),
+            Type::Box(t) => Type::Box(Box::new(t.qualify(prefix, me))),
             a => a,
         }
     }
@@ -543,6 +545,7 @@ impl Type {
             Self::Tuple(ts) => {
                 Self::Tuple(ts.into_iter().map(|t| t.resolve(ref_types, mods)).collect())
             }
+            Self::Box(t) => Self::Box(Box::new(t.resolve(ref_types, mods))),
             a => a,
         }
     }
@@ -602,7 +605,7 @@ impl Type {
                 Box::new(Self::Ident("list".to_string())),
             ))
         } else {
-            Ok(Self::parse_generic(t)?)
+            Self::parse_generic(t)
         }
     }
 
@@ -671,9 +674,6 @@ impl Type {
             Some(Lexeme {
                 token: Token::I64, ..
             }) => Self::I64,
-            Some(Lexeme {
-                token: Token::Str, ..
-            }) => Self::Str,
             Some(a) => return Err(format!("Unexpected token in type: '{}'", a.token.name())),
             None => return Err(format!("Unexpected EOF in type")),
         })
@@ -1250,7 +1250,7 @@ impl Expression {
             Some(Lexeme {
                 token: Token::String(s),
                 ..
-            }) => Ok(Self::Str(s)),
+            }) => Ok(Self::cons_from_str(&s)),
             Some(Lexeme {
                 token: Token::Num(n),
                 ..
@@ -1303,6 +1303,16 @@ impl Expression {
         }
     }
 
+    pub fn cons_from_str(s: &str) -> Self {
+        let nums = s
+            .chars()
+            .map(|c| c as u64)
+            .map(|i| Self::Num(i))
+            .collect::<Vec<_>>();
+
+        Self::cons_from_es(&nums)
+    }
+
     pub fn cons_from_es(es: &[Self]) -> Self {
         if es.is_empty() {
             return Self::Call(
@@ -1333,6 +1343,31 @@ impl Expression {
 }
 
 impl Pattern {
+    pub fn cons_from_str(s: &str) -> Self {
+        let nums = s
+            .chars()
+            .map(|c| c as u64)
+            .map(|i| Self::Num(i, None))
+            .collect::<Vec<_>>();
+
+        Self::cons_from_es(&nums)
+    }
+
+    pub fn cons_from_es(es: &[Self]) -> Self {
+        if es.is_empty() {
+            return Self::Cons("Nil".to_string(), Box::new(Self::Unit(None)), None);
+        }
+
+        Self::Cons(
+            "Cons".to_string(),
+            Box::new(Self::Tuple(
+                vec![es[0].clone(), Self::cons_from_es(&es[1..])],
+                None,
+            )),
+            None,
+        )
+    }
+
     fn qualify(self, prefix: &str, me: &ParseTree) -> Self {
         match self {
             Pattern::Tuple(ps, t) => {
@@ -1387,51 +1422,51 @@ impl Pattern {
     }
 
     fn parse(t: &mut TokenStream) -> Result<Pattern, String> {
-        if let Some(()) = t.consume(Token::LParen) {
-            // We are either the unit type or the tuple type
-
-            if let Some(()) = t.consume(Token::RParen) {
-                return Ok(Pattern::Unit(Some(Type::Unit)));
-            }
-
-            let mut pats = Vec::new();
-            let pat = Pattern::parse_conc(t)?;
-            pats.push(pat);
-
-            while let Some(()) = t.consume(Token::Comma) {
-                let pat = Pattern::parse_conc(t)?;
-                pats.push(pat);
-            }
-
-            t.assert(Token::RParen)?;
-
-            if pats.len() == 1 {
-                Ok(pats.into_iter().next().unwrap())
-            } else {
-                Ok(Pattern::Tuple(pats, None))
-            }
-        } else {
-            Pattern::parse_conc(t)
-        }
-    }
-
-    fn parse_conc(t: &mut TokenStream) -> Result<Pattern, String> {
-        let a = Self::parse_base(t)?;
+        let x = Self::parse_base(t)?;
 
         if t.consume(Token::Concat).is_some() {
-            let b = Self::parse_base(t)?;
-
-            Ok(Self::Cons(
+            let xs = Self::parse(t)?;
+            return Ok(Self::Cons(
                 "Cons".into(),
-                Box::new(Pattern::Tuple(vec![a, b], None)),
+                Box::new(Pattern::Tuple(vec![x, xs], None)),
                 None,
-            ))
+            ));
+        }
+
+        Ok(x)
+    }
+
+    fn parse_tuple(t: &mut TokenStream) -> Result<Pattern, String> {
+        t.assert(Token::LParen)?;
+        // We are either the unit type or the tuple type
+
+        if let Some(()) = t.consume(Token::RParen) {
+            return Ok(Pattern::Unit(Some(Type::Unit)));
+        }
+
+        let mut pats = Vec::new();
+        let pat = Pattern::parse(t)?;
+        pats.push(pat);
+
+        while let Some(()) = t.consume(Token::Comma) {
+            let pat = Pattern::parse(t)?;
+            pats.push(pat);
+        }
+
+        t.assert(Token::RParen)?;
+
+        if pats.len() == 1 {
+            Ok(pats.into_iter().next().unwrap())
         } else {
-            Ok(a)
+            Ok(Pattern::Tuple(pats, None))
         }
     }
 
     fn parse_base(t: &mut TokenStream) -> Result<Pattern, String> {
+        if t.test(Token::LParen) {
+            return Self::parse_tuple(t);
+        }
+
         match t.next() {
             Some(Lexeme {
                 token: Token::LBrace,
@@ -1454,7 +1489,7 @@ impl Pattern {
             Some(Lexeme {
                 token: Token::String(s),
                 ..
-            }) => Ok(Pattern::Str(s, Some(Type::Str))),
+            }) => Ok(Pattern::cons_from_str(&s)),
             Some(Lexeme {
                 token: Token::Ident(mut i),
                 ..
@@ -1467,7 +1502,7 @@ impl Pattern {
                 if let Some((ns, f)) = i.rsplit_once(".") {
                     // This is a namespaced constructor
                     let args = if t.test(Token::LParen) {
-                        Pattern::parse(t)?
+                        Pattern::parse_tuple(t)?
                     } else {
                         Pattern::Unit(Some(Type::Unit))
                     };
@@ -1484,7 +1519,7 @@ impl Pattern {
                     if i.chars().next().unwrap().is_uppercase() {
                         // This is a namespaced constructor
                         let args = if t.test(Token::LParen) {
-                            Pattern::parse(t)?
+                            Pattern::parse_tuple(t)?
                         } else {
                             Pattern::Unit(Some(Type::Unit))
                         };
@@ -1494,7 +1529,7 @@ impl Pattern {
                     }
                 }
             }
-            a => panic!("unexpected token: {a:?}"),
+            a => panic!("unexpected token: {a:?} {:?} {:?}", t.next(), t.next()),
         }
     }
 }

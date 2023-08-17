@@ -138,6 +138,10 @@ impl MIRTree {
             }
         }
 
+        let mut idents = HashSet::new();
+        idents.extend(constructors.clone().into_keys());
+        idents.extend(declarations.clone().into_keys());
+
         let mut defs = HashMap::new();
 
         // Transform each definition into it's intermediate representation
@@ -379,8 +383,7 @@ pub enum MIRExpression {
     Lambda1(Option<String>, Box<MIRExpression>, Option<Type>),
 
     // Constant Fields
-    Num(u64, Option<Type>),    // A Number Literal
-    Str(String, Option<Type>), // A String Literal
+    Num(u64, Option<Type>), // A Number Literal
     Unit(Option<Type>),
 }
 
@@ -392,7 +395,6 @@ impl MIRExpression {
             MIRExpression::Identifier(n, _) => MIRExpression::Identifier(n, Some(t)),
             MIRExpression::Unit(_) => MIRExpression::Unit(Some(t)),
             MIRExpression::Num(n, _) => MIRExpression::Num(n, Some(t)),
-            MIRExpression::Str(s, _) => MIRExpression::Str(s, Some(t)),
             MIRExpression::Call(m, n, _) => MIRExpression::Call(
                 Box::new(m.sub_types(subs)),
                 Box::new(n.sub_types(subs)),
@@ -424,7 +426,6 @@ impl MIRExpression {
         match tree {
             Expression::Namespace(..) => panic!(),
             Expression::Num(n) => Self::Num(n, None),
-            Expression::Str(s) => Self::Str(s, Some(Type::Str)),
             Expression::Unit => Self::Unit(Some(Type::Unit)),
             Expression::Identifier(i) => Self::Identifier(i, None),
             Expression::ExprList(es) => Self::List(
@@ -570,7 +571,6 @@ impl MIRExpression {
         match self {
             Self::Identifier(_, t) => t,
             Self::Num(_, t) => t,
-            Self::Str(_, t) => t,
             Self::Unit(t) => t,
             Self::List(_, t) => t,
             Self::Tuple(_, t) => t,
@@ -587,7 +587,6 @@ impl MIRExpression {
         match self {
             Self::Identifier(_, t) => *t = Some(ty),
             Self::Num(_, t) => *t = Some(ty),
-            Self::Str(_, t) => *t = Some(ty),
             Self::Unit(t) => *t = Some(ty),
             Self::List(_, t) => *t = Some(ty),
             Self::Tuple(_, t) => *t = Some(ty),
@@ -737,7 +736,6 @@ impl Pattern {
             Pattern::Var(x, _) => Pattern::Var(x, Some(t)),
             Pattern::Unit(_) => Pattern::Unit(Some(t)),
             Pattern::Num(n, _) => Pattern::Num(n, Some(t)),
-            Pattern::Str(s, _) => Pattern::Str(s, Some(t)),
             Pattern::Tuple(ps, _) => {
                 Pattern::Tuple(ps.into_iter().map(|p| p.sub_types(subs)).collect(), Some(t))
             }
@@ -848,6 +846,7 @@ impl Type {
 
                 subs
             }
+            (Type::Box(t), Type::Box(t2)) => t.get_var_subs(t2),
             _ => panic!("{self:?}  {other:?}"),
         }
     }
@@ -909,6 +908,7 @@ impl Type {
 
                 (Type::Tuple(newts), concs)
             }
+            Type::Box(t) => t.extract_generics(generics),
             a => (a, vec![]),
         }
     }
@@ -942,6 +942,7 @@ impl Type {
                 Box::new(b.replace(from, to)),
             ),
             Type::Tuple(ts) => Type::Tuple(ts.into_iter().map(|t| t.replace(from, to)).collect()),
+            Type::Box(t) => Type::Box(Box::new(t.replace(from, to))),
             a => a,
         }
     }

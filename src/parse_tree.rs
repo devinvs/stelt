@@ -159,12 +159,12 @@ impl Type {
                 args.iter()
                     .map(|t| t.to_string())
                     .collect::<Vec<_>>()
-                    .join(",")
+                    .join("_")
             ),
             Type::Arrow(a, b) => format!("{}->{}", a.to_string(), b.to_string()),
             Type::Tuple(ts) => format!(
-                "({})",
-                ts.iter().map(Type::to_string).collect::<Vec<_>>().join(",")
+                "tup${}$",
+                ts.iter().map(Type::to_string).collect::<Vec<_>>().join("_")
             ),
             Type::Ident(s) => s.clone(),
 
@@ -225,7 +225,6 @@ pub enum Expression {
     Namespace(String, String),
 
     // Constant Fields
-    Str(String),
     Num(u64), // A Number Literal
     Unit,
 }
@@ -235,7 +234,6 @@ pub enum Pattern {
     Unit(Option<Type>),
 
     Num(u64, Option<Type>),
-    Str(String, Option<Type>),
 
     Var(String, Option<Type>),
 
@@ -275,7 +273,6 @@ impl Pattern {
             Pattern::Var(_, t) => t,
             Pattern::Unit(t) => t,
             Pattern::Num(_, t) => t,
-            Pattern::Str(_, t) => t,
             Pattern::Tuple(_, t) => t,
             Pattern::Cons(_, _, t) => t,
             Pattern::Namespace(_, _, t) => t,
@@ -290,7 +287,6 @@ impl Pattern {
             Pattern::Var(_, t) => *t = Some(ty),
             Pattern::Unit(t) => *t = Some(ty),
             Pattern::Num(_, t) => *t = Some(ty),
-            Pattern::Str(_, t) => *t = Some(ty),
             Pattern::Tuple(_, t) => *t = Some(ty),
             Pattern::Cons(_, _, t) => *t = Some(ty),
             Pattern::Namespace(_, _, t) => *t = Some(ty),

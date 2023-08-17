@@ -1,0 +1,15 @@
+I've decided to include a loop.
+
+let l = array(5, 2, 3, 4)
+let len = len(l)
+loop (i=0, l=l) {
+	if i != len {
+		let l = set(l, i, l[i]*l[i])
+		recur(i+1, l)
+	} else {
+		l
+	}
+}
+
+
+On a side note, the curly braces are really starting to wear on me

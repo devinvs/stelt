@@ -34,7 +34,6 @@ impl LLVMType {
             Type::U32 => Self::U32,
             Type::I64 => Self::I64,
             Type::U64 => Self::U64,
-            Type::Str => Self::Str,
             Type::Unit => Self::Void,
             Type::Arrow(a, b) => Self::Func(
                 Box::new(LLVMType::from_type(*a)),
