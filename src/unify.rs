@@ -20,10 +20,16 @@ impl Term<String> {
                     "({})",
                     ts.iter().map(|t| t.name()).collect::<Vec<_>>().join(", ")
                 ),
-                a => format!(
-                    "{a}<{}>",
-                    ts.iter().map(|t| t.name()).collect::<Vec<_>>().join(", ")
+                "generic" => format!(
+                    "{}<{}>",
+                    ts[0].name(),
+                    ts.iter()
+                        .skip(1)
+                        .map(|t| t.name())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ),
+                _ => panic!(),
             },
             Self::Number(_) => "i?".to_string(),
         }

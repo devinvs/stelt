@@ -28,18 +28,17 @@ impl Type {
             Self::I64 => Term::Const("i64".to_string()),
             Self::Unit => Term::Const("()".to_string()),
             Self::Generic(args, t) => {
-                let name = match &**t {
-                    Type::Ident(s) => s.clone(),
-                    _ => panic!("why would you do this to me?"),
-                };
+                let mut v = vec![t.to_term()];
+                v.extend(args.iter().map(|a| a.to_term()));
 
-                Term::Composite(name, args.into_iter().map(|a| a.to_term()).collect())
+                Term::Composite("generic".to_string(), v)
             }
             Self::Arrow(a, b) => Term::Composite("->".to_string(), vec![a.to_term(), b.to_term()]),
             Self::Tuple(ts) => Term::Composite(
                 "tuple".to_string(),
                 ts.into_iter().map(|t| t.to_term()).collect(),
             ),
+            Self::Ident(s) if s == "p" => panic!(),
             Self::Ident(s) => Term::Const(s.clone()),
             Self::Var(n) => Term::Var(*n),
             Self::NumVar(n) => Term::Number(*n),
@@ -69,14 +68,15 @@ impl Type {
                 Box::new(Type::from_term(b[0].clone())),
                 Box::new(Type::from_term(b[1].clone())),
             ),
-            Term::Composite(a, b) => Self::Generic(
-                b.into_iter().map(|t| Type::from_term(t)).collect(),
-                Box::new(Type::Ident(a)),
+            Term::Composite(a, b) if a == "generic" => Self::Generic(
+                b.iter().map(|t| Type::from_term(t.clone())).collect(),
+                Box::new(Type::from_term(b[0].clone())),
             ),
 
             // Var...
             Term::Var(i) => Self::Var(i),
             Term::Number(i) => Self::NumVar(i),
+            _ => panic!(),
         }
     }
 
@@ -124,7 +124,7 @@ impl TypeChecker {
         // Check all defs
         for (name, def) in tree.defs.iter_mut() {
             // Don't type check imported functions
-            let ty = tree.declarations.get(name).unwrap().clone();
+            let ty = self.apply_gamma(name, &tree.declarations).unwrap();
             let subs = self.check_expression(
                 &builtins,
                 &tree.constructors,
@@ -138,7 +138,7 @@ impl TypeChecker {
 
         // Check all functions
         for (name, func) in tree.funcs.iter_mut() {
-            let ty = tree.declarations.get(name).unwrap().clone();
+            let ty = self.apply_gamma(name, &tree.declarations).unwrap();
 
             let subs = self.check_expression(
                 &builtins,
@@ -243,12 +243,12 @@ impl TypeChecker {
             .apply_gamma_all(&name, builtins, cons, defined)
             .ok_or(format!("judge_var: Type not known for {name:?}"))?;
 
-        let tname = apply_unifier(t.to_term(), &subs).name();
-        let xname = apply_unifier(x.to_term(), &subs).name();
+        let tname = apply_unifier(t.to_term(), &subs);
+        let xname = apply_unifier(x.to_term(), &subs);
 
-        let theta = unify(x.to_term(), t.to_term(), subs).ok_or(format!(
-            "Type Mismatch: Expected {:?} found {:?}\n{:?}",
-            tname, xname, name,
+        let theta = unify(x.to_term(), t.to_term(), subs.clone()).ok_or(format!(
+            "Type Mismatch: Expected {:?} found {:?}\n{:?}\n{:?}",
+            xname, tname, name, &subs
         ))?;
 
         e.set_type(t);
