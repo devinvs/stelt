@@ -884,7 +884,7 @@ impl Expression {
 
             t.assert(Token::Assign)?;
 
-            let lam = Self::orexpr(t)?;
+            let lam = Self::lambda(t)?;
 
             t.assert(Token::In)?;
 
@@ -925,7 +925,48 @@ impl Expression {
 
             Ok(Self::Match(Box::new(match_), cases))
         } else {
-            Ok(Self::orexpr(t)?)
+            Ok(Self::lambda(t)?)
+        }
+    }
+
+    pub fn lambda(t: &mut TokenStream) -> Result<Self, String> {
+        let tup = Self::tuple(t)?;
+
+        if t.consume(Token::Arrow).is_some() {
+            let pat = tup.to_lambda_pattern();
+            let e = Self::parse(t)?;
+            Ok(Self::Lambda(pat, Box::new(e)))
+        } else {
+            Ok(tup)
+        }
+    }
+
+    pub fn tuple(t: &mut TokenStream) -> Result<Self, String> {
+        if let Some(()) = t.consume(Token::LParen) {
+            if let Some(()) = t.consume(Token::RParen) {
+                return Ok(Self::Unit);
+            }
+
+            let mut es = Vec::new();
+            let e = Self::parse(t)?;
+            es.push(e);
+
+            while t.consume(Token::Comma).is_some() {
+                es.push(Self::parse(t)?);
+            }
+
+            t.assert(Token::RParen)?;
+
+            let e = if es.len() == 1 {
+                es.into_iter().next().unwrap()
+            } else {
+                Self::Tuple(es)
+            };
+
+            // allow postfix expressions on tuples
+            Self::postfix_post(t, e)
+        } else {
+            Self::orexpr(t)
         }
     }
 
@@ -1141,10 +1182,8 @@ impl Expression {
     }
 
     fn postfix_post(t: &mut TokenStream, primary: Expression) -> Result<Self, String> {
-        let e = if t.test(Token::LParen) {
-            t.assert(Token::LParen)?;
-
-            let t = Self::tuple_inner(t)?;
+        if t.test(Token::LParen) {
+            let t = Self::tuple(t)?;
             Ok(Self::Call(Box::new(primary), Box::new(t)))
         } else if t.consume(Token::Concat).is_some() {
             let end = Self::parse(t)?;
@@ -1169,10 +1208,6 @@ impl Expression {
             let else_ = Expression::parse(t)?;
 
             Ok(Self::If(Box::new(primary), Box::new(then), Box::new(else_)))
-        } else if t.consume(Token::Arrow).is_some() {
-            let pat = primary.to_lambda_pattern();
-            let e = Self::parse(t)?;
-            Ok(Self::Lambda(pat, Box::new(e)))
         } else if t.consume(Token::FatArrow).is_some() {
             // Fancy call with primary as first arg.
 
@@ -1198,34 +1233,8 @@ impl Expression {
 
             Self::postfix_post(t, e)
         } else {
-            return Ok(primary);
-        }?;
-
-        Self::postfix_post(t, e)
-    }
-
-    fn tuple_inner(t: &mut TokenStream) -> Result<Self, String> {
-        if let Some(()) = t.consume(Token::RParen) {
-            return Ok(Self::Unit);
+            Ok(primary)
         }
-
-        let mut es = Vec::new();
-        let e = Self::parse(t)?;
-        es.push(e);
-
-        while t.consume(Token::Comma).is_some() {
-            es.push(Self::parse(t)?);
-        }
-
-        t.assert(Token::RParen)?;
-
-        let e = if es.len() == 1 {
-            es.into_iter().next().unwrap()
-        } else {
-            Self::Tuple(es)
-        };
-
-        Ok(e)
     }
 
     fn primary(t: &mut TokenStream) -> Result<Self, String> {
@@ -1251,11 +1260,14 @@ impl Expression {
                     Ok(Self::Identifier(i))
                 }
             }
-            // Tuple
             Some(Lexeme {
                 token: Token::LParen,
                 ..
-            }) => Self::tuple_inner(t),
+            }) => {
+                let e = Expression::parse(t)?;
+                t.assert(Token::RParen)?;
+                Ok(e)
+            }
             Some(Lexeme {
                 token: Token::LBrace,
                 ..
