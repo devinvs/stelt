@@ -509,7 +509,7 @@ impl LIRExpression {
                         LLVMType::Func(_, b) => b.clone(),
                         a => panic!("wha? {a:?} {e:?}"),
                     },
-                    a => panic!("expected closure, found {a:?}"),
+                    a => panic!("expected closure, found {a:?}, {e:?}"),
                 };
 
                 (Self::Call(Box::new(e), Box::new(argse), *out_t), cs)
@@ -561,7 +561,16 @@ impl LIRExpression {
             }
             Self::Identifier(s, t) => {
                 let t = subs.get(&s).unwrap_or(&t).clone();
-                (Self::Identifier(s, t), HashMap::new())
+
+                if let LLVMType::Func(_, _) = t {
+                    let tup_t = LLVMType::Struct(vec![t.clone()]);
+                    (
+                        Self::Tuple(vec![Self::Identifier(s, t)], tup_t),
+                        HashMap::new(),
+                    )
+                } else {
+                    (Self::Identifier(s, t), HashMap::new())
+                }
             }
             Self::List(es, _) => {
                 let mut cs = HashMap::new();

@@ -228,7 +228,7 @@ impl MIRTree {
         // and add them to the concrete functions as well
         for name in concrete_decls.clone().into_keys() {
             if let Some(body) = self.funcs.get(&name) {
-                let body = body.clone();
+                let body = body.clone().resolve_typefn(&self.impl_map);
                 let (f, calls) = body.extract_calls(&generic_decls, &cons);
                 concrete_funcs.insert(name.clone(), f);
 
@@ -241,7 +241,7 @@ impl MIRTree {
 
                     if let Some(f) = self.funcs.get(&name) {
                         // add new function body substituting generic types for concrete types
-                        let f = f.clone().sub_types(&subs);
+                        let f = f.clone().sub_types(&subs).resolve_typefn(&self.impl_map);
                         concrete_funcs.insert(newname, f);
                     }
                 }
@@ -326,11 +326,6 @@ impl MIRTree {
                     }
                 }
             }
-        }
-
-        // resolve all typefn calls to their impl function name
-        for func in concrete_funcs.values_mut() {
-            *func = func.clone().resolve_typefn(&self.impl_map);
         }
 
         self.types = concrete_types.into_iter().collect();
