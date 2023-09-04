@@ -226,12 +226,10 @@ impl MIRTree {
             .collect();
 
         let mut concrete_queue = VecDeque::new();
-        concrete_queue.extend(
-            concrete_decls
-                .clone()
-                .into_iter()
-                .map(|(name, _)| (name.clone(), self.funcs[&name].clone())),
-        );
+        concrete_queue.extend(concrete_decls.clone().into_iter().filter_map(|(name, _)| {
+            let body = self.funcs.get(&name)?.clone();
+            Some((name.clone(), body))
+        }));
 
         while let Some((name, body)) = concrete_queue.pop_front() {
             // resolve the typefn to their implementation
