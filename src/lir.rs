@@ -23,18 +23,16 @@ macro_rules! eq_type {
 impl LIRExpression {
     fn str_from_cons(expr: &LIRExpression) -> String {
         match expr {
-            LIRExpression::Call(f, args, _) => {
-                let f = match *f.clone() {
-                    LIRExpression::Identifier(n, _) => n,
-                    _ => panic!(),
-                };
-
+            LIRExpression::GlobalCall(f, args, _) => {
                 if f.starts_with("Cons") {
                     match *args.clone() {
                         LIRExpression::Tuple(es, _) => {
-                            let c = match es[0] {
-                                LIRExpression::Num(n, _) => char::from_u32(n as u32).unwrap(),
-                                _ => panic!(),
+                            let c = match es[0].clone() {
+                                LIRExpression::GlobalCall(_, arg, _) => match *arg {
+                                    LIRExpression::Num(n, _) => char::from_u32(n as u32).unwrap(),
+                                    _ => panic!(),
+                                },
+                                a => panic!("{a:?}"),
                             };
                             let mut s = String::new();
                             s.push(c);

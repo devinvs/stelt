@@ -115,8 +115,14 @@ impl TypeChecker {
                 vec!["a".to_string()],
                 Box::new(Type::Arrow(
                     Box::new(Type::Tuple(vec![
-                        Type::Generic(vec![Type::U32], Box::new(Type::Ident("list".to_string()))),
-                        Type::Generic(vec![Type::U32], Box::new(Type::Ident("list".to_string()))),
+                        Type::Generic(
+                            vec![Type::Ident("char".to_string())],
+                            Box::new(Type::Ident("list".to_string())),
+                        ),
+                        Type::Generic(
+                            vec![Type::Ident("char".to_string())],
+                            Box::new(Type::Ident("list".to_string())),
+                        ),
                     ])),
                     Box::new(Type::Ident("a".to_string())),
                 )),

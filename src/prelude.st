@@ -1,7 +1,20 @@
+// a boolean value, either false or true
+// by specifying False first it will be equivalent to 0 and thus play nice
+// with other languages
 type bool = False | True
-type maybe<a> = None | Some(a)
-type list<a> = Nil | Cons(a, list<a>)
 
+// a character is a 32bit integer.
+// this allows for representing all unicode code points
+// it is represented as a new type since not all integers are valid chars
+type char = Char(u32)
+
+// maybe is for a result that is something or nothing.
+// it will eventually have some special optimizations, specifically
+// a maybe<ptr> will use NULL for the None case (saving the 8 bit tag)
+type maybe<a> = None | Some(a)
+
+// A recursive linked list, in all its glory
+type list<a> = Nil | Cons(a, list<a>)
 
 // It's pretty cool that we can define logic entirely in the lang
 // let's just hope it gets optimized
@@ -18,10 +31,32 @@ type or: (bool, bool) -> bool
 or(False, False) = False
 or(_, _) = True
 
+type xor: (bool, bool) -> bool
+xor(True, False) = True
+xor(False, True) = True
+xor(_, _) = False
+
+// some utility printing functions, might be moved somewhere else later
+extern type putchar: u32 -> ()
+
+type print: [char] -> ()
+print([]) = ()
+print(Char(i)::cs) = {
+	putchar(i)
+	print(cs)
+}
+
+type println: [char] -> ()
+println(s) = {
+	print(s)
+	putchar(10)
+}
 
 //
 // Here lies the math spam. This is what I get for having so many int types
 //
+
+// maybe macros will fix this eventually, sigh
 
 // Neg
 typefn neg(a) = a -> a

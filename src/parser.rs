@@ -1300,6 +1300,7 @@ impl Expression {
             .chars()
             .map(|c| c as u64)
             .map(|i| Self::Num(i))
+            .map(|i| Self::Call(Box::new(Self::Identifier("Char".to_string())), Box::new(i)))
             .collect::<Vec<_>>();
 
         Self::cons_from_es(&nums)
