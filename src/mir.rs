@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::collections::VecDeque;
 
 use crate::parse_tree::{DataDecl, Expression, ParseTree, Pattern, Type, TypeCons};
 
@@ -224,9 +225,47 @@ impl MIRTree {
             .flatten()
             .collect();
 
+        let mut concrete_queue = VecDeque::new();
+        concrete_queue.extend(
+            concrete_decls
+                .clone()
+                .into_iter()
+                .map(|(name, _)| (name.clone(), self.funcs[&name].clone())),
+        );
+
+        while let Some((name, body)) = concrete_queue.pop_front() {
+            // resolve the typefn to their implementation
+            let body = body.resolve_typefn(&self.impl_map);
+            // extract generic calls, getting a new body and a list of those calls
+            let (f, calls) = body.extract_calls(&generic_decls, &cons);
+            // insert into our concrete functions
+            concrete_funcs.insert(name.clone(), f);
+
+            // each of our generic calls is a tuple of (n n' t) where
+            // - n is the name of the generic function
+            // - n' is the name of the concrete version of the generic function
+            // - t is the type of the concrete function
+            //
+            // so for each call we check for t' in our concrete_funcs
+            // if it does not exist we add t' and the concrete body
+            // to the concrete queue so as to extract any typefn/other generic calls
+            for (n, n_prime, t) in calls {
+                if !concrete_funcs.contains_key(&n_prime) {
+                    // add to concrete_decls ig, ughh
+                    concrete_decls.insert(n_prime.clone(), t.clone());
+
+                    let oldty = generic_decls[&n].clone();
+                    let subs = oldty.get_generic_subs(&t);
+
+                    let body = self.funcs[&n].clone().sub_types(&subs);
+                    concrete_queue.push_back((n_prime, body));
+                }
+            }
+        }
+
         // for every concrete function type extract the calls to generic functions
         // and add them to the concrete functions as well
-        for name in concrete_decls.clone().into_keys() {
+        /*for name in concrete_decls.clone().into_keys() {
             if let Some(body) = self.funcs.get(&name) {
                 let body = body.clone().resolve_typefn(&self.impl_map);
                 let (f, calls) = body.extract_calls(&generic_decls, &cons);
@@ -246,7 +285,7 @@ impl MIRTree {
                     }
                 }
             }
-        }
+        }*/
 
         let mut generic_types = HashMap::new();
         let mut concrete_types = HashMap::new();
@@ -265,7 +304,7 @@ impl MIRTree {
             }
         }
 
-        // For each declared type replace generics with concrete instances
+        // For each typedecl replace generics with concrete instances
         for (_, t) in concrete_decls.iter_mut() {
             let (newt, concs) = t.clone().extract_generics(&generic_types);
             for conc in concs {
@@ -689,6 +728,8 @@ impl MIRExpression {
             }
             MIRExpression::Match(e, ps, t) => {
                 // I don't think that we need to check the patterns, but I'm not entirely sure
+                // ignore the above comment, that was written by an idiot, we definitely need the patterns
+
                 let (e, mut gens) = e.extract_calls(generics, cons);
 
                 let mut new_ps = vec![];
