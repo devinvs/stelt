@@ -161,7 +161,7 @@ impl Type {
                     .collect::<Vec<_>>()
                     .join("_")
             ),
-            Type::Arrow(a, b) => format!("{}->{}", a.to_string(), b.to_string()),
+            Type::Arrow(a, b) => format!("{}--{}", a.to_string(), b.to_string()),
             Type::Tuple(ts) => format!(
                 "tup${}$",
                 ts.iter().map(Type::to_string).collect::<Vec<_>>().join("_")

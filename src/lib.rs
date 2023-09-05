@@ -21,7 +21,3 @@ static ID: AtomicUsize = AtomicUsize::new(0);
 fn gen_var(prefix: &str) -> String {
     format!("{prefix}.{}", ID.fetch_add(1, Ordering::SeqCst))
 }
-
-fn id() -> String {
-    format!("{}", ID.fetch_add(1, Ordering::SeqCst))
-}

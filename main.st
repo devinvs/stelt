@@ -1,14 +1,21 @@
-typefn map<a, b>(f) = (f<a>, a->b) -> f<b>
+typefn next(iter, a) = iter -> (a, iter)
 
-impl map(maybe)
-map(None, _) = None
-map(Some(a), f) = Some(f(a))
+type range = Range(i32, i32)
 
-type unwrap<a>: maybe<a> -> a
-unwrap(Some(a)) = a
+impl next(range, maybe<i32>)
+next(Range(n, m)) =
+	if n==m then
+		(None, Range(n, m))
+	else
+		(Some(n), Range(n+1, m))
 
-type add_two: i32 -> i32
-add_two(x) = x+2
+type rangesum<a>: a -> i32
+rangesum(i) =
+	let (res, i) = next(i) in
+	match res {
+		None: 0,
+		Some(n): n+rangesum(i)
+	}
 
 type main: () -> i32
-main() = unwrap(map(Some(2), add_two))
+main() = rangesum(Range(5, 8))

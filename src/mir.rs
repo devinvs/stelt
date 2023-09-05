@@ -261,30 +261,6 @@ impl MIRTree {
             }
         }
 
-        // for every concrete function type extract the calls to generic functions
-        // and add them to the concrete functions as well
-        /*for name in concrete_decls.clone().into_keys() {
-            if let Some(body) = self.funcs.get(&name) {
-                let body = body.clone().resolve_typefn(&self.impl_map);
-                let (f, calls) = body.extract_calls(&generic_decls, &cons);
-                concrete_funcs.insert(name.clone(), f);
-
-                for (name, newname, ty) in calls {
-                    // add concrete function prototype for new function
-                    concrete_decls.insert(newname.clone(), ty.clone());
-
-                    let oldty = generic_decls[&name].clone();
-                    let subs = oldty.get_generic_subs(&ty);
-
-                    if let Some(f) = self.funcs.get(&name) {
-                        // add new function body substituting generic types for concrete types
-                        let f = f.clone().sub_types(&subs).resolve_typefn(&self.impl_map);
-                        concrete_funcs.insert(newname, f);
-                    }
-                }
-            }
-        }*/
-
         let mut generic_types = HashMap::new();
         let mut concrete_types = HashMap::new();
 
@@ -667,7 +643,7 @@ impl MIRExpression {
         match self {
             MIRExpression::Identifier(name, t) => {
                 if generics.contains_key(&name) {
-                    let newname = format!("{name}${}$", crate::id());
+                    let newname = format!("{name}${}$", t.as_ref().unwrap().to_string());
 
                     (
                         MIRExpression::Identifier(newname.clone(), t.clone()),
