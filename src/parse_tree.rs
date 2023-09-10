@@ -30,6 +30,7 @@ pub struct TypeFun {
 #[derive(Debug, Clone)]
 pub struct Impl {
     pub fn_name: String,
+    pub gen_args: Vec<String>,
     pub args: Vec<Type>,
     pub body: Vec<FunctionDef>,
 }

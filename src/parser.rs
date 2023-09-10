@@ -56,6 +56,19 @@ impl ParseTree {
                     t.assert(Token::Impl)?;
                     let name = t.ident()?;
 
+                    let mut gen_args = vec![];
+                    if t.consume(Token::LArrow).is_some() {
+                        loop {
+                            let i = t.ident()?;
+                            gen_args.push(i);
+                            if t.consume(Token::Comma).is_none() {
+                                break;
+                            }
+                        }
+
+                        t.assert(Token::RArrow)?;
+                    }
+
                     let mut args = vec![];
                     t.assert(Token::LParen)?;
                     while let Ok(ty) = Type::parse(t) {
@@ -79,6 +92,7 @@ impl ParseTree {
 
                     me.impls.push(Impl {
                         fn_name: name,
+                        gen_args,
                         args,
                         body: funcs,
                     });

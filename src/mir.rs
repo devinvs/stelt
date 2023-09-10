@@ -57,6 +57,13 @@ impl MIRTree {
             }
 
             let real_type = typefn.ty.clone().replace_all(&subs);
+            let real_type = if let Type::ForAll(mut vars, t) = real_type {
+                vars.extend(imp.gen_args);
+                Type::ForAll(vars, t)
+            } else {
+                Type::ForAll(imp.gen_args.clone(), Box::new(real_type))
+            };
+
             if let Some(impls) = impl_map.get_mut(&typefn.name) {
                 impls.push((new_name.clone(), real_type.clone()));
             } else {
