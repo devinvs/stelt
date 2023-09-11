@@ -428,69 +428,16 @@ impl LIRExpression {
                 }
             }
             Self::Call(f, args, t) => {
-                let clos_t = f.ty();
+                let f = f.compile(module, named_vars.clone(), None)?.unwrap();
 
-                let arg_count = match args.ty() {
-                    LLVMType::Struct(ts) => ts.len(),
-                    LLVMType::Void => 0,
-                    _ => 1,
-                };
-
-                let arg_t = match clos_t.clone() {
-                    LLVMType::Struct(ts) => match &ts[0] {
-                        LLVMType::Func(args, _) => args.clone(),
-                        _ => panic!(),
-                    },
-                    _ => panic!(),
-                };
-
-                let closure = f.compile(module, named_vars.clone(), None)?.unwrap();
-
-                let mut args = match arg_count {
-                    0 => "poison".to_string(),
-                    1 => {
-                        // create a tuple
-                        let tup = LIRExpression::Tuple(vec![*args], *arg_t.clone());
-                        tup.compile(module, named_vars, None)?.unwrap()
-                    }
-                    _ => args.compile(module, named_vars, None)?.unwrap(),
-                };
-
-                let formals = match clos_t.clone() {
-                    LLVMType::Struct(mut ts) => {
-                        ts.remove(0);
-                        ts
-                    }
-                    _ => panic!(),
-                };
-
-                // Get function pointer
-                let f = module.var("func_ptr");
-                writeln!(module, "\t{f} = extractvalue {clos_t} {closure}, 0")?;
-
-                // insert formals into args struct
-                for i in 0..formals.len() {
-                    let ft = &formals[i];
-
-                    // get the formal from the closure tuple
-                    let v = module.var("formal");
-                    writeln!(module, "\t{v} = extractvalue {clos_t} {closure}, {}", i + 1)?;
-
-                    // insert into the args
-                    let w = module.var("args");
-                    writeln!(
-                        module,
-                        "\t{w} = insertvalue {arg_t} {args}, {ft} {v}, {}",
-                        arg_count + i
-                    )?;
-                    args = w;
-                }
-
+                let argt = args.ty();
+                let args = args.compile(module, named_vars, None)?;
                 let out = out.unwrap_or(module.var("call"));
-                let args = if *arg_t == LLVMType::Void {
-                    format!("()")
+
+                let args = if let Some(args) = args {
+                    format!("({argt} {args})")
                 } else {
-                    format!("({arg_t} {args})")
+                    format!("()")
                 };
 
                 if t == LLVMType::Void {

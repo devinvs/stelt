@@ -53,21 +53,21 @@ println(s) = {
 }
 
 // an iterator is defined simply as just having being able to retreive the next element
-typefn next(iter, out) = iter -> (out, iter)
+// typefn next(iter, out) = iter -> (out, iter)
 
-type skip<iter>: (iter, u32) -> iter
-skip(iter, 0) = iter
-skip(iter, n) = let (_, iter) = next(iter) in skip(iter, n-1)
+// type skip<iter>: (iter, u32) -> iter
+// skip(iter, 0) = iter
+// skip(iter, n) = let (_, iter) = next(iter) in skip(iter, n-1)
 
-type take<iter, out>: (iter, u32) -> (list<out>, iter)
-take(iter, 0) = ([], iter)
-take(iter, n) =
-	let (n, iter) = next(iter) in
-	let (list, iter) = take(iter, n-1) in
-	(n::list, iter)
+// type take<iter, out>: (iter, u32) -> (list<out>, iter)
+// take(iter, 0) = ([], iter)
+// take(iter, n) =
+// 	let (n, iter) = next(iter) in
+// 	let (list, iter) = take(iter, n-1) in
+// 	(n::list, iter)
 
-type nth<iter, out>: (iter, u32) -> out
-nth(iter, n) = let (out, _) = next(skip(iter, n)) in out
+// type nth<iter, out>: (iter, u32) -> out
+// nth(iter, n) = let (out, _) = next(skip(iter, n)) in out
 
 //
 // Here lies the math spam. This is what I get for having so many int types

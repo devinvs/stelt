@@ -401,81 +401,17 @@ impl LIRExpression {
 
         match self {
             Self::Lambda1(_, body, t) => {
-                let mut free = HashSet::new();
-                free.extend(body.free_non_globals(&globals));
-
                 let (from, to) = match t.clone() {
                     LLVMType::Func(from, to) => (from, to),
                     _ => panic!(),
                 };
-
-                // must modify function type to include closure variables
-                let mut from = match *from {
-                    LLVMType::Struct(a) => a,
-                    LLVMType::Void => vec![],
-                    a => vec![a],
-                };
-
-                let argl = from.len();
-
-                let mut inner = vec![t.clone()];
-                let mut tup = vec![LIRExpression::Identifier(id.clone(), t)];
-
-                for (s, t) in free.iter() {
-                    tup.push(LIRExpression::Identifier(s.clone(), t.clone()));
-                    inner.push(t.clone());
-                    from.push(t.clone());
-                }
-
-                let t = LLVMType::Func(Box::new(LLVMType::Struct(from.clone())), to.clone());
-                inner[0] = t.clone();
-                // always true, just using the pattern matching
-                if let LIRExpression::Identifier(_, ty) = &mut tup[0] {
-                    *ty = t;
-                }
-
-                let (mut e, mut funcs) =
+                let (e, mut funcs) =
                     body.extract_funcs(&crate::gen_var("lambda"), types, globals, subs);
-                if argl == 1 && free.len() > 0 {
-                    e = e.replace(
-                        "arg.0",
-                        LIRExpression::GetTuple(
-                            Box::new(LIRExpression::Identifier(
-                                "arg.0".to_string(),
-                                LLVMType::Struct(from.clone()),
-                            )),
-                            0,
-                            from[0].clone(),
-                        ),
-                    );
-                }
-
-                // create let statements for formals
-                for (i, (var, t)) in free.iter().enumerate() {
-                    let et = e.ty();
-                    let exp = LIRExpression::Let1(
-                        var.clone(),
-                        Box::new(LIRExpression::GetTuple(
-                            Box::new(LIRExpression::Identifier(
-                                "arg.0".to_string(),
-                                LLVMType::Struct(from.clone()),
-                            )),
-                            argl + i,
-                            t.clone(),
-                        )),
-                        Box::new(e),
-                        et,
-                    );
-                    e = exp;
-                }
 
                 funcs.insert(id.clone(), e);
+                types.insert(id.clone(), (*from, *to));
 
-                types.insert(id.clone(), (LLVMType::Struct(from), *to));
-
-                let clos_t = LLVMType::Struct(inner);
-
-                (LIRExpression::Tuple(tup, clos_t), funcs)
+                (LIRExpression::Identifier(id.clone(), t), funcs)
             }
             Self::GlobalCall(f, args, t) => {
                 let (args, cs) = args.extract_funcs(id, types, globals, subs);
@@ -494,23 +430,14 @@ impl LIRExpression {
 
                 (Self::ExternCall(f, newes, t), cs)
             }
-            Self::Call(func, args, _) => {
+            Self::Call(func, args, t) => {
                 let (e, mut cs) = func.extract_funcs(id, types, globals, subs);
 
                 let id = freshen_var(id.clone(), &cs);
                 let (argse, argscs) = args.extract_funcs(&id, types, globals, subs);
                 cs.extend(argscs.into_iter());
 
-                // e is a closure, ie (f, args...)
-                let out_t = match e.ty() {
-                    LLVMType::Struct(ts) => match &ts[0] {
-                        LLVMType::Func(_, b) => b.clone(),
-                        a => panic!("wha? {a:?} {e:?}"),
-                    },
-                    a => panic!("expected closure, found {a:?}, {e:?}"),
-                };
-
-                (Self::Call(Box::new(e), Box::new(argse), *out_t), cs)
+                (Self::Call(Box::new(e), Box::new(argse), t), cs)
             }
             Self::Let1(name, exp, body, _) => {
                 let (e, mut cs) = exp.extract_funcs(id, types, globals, subs);
@@ -559,16 +486,7 @@ impl LIRExpression {
             }
             Self::Identifier(s, t) => {
                 let t = subs.get(&s).unwrap_or(&t).clone();
-
-                if let LLVMType::Func(_, _) = t {
-                    let tup_t = LLVMType::Struct(vec![t.clone()]);
-                    (
-                        Self::Tuple(vec![Self::Identifier(s, t)], tup_t),
-                        HashMap::new(),
-                    )
-                } else {
-                    (Self::Identifier(s, t), HashMap::new())
-                }
+                (Self::Identifier(s, t), HashMap::new())
             }
             Self::List(es, _) => {
                 let mut cs = HashMap::new();
