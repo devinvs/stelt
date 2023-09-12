@@ -1,4 +1,4 @@
 #!/bin/bash
-cargo run
-llc --relocation-model=pic -filetype=obj -O3 out.ll
-clang out.o -o out
+cargo run -- main.st
+llc --relocation-model=pic -filetype=obj -O3 main.ll
+clang main.o -o out

@@ -1,0 +1,10 @@
+https://graydon2.dreamwidth.org/307291.html
+https://graydon2.dreamwidth.org/253769.html
+https://without.boats/blog/notes-on-a-smaller-rust/
+http://pcwalton.github.io/_posts/2013-06-02-removing-garbage-collection-from-the-rust-language.html
+https://borretti.me/article/type-systems-memory-safety#linearml
+https://borretti.me/article/why-checked-exceptions-failed
+"The Best of Both Worlds - Linear Functional Programming without Compromise"
+https://web.archive.org/web/20180123223216/https://lopezjuan.com/limestone/thesis.pdf
+https://www.llvm.org/docs/Coroutines.html
+

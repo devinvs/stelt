@@ -1,6 +1,10 @@
 extern type putchar: i32 -> ()
 extern type puts: str -> ()
 
+type digits: u32 -> [char]
+digits(0) = []
+digits(x) = if x < 10 then x else (x%10) :: digits(x/10)
+
 type putd: i32 -> ()
 putd(x) = putchar(x+48)
 
@@ -14,3 +18,4 @@ putnum_h(n) = {
     putnum_h(n / 10)
     putd(n % 10)
 }
+
