@@ -301,6 +301,89 @@ pub enum LIRExpression {
 }
 
 impl LIRExpression {
+    fn free_non_globals(&self, vars: &HashSet<String>) -> Vec<(String, LLVMType)> {
+        match self {
+            Self::Error(..) => vec![],
+            Self::Num(..) => vec![],
+            Self::Str(..) => vec![],
+            Self::Unit => vec![],
+            Self::Identifier(a, t) => {
+                if vars.contains(a) {
+                    vec![]
+                } else {
+                    vec![(a.clone(), t.clone())]
+                }
+            }
+            Self::Tuple(es, _) => {
+                let mut free = vec![];
+                for e in es {
+                    free.extend(e.free_non_globals(vars))
+                }
+
+                free
+            }
+            Self::If(cond, yes, no, _) => {
+                let mut free = vec![];
+                free.extend(cond.free_non_globals(vars));
+                free.extend(yes.free_non_globals(vars));
+                free.extend(no.free_non_globals(vars));
+
+                free
+            }
+            Self::Lambda1(x, body, _) => {
+                let mut vars = vars.clone();
+                if x.is_some() {
+                    vars.insert(x.clone().unwrap());
+                }
+
+                body.free_non_globals(&vars)
+            }
+            Self::Let1(x, exp, body, _) => {
+                let mut free = exp.free_non_globals(vars);
+
+                let mut vars = vars.clone();
+                vars.insert(x.clone());
+                free.extend(body.free_non_globals(&vars));
+
+                free
+            }
+            Self::Call(f, args, _) => {
+                let mut free = vec![];
+                free.extend(f.free_non_globals(vars));
+                free.extend(args.free_non_globals(vars));
+                free
+            }
+            Self::List(es, _) => {
+                let mut free = vec![];
+                for e in es {
+                    free.extend(e.free_non_globals(vars))
+                }
+                free
+            }
+            Self::CastTuple(..) => vec![],
+            Self::CheckTuple(..) => vec![],
+            Self::GetTuple(..) => vec![],
+            Self::GlobalCall(_, args, _) => args.free_non_globals(vars),
+            Self::ExternCall(_, args, _) => {
+                let mut free = vec![];
+                for e in args {
+                    free.extend(e.free_non_globals(vars))
+                }
+                free
+            }
+            Self::Box(e, _) => e.free_non_globals(vars),
+            Self::Unbox(e, _) => e.free_non_globals(vars),
+            Self::LLVM(..) => vec![],
+            Self::LetThunk(_, a, b, _) => {
+                let mut free = vec![];
+                free.extend(a.free_non_globals(vars));
+                free.extend(b.free_non_globals(vars));
+                free
+            }
+            Self::GotoThunk(_, _) => vec![],
+        }
+    }
+
     fn extract_funcs(
         self,
         id: &String,
@@ -318,17 +401,127 @@ impl LIRExpression {
 
         match self {
             Self::Lambda1(_, body, t) => {
-                let (from, to) = match t.clone() {
-                    LLVMType::Func(from, to) => (from, to),
+                let (from, to) = match t {
+                    LLVMType::Struct(ts) => match ts[0].clone() {
+                        LLVMType::Func(from, to) => (from, to),
+                        _ => panic!(),
+                    },
                     _ => panic!(),
                 };
-                let (e, mut funcs) =
+                let arg_t = from.clone();
+
+                let (mut e, mut funcs) =
                     body.extract_funcs(&crate::gen_var("lambda"), types, globals, subs);
 
-                funcs.insert(id.clone(), e);
-                types.insert(id.clone(), (*from, *to));
+                // this is a closure, so we need to modify the function to take in
+                // a boxed tuple of our formal variables
+                let formals = e.free_non_globals(globals);
 
-                (LIRExpression::Identifier(id.clone(), t), funcs)
+                // the type of our environment, a boxed tuple
+                let env_tup_t =
+                    LLVMType::Struct(formals.clone().into_iter().map(|(_, a)| a).collect());
+                let env_t = LLVMType::Ptr(Box::new(env_tup_t.clone()));
+
+                // modify the from type of our lambda to take a tuple of (arg.0, env)
+                let (from, n) = match *from {
+                    LLVMType::Void => (env_t.clone(), 0),
+                    a => (LLVMType::Struct(vec![a, env_t.clone()]), 1),
+                };
+
+                if id.starts_with("lambda.") {
+                    // now modify the body of the lambda expression to extract
+                    // the formals from the env which is passed in
+                    let env_name = crate::gen_var("env");
+                    let env_var = LIRExpression::Identifier(env_name.clone(), env_tup_t.clone());
+                    for (i, (name, t)) in formals.clone().into_iter().enumerate() {
+                        let e_ty = e.ty();
+                        e = LIRExpression::Let1(
+                            name,
+                            Box::new(LIRExpression::GetTuple(Box::new(env_var.clone()), i, t)),
+                            Box::new(e),
+                            e_ty,
+                        )
+                    }
+
+                    // now we need to make arg.0 point to the actual arg...
+                    // this means extracting the first arg from the tuple,
+                    // but only if the arg isn't type void
+                    // since n is the index in the tupel of the env,
+                    // as long as n isn't zero we have args to extract
+                    if n != 0 {
+                        let args = LIRExpression::GetTuple(
+                            Box::new(LIRExpression::Identifier("arg.0".to_string(), from.clone())),
+                            0,
+                            *arg_t.clone(),
+                        );
+
+                        // now go through the lambda body, replacing every instance of arg.0 with
+                        // our new args
+                        let arg_name = crate::gen_var("args");
+                        let e_ty = e.ty();
+                        e = LIRExpression::Let1(
+                            arg_name.clone(),
+                            Box::new(args),
+                            Box::new(
+                                e.replace("arg.0", LIRExpression::Identifier(arg_name, *arg_t)),
+                            ),
+                            e_ty,
+                        );
+                    }
+
+                    // and now a let statement for the env
+                    let e_ty = e.ty();
+                    e = LIRExpression::Let1(
+                        env_name,
+                        Box::new(LIRExpression::Unbox(
+                            Box::new(LIRExpression::GetTuple(
+                                Box::new(LIRExpression::Identifier(
+                                    "arg.0".to_string(),
+                                    from.clone(),
+                                )),
+                                n,
+                                env_t.clone(),
+                            )),
+                            env_tup_t.clone(),
+                        )),
+                        Box::new(e),
+                        e_ty,
+                    );
+                }
+
+                // insert into our list of closures
+                funcs.insert(id.clone(), e);
+                // insert into list of function types
+                types.insert(id.clone(), (from.clone(), *to.clone()));
+
+                // get the type of our closure
+                let lambda_t = LLVMType::Func(Box::new(from.clone()), to.clone());
+                let clos_t = LLVMType::Struct(vec![lambda_t, env_t.clone()]);
+
+                // return tuple of function and environment
+                (
+                    LIRExpression::Tuple(
+                        vec![
+                            LIRExpression::Identifier(
+                                id.clone(),
+                                LLVMType::Func(Box::new(from), to),
+                            ),
+                            // build the environment
+                            LIRExpression::Box(
+                                Box::new(LIRExpression::Tuple(
+                                    formals
+                                        .into_iter()
+                                        .map(|(name, t)| LIRExpression::Identifier(name, t))
+                                        .collect(),
+                                    env_tup_t,
+                                )),
+                                env_t,
+                            ),
+                        ],
+                        clos_t,
+                    ),
+                    funcs,
+                )
             }
             Self::GlobalCall(f, args, t) => {
                 let (args, cs) = args.extract_funcs(id, types, globals, subs);
@@ -347,8 +540,9 @@ impl LIRExpression {
 
                 (Self::ExternCall(f, newes, t), cs)
             }
-            Self::Call(func, args, t) => {
+            Self::Call(func, args, _) => {
                 let (e, mut cs) = func.extract_funcs(id, types, globals, subs);
+                let t = e.ty();
 
                 let id = freshen_var(id.clone(), &cs);
                 let (argse, argscs) = args.extract_funcs(&id, types, globals, subs);
@@ -485,6 +679,52 @@ impl LIRExpression {
             Self::LLVM(_, _, t) => t.clone(),
         }
     }
+
+    fn replace(self, id: &str, e: LIRExpression) -> Self {
+        match self {
+            Self::Identifier(n, t) => {
+                if n == id {
+                    e
+                } else {
+                    Self::Identifier(n, t)
+                }
+            }
+            Self::Call(f, args, t) => {
+                let f = f.replace(id, e.clone());
+                let args = args.replace(id, e);
+                Self::Call(Box::new(f), Box::new(args), t)
+            }
+            Self::CastTuple(tup, n, t) => Self::CastTuple(Box::new(tup.replace(id, e)), n, t),
+            Self::CheckTuple(tup, i, t) => Self::CheckTuple(Box::new(tup.replace(id, e)), i, t),
+            Self::GetTuple(tup, i, t) => Self::GetTuple(Box::new(tup.replace(id, e)), i, t),
+            Self::GlobalCall(n, args, t) => Self::GlobalCall(n, Box::new(args.replace(id, e)), t),
+            Self::If(cond, yes, no, t) => {
+                let cond = Box::new(cond.replace(id, e.clone()));
+                let yes = Box::new(yes.replace(id, e.clone()));
+                let no = Box::new(no.replace(id, e));
+
+                Self::If(cond, yes, no, t)
+            }
+            Self::Lambda1(arg, body, t) => Self::Lambda1(arg, Box::new(body.replace(id, e)), t),
+            Self::Let1(n, x, body, t) => {
+                let x = Box::new(x.replace(id, e.clone()));
+                let body = Box::new(body.replace(id, e));
+                Self::Let1(n, x, body, t)
+            }
+            Self::List(es, t) => {
+                let mut new = vec![];
+
+                for exp in es {
+                    new.push(exp.replace(id, e.clone()))
+                }
+
+                Self::List(new, t)
+            }
+            Self::Box(exp, t) => Self::Box(Box::new(exp.replace(id, e)), t),
+            Self::Unbox(exp, t) => Self::Unbox(Box::new(exp.replace(id, e)), t),
+            a => a,
+        }
+    }
 }
 
 impl MIRExpression {
@@ -519,6 +759,7 @@ impl MIRExpression {
                             _ => panic!(),
                         }
                     }
+
                     if externs.contains(n) {
                         let args = match args {
                             LIRExpression::Unit => vec![],

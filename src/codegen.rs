@@ -277,7 +277,7 @@ impl Module {
             }
 
             let var = self.var("return");
-            let var = expr.compile(self, named_vars.clone(), Some(var))?;
+            let var = expr.compile(self, named_vars.clone(), Some(var), &tree.type_sizes)?;
 
             if *to == LLVMType::Void {
                 writeln!(self, "\tret {to}")?;
@@ -310,10 +310,13 @@ impl LIRExpression {
         module: &mut Module,
         named_vars: HashMap<String, String>,
         out: Option<String>,
+        types: &HashMap<String, usize>,
     ) -> Result<Option<String>, Box<dyn Error>> {
         match self {
             Self::If(cond, yes, no, t) => {
-                let cond = cond.compile(module, named_vars.clone(), None)?.unwrap();
+                let cond = cond
+                    .compile(module, named_vars.clone(), None, types)?
+                    .unwrap();
 
                 let yeslab = module.label();
                 let nolab = module.label();
@@ -323,7 +326,7 @@ impl LIRExpression {
 
                 writeln!(module, "{}:", yeslab)?;
                 module.last_lab = yeslab.clone();
-                let yes = yes.compile(module, named_vars.clone(), None)?;
+                let yes = yes.compile(module, named_vars.clone(), None, types)?;
                 let yeslab = module.last_lab.clone();
                 writeln!(module, "\tbr label %{endlab}")?;
 
@@ -335,7 +338,7 @@ impl LIRExpression {
                     _ => false,
                 };
 
-                let no = no.compile(module, named_vars, None)?;
+                let no = no.compile(module, named_vars, None, types)?;
                 let nolab = module.last_lab.clone();
 
                 if !else_thunk {
@@ -376,7 +379,7 @@ impl LIRExpression {
                 let mut ts = vec![];
                 for arg in args {
                     ts.push(arg.ty());
-                    a.push(arg.compile(module, named_vars.clone(), None)?);
+                    a.push(arg.compile(module, named_vars.clone(), None, types)?);
                 }
 
                 write!(module, "\t")?;
@@ -408,7 +411,7 @@ impl LIRExpression {
             }
             Self::GlobalCall(f, args, t) => {
                 let argt = args.ty();
-                let args = args.compile(module, named_vars, None)?;
+                let args = args.compile(module, named_vars, None, types)?;
                 let out = out.unwrap_or(module.var("global_call"));
 
                 let args = if let Some(args) = args {
@@ -428,24 +431,44 @@ impl LIRExpression {
                 }
             }
             Self::Call(f, args, t) => {
-                let f = f.compile(module, named_vars.clone(), None)?.unwrap();
+                let clos = f.compile(module, named_vars.clone(), None, types)?.unwrap();
 
                 let argt = args.ty();
-                let args = args.compile(module, named_vars, None)?;
+                let args = args.compile(module, named_vars, None, types)?;
                 let out = out.unwrap_or(module.var("call"));
 
+                // extract function and env
+                let func = module.var("clos_func");
+                let env = module.var("clos_env");
+
+                writeln!(module, "\t{func} = extractvalue {{ptr, ptr}} {clos}, 0")?;
+                writeln!(module, "\t{env} = extractvalue {{ptr, ptr}} {clos}, 1")?;
+
+                // create function args tuple (args, env)
                 let args = if let Some(args) = args {
-                    format!("({argt} {args})")
+                    let tup1 = module.var("tup");
+                    let tup2 = module.var("tup");
+
+                    writeln!(
+                        module,
+                        "\t{tup1} = insertvalue {{{argt}, ptr}} poison, {argt} {args}, 0"
+                    )?;
+                    writeln!(
+                        module,
+                        "\t{tup2} = insertvalue {{{argt}, ptr}} {tup1}, ptr {env}, 1"
+                    )?;
+
+                    format!("({{{argt}, ptr}} {tup2})")
                 } else {
-                    format!("()")
+                    format!("(ptr {env})")
                 };
 
                 if t == LLVMType::Void {
-                    writeln!(module, "\tcall fastcc {t} {f}{args}")?; // FIX!!!
+                    writeln!(module, "\tcall fastcc {t} {func}{args}")?; // FIX!!!
                     Ok(None)
                 } else {
                     // get type of function
-                    writeln!(module, "\t{out} = call fastcc {t} {f}{args}")?; // FIX!!!
+                    writeln!(module, "\t{out} = call fastcc {t} {func}{args}")?; // FIX!!!
 
                     Ok(Some(out))
                 }
@@ -465,7 +488,7 @@ impl LIRExpression {
                 let e = es.next().unwrap();
                 let v = e
                     .clone()
-                    .compile(module, named_vars.clone(), None)?
+                    .compile(module, named_vars.clone(), None, types)?
                     .unwrap();
                 writeln!(
                     module,
@@ -485,7 +508,7 @@ impl LIRExpression {
 
                     let v = e
                         .clone()
-                        .compile(module, named_vars.clone(), None)?
+                        .compile(module, named_vars.clone(), None, types)?
                         .unwrap();
                     writeln!(
                         module,
@@ -500,24 +523,26 @@ impl LIRExpression {
             }
             Self::Let1(id, e, body, _) => {
                 let v = module.var(&id);
-                let e = e.compile(module, named_vars.clone(), Some(v))?;
+                let e = e.compile(module, named_vars.clone(), Some(v), types)?;
                 let mut named_vars = named_vars.clone();
                 named_vars.insert(id, e.unwrap());
 
-                body.compile(module, named_vars, out)
+                body.compile(module, named_vars, out, types)
             }
             Self::Unit => Ok(None),
             Self::List(es, _) => {
                 let last_i = es.len() - 1;
                 for i in 0..last_i {
-                    es[i].clone().compile(module, named_vars.clone(), None)?;
+                    es[i]
+                        .clone()
+                        .compile(module, named_vars.clone(), None, types)?;
                 }
 
-                es[last_i].clone().compile(module, named_vars, out)
+                es[last_i].clone().compile(module, named_vars, out, types)
             }
             Self::GetTuple(tup, i, _) => {
                 let t = tup.ty();
-                let tup = tup.compile(module, named_vars, None)?.unwrap();
+                let tup = tup.compile(module, named_vars, None, types)?.unwrap();
                 let out = out.unwrap_or(module.var("gettuple"));
 
                 writeln!(module, "\t{out} = extractvalue {t} {tup}, {i}")?;
@@ -526,7 +551,7 @@ impl LIRExpression {
             }
             Self::CheckTuple(exp, id, _) => {
                 let ty = exp.ty();
-                let exp = exp.compile(module, named_vars, None)?.unwrap();
+                let exp = exp.compile(module, named_vars, None, types)?.unwrap();
 
                 let a = module.var("tag");
                 let out = out.unwrap_or(module.var("checktuple"));
@@ -539,7 +564,7 @@ impl LIRExpression {
             Self::Error(_) => Ok(Some("poison".to_string())),
             Self::CastTuple(exp, ty, _) => {
                 let base = exp.ty();
-                let exp = exp.compile(module, named_vars, None)?.unwrap();
+                let exp = exp.compile(module, named_vars, None, types)?.unwrap();
                 let out = out.unwrap_or(module.var("tuple"));
 
                 let ptr = module.var("cast_ptr");
@@ -552,7 +577,7 @@ impl LIRExpression {
             }
             Self::Unbox(e, ty) => {
                 let out = out.unwrap_or(module.var("unboxed"));
-                let ptr = e.compile(module, named_vars, None)?.unwrap();
+                let ptr = e.compile(module, named_vars, None, types)?.unwrap();
 
                 writeln!(module, "\t{out} = load {ty}, ptr {ptr}")?;
                 Ok(Some(out))
@@ -623,7 +648,7 @@ impl LIRExpression {
 
                 writeln!(module, "{thunk}:")?;
                 module.last_lab = thunk.clone();
-                let thunk_out = expr.compile(module, named_vars.clone(), None)?;
+                let thunk_out = expr.compile(module, named_vars.clone(), None, types)?;
                 let after_thunk = module.last_lab.clone();
 
                 writeln!(module, "\tbr label %{afterlab}")?;
@@ -632,7 +657,7 @@ impl LIRExpression {
 
                 writeln!(module, "{firstlab}:")?;
                 module.last_lab = firstlab.clone();
-                let first_out = first.compile(module, named_vars.clone(), None)?;
+                let first_out = first.compile(module, named_vars.clone(), None, types)?;
                 let after_first = module.last_lab.clone();
                 writeln!(module, "\tbr label %{afterlab}")?;
 
@@ -657,6 +682,22 @@ impl LIRExpression {
                 writeln!(module, "br label %{thunk}")?;
                 Ok(module.thunks[&thunk].clone())
                 // Ok(Some("%wehitathunkhooray".to_string()))
+            }
+            Self::Box(e, t) => {
+                let e = e.compile(module, named_vars, None, types)?.unwrap();
+                let out = module.var("box");
+
+                let inner_ty = match t {
+                    LLVMType::Ptr(inner) => *inner,
+                    _ => panic!(),
+                };
+
+                let size = inner_ty.size(0, types).unwrap();
+
+                writeln!(module, "\t{out} = call ptr @malloc(i32 {size})")?;
+                writeln!(module, "\tstore {inner_ty} {e}, ptr {out}")?;
+
+                Ok(Some(out))
             }
             a => unimplemented!("{a:?}"),
         }

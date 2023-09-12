@@ -35,11 +35,14 @@ impl LLVMType {
             Type::I64 => Self::I64,
             Type::U64 => Self::U64,
             Type::Unit => Self::Void,
-            Type::Arrow(a, b) => Self::Func(
-                Box::new(LLVMType::from_type(*a)),
-                Box::new(LLVMType::from_type(*b)),
-            ),
-            //Type::Tuple(_) => Self::Ptr,
+            // convert function types into closures
+            Type::Arrow(a, b) => Self::Struct(vec![
+                Self::Func(
+                    Box::new(LLVMType::from_type(*a)),
+                    Box::new(LLVMType::from_type(*b)),
+                ),
+                Self::Ptr(Box::new(Self::Void)),
+            ]),
             Type::Tuple(ts) => {
                 Self::Struct(ts.into_iter().map(|t| LLVMType::from_type(t)).collect())
             }
