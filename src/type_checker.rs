@@ -11,7 +11,6 @@ use crate::mir::MIRTree;
 
 type Theta = HashMap<Term<String>, Term<String>>;
 type Gamma<'a> = &'a HashMap<String, Type>;
-type GammaStruct<'a> = &'a HashMap<String, HashMap<String, Type>>;
 type MutGamma<'a> = &'a mut HashMap<String, Type>;
 
 impl Type {
@@ -137,7 +136,6 @@ impl TypeChecker {
                 &builtins,
                 &tree.constructors,
                 &tree.declarations,
-                &tree.structs,
                 def,
                 ty.clone(),
             )?;
@@ -152,7 +150,6 @@ impl TypeChecker {
                 &builtins,
                 &tree.constructors,
                 &tree.declarations,
-                &tree.structs,
                 func,
                 ty.clone(),
             )?;
@@ -167,7 +164,6 @@ impl TypeChecker {
         b: Gamma,
         c: Gamma,
         d: Gamma,
-        s: GammaStruct,
         e: &mut Expression,
         t: Type,
     ) -> Result<Theta, String> {
@@ -176,7 +172,7 @@ impl TypeChecker {
             _ => t.clone(),
         };
 
-        let subs = self.judge_type(b, c, d, s, e, simple.clone(), HashMap::new())?;
+        let subs = self.judge_type(b, c, d, e, simple.clone(), HashMap::new())?;
         Ok(subs)
     }
 
@@ -271,7 +267,6 @@ impl TypeChecker {
         b: Gamma,
         c: Gamma,
         d: Gamma,
-        s: GammaStruct,
         e: &mut Expression,
         t: Type,
         mut subs: Theta,
@@ -281,7 +276,7 @@ impl TypeChecker {
             Expression::Tuple(es, _) => {
                 for exp in es {
                     let tv = self.gen_var();
-                    subs = self.judge_type(b, c, d, s, exp, tv.clone(), subs)?;
+                    subs = self.judge_type(b, c, d, exp, tv.clone(), subs)?;
                     ts.push(tv);
                 }
             }
@@ -306,7 +301,6 @@ impl TypeChecker {
         b: Gamma,
         c: Gamma,
         d: Gamma,
-        s: GammaStruct,
         e: &mut Expression,
         ty: Type,
         mut subs: Theta,
@@ -339,7 +333,7 @@ impl TypeChecker {
             }*/
         };
 
-        subs = self.judge_type(b, c, &d, s, m, t2.clone(), subs)?;
+        subs = self.judge_type(b, c, &d, m, t2.clone(), subs)?;
 
         let tname = apply_unifier(ty.to_term(), &subs).name();
         let xname = apply_unifier(
@@ -369,7 +363,6 @@ impl TypeChecker {
         b: Gamma,
         c: Gamma,
         d: Gamma,
-        s: GammaStruct,
         e: &mut Expression,
         ty: Type,
         mut subs: Theta,
@@ -380,8 +373,8 @@ impl TypeChecker {
         };
         let t = self.gen_var();
         let call_t = Type::Arrow(Box::new(t.clone()), Box::new(ty.clone()));
-        subs = self.judge_type(b, c, d, s, n, t.clone(), subs)?;
-        subs = self.judge_type(b, c, d, s, m, call_t.clone(), subs)?;
+        subs = self.judge_type(b, c, d, n, t.clone(), subs)?;
+        subs = self.judge_type(b, c, d, m, call_t.clone(), subs)?;
 
         m.set_type(call_t);
         n.set_type(t.clone());
@@ -395,7 +388,6 @@ impl TypeChecker {
         b: Gamma,
         c: Gamma,
         d: Gamma,
-        s: GammaStruct,
         e: &mut Expression,
         t: Type,
         mut subs: Theta,
@@ -406,12 +398,12 @@ impl TypeChecker {
         };
 
         let m_type = self.gen_var();
-        subs = self.judge_type(b, c, d, s, mat, m_type.clone(), subs)?;
+        subs = self.judge_type(b, c, d, mat, m_type.clone(), subs)?;
 
         for (pat, exp) in cases {
             let mut newd = d.clone();
             subs = self.judge_pattern(c, &mut newd, pat, m_type.clone(), subs)?;
-            subs = self.judge_type(b, c, &newd, s, exp, t.clone(), subs)?;
+            subs = self.judge_type(b, c, &newd, exp, t.clone(), subs)?;
 
             pat.set_type(m_type.clone());
             exp.set_type(t.clone());
@@ -422,63 +414,11 @@ impl TypeChecker {
         Ok(subs)
     }
 
-    fn judge_member(
-        &mut self,
-        b: Gamma,
-        c: Gamma,
-        d: Gamma,
-        structs: GammaStruct,
-        e: &mut Expression,
-        t: Type,
-        mut subs: Theta,
-    ) -> Result<Theta, String> {
-        let (m, n) = match e {
-            Expression::Member(m, n, _) => (m, n),
-            _ => unreachable!(),
-        };
-
-        let struct_var = self.gen_var();
-        subs = self.judge_type(b, c, d, structs, m, struct_var.clone(), subs)?;
-
-        // apply unifier to struct_var to get it's concrete type
-        let term = apply_unifier(struct_var.to_term(), &subs);
-
-        let struct_name = match term {
-            Term::Const(n) => n,
-            Term::Composite(n, _) => n,
-            Term::Number(_) | Term::Var(_) => {
-                return Err(format!("Type not known for struct"));
-            }
-        };
-
-        if let Some(members) = structs.get(&struct_name) {
-            if let Some(ty) = members.get(n) {
-                let ty = self.gen_fresh_type(ty);
-
-                subs = unify(ty.to_term(), t.to_term(), subs)
-                    .ok_or(format!("nope not yet i'll write this later"))?;
-
-                m.set_type(struct_var);
-                e.set_type(t);
-
-                Ok(subs)
-            } else {
-                Err(format!(
-                    "No member '{}' found for struct '{}'",
-                    n, struct_name
-                ))
-            }
-        } else {
-            Err(format!("No struct named {} found", struct_name))
-        }
-    }
-
     fn judge_multiple(
         &mut self,
         b: Gamma,
         c: Gamma,
         d: Gamma,
-        structs: GammaStruct,
         e: &mut Expression,
         t: Type,
         mut subs: Theta,
@@ -492,12 +432,12 @@ impl TypeChecker {
         for i in 0..last_i {
             let ty = self.gen_var();
             es[i].set_type(ty.clone());
-            subs = self.judge_type(b, c, d, structs, &mut es[i], ty, subs)?;
+            subs = self.judge_type(b, c, d, &mut es[i], ty, subs)?;
         }
 
         let e = &mut es[last_i];
         e.set_type(t.clone());
-        self.judge_type(b, c, d, structs, e, t, subs)
+        self.judge_type(b, c, d, e, t, subs)
     }
 
     fn judge_type(
@@ -505,7 +445,6 @@ impl TypeChecker {
         builtins: Gamma,
         cons: Gamma,
         defs: Gamma,
-        structs: GammaStruct,
         e: &mut Expression,
         t: Type,
         subs: Theta,
@@ -514,12 +453,11 @@ impl TypeChecker {
             Expression::Unit(..) => self.judge_unit(t, subs),
             Expression::Num(..) => self.judge_num(e, t, subs),
             Expression::Identifier(..) => self.judge_var(builtins, cons, defs, e, t, subs),
-            Expression::Tuple(..) => self.judge_tuple(builtins, cons, defs, structs, e, t, subs),
-            Expression::Lambda1(..) => self.judge_lambda(builtins, cons, defs, structs, e, t, subs),
-            Expression::Call(..) => self.judge_call(builtins, cons, defs, structs, e, t, subs),
-            Expression::Match(..) => self.judge_match(builtins, cons, defs, structs, e, t, subs),
-            Expression::Member(..) => self.judge_member(builtins, cons, defs, structs, e, t, subs),
-            Expression::List(..) => self.judge_multiple(builtins, cons, defs, structs, e, t, subs),
+            Expression::Tuple(..) => self.judge_tuple(builtins, cons, defs, e, t, subs),
+            Expression::Lambda1(..) => self.judge_lambda(builtins, cons, defs, e, t, subs),
+            Expression::Call(..) => self.judge_call(builtins, cons, defs, e, t, subs),
+            Expression::Match(..) => self.judge_match(builtins, cons, defs, e, t, subs),
+            Expression::List(..) => self.judge_multiple(builtins, cons, defs, e, t, subs),
         }
     }
 
@@ -615,7 +553,6 @@ impl TypeChecker {
         subs = self.judge_type(
             &HashMap::new(),
             c,
-            &HashMap::new(),
             &HashMap::new(),
             &mut Expression::Identifier(m.clone(), None),
             Type::Arrow(Box::new(newt.clone()), Box::new(t.clone())),

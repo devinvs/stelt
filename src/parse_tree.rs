@@ -39,32 +39,21 @@ pub struct Impl {
 /// A data decl is the declaration of either a product type or a sum type.
 /// A product type is a list of ident type pairs, a sum type is a list of type
 /// constructors. Both have generic type args
-pub enum DataDecl {
-    Product(String, Vec<String>, Vec<(String, Type)>),
-    Sum(String, Vec<String>, Vec<TypeCons>),
-}
+pub struct DataDecl(pub String, pub Vec<String>, pub Vec<TypeCons>);
 
 impl DataDecl {
     pub fn remove_recursion(self, name: &str, data: &mut Vec<(String, DataDecl)>) -> Self {
-        match self {
-            Self::Product(tname, args, mems) => Self::Product(
-                tname,
-                args,
-                mems.into_iter()
-                    .map(|(n, t)| (n, t.remove_recursion(name, data)))
-                    .collect(),
-            ),
-            Self::Sum(tname, args, cons) => Self::Sum(
-                tname,
-                args,
-                cons.into_iter()
-                    .map(|cons| TypeCons {
-                        name: cons.name,
-                        args: cons.args.remove_recursion(name, data),
-                    })
-                    .collect(),
-            ),
-        }
+        let DataDecl(tname, args, cons) = self;
+        DataDecl(
+            tname,
+            args,
+            cons.into_iter()
+                .map(|cons| TypeCons {
+                    name: cons.name,
+                    args: cons.args.remove_recursion(name, data),
+                })
+                .collect(),
+        )
     }
 }
 
@@ -215,9 +204,6 @@ pub enum Expression {
     /// Call the function with args
     /// Can be a global function, a lambda, or a constructor
     Call(Box<Expression>, Box<Expression>),
-
-    /// Get the member of a struct
-    Member(Box<Expression>, String),
 
     /// A lambda expression with pattern args and an expression body
     Lambda(Pattern, Box<Expression>),

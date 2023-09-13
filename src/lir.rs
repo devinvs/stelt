@@ -62,7 +62,6 @@ pub struct LIRTree {
     pub external: HashSet<String>,
 
     /// Named Types
-    pub structs: HashMap<String, LLVMType>,
     pub enums: HashMap<String, LLVMType>,
 
     /// Enum Variants
@@ -91,18 +90,14 @@ impl MIRTree {
         let mut funcs = HashMap::new();
 
         // convert all types into their llvm forms
-        let mut structs = HashMap::new();
         let mut variants = HashMap::new();
         let mut enums = HashMap::new();
 
         for (name, t) in self.types {
             match t {
-                DataDecl::Sum(_, _, cons) => {
+                DataDecl(_, _, cons) => {
                     let vars = LLVMType::from_enum(cons);
                     variants.insert(name, vars);
-                }
-                DataDecl::Product(_, _, mems) => {
-                    structs.insert(name, LLVMType::from_struct(mems));
                 }
             }
         }
@@ -152,9 +147,6 @@ impl MIRTree {
         }
         for n in self.external.iter() {
             global_funcs.insert(n.clone());
-        }
-        for (s, _) in structs.iter() {
-            global_funcs.insert(s.clone());
         }
         for vars in variants.values() {
             for (e, _) in vars {
@@ -244,7 +236,6 @@ impl MIRTree {
             extern_types,
             func_types,
             funcs: extracted_funcs,
-            structs,
             enums,
             variants,
             type_sizes,
@@ -913,7 +904,6 @@ impl MIRExpression {
                 LLVMType::from_type(t.unwrap()),
             ),
             Self::Unit(_) => LIRExpression::Unit,
-            a => unimplemented!("{a:?}"),
         }
     }
 

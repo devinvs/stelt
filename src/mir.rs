@@ -15,7 +15,6 @@ pub struct MIRTree {
     pub external: HashSet<String>,
     pub types: Vec<(String, DataDecl)>,
     pub typedefs: HashMap<String, Type>,
-    pub structs: HashMap<String, HashMap<String, Type>>,
     pub funcs: HashMap<String, MIRExpression>,
     pub defs: HashMap<String, MIRExpression>,
     pub impl_map: HashMap<String, Vec<(String, Type)>>,
@@ -84,11 +83,10 @@ impl MIRTree {
 
         // Add all type constructors to conss
         let mut constructors = HashMap::new();
-        let mut structs = HashMap::new();
 
         for (name, decl) in tree.types.iter() {
             match decl {
-                DataDecl::Sum(_, args, cons) => {
+                DataDecl(_, args, cons) => {
                     for cons in cons {
                         let outt = if args.len() == 0 {
                             Box::new(Type::Ident(name.clone()))
@@ -107,41 +105,6 @@ impl MIRTree {
                             ),
                         );
                     }
-                }
-                DataDecl::Product(_, args, members) => {
-                    // Add an entry into the structs map
-                    let mut m = HashMap::new();
-                    members.iter().for_each(|(n, t)| {
-                        m.insert(n.clone(), t.clone());
-                    });
-
-                    structs.insert(name.clone(), m);
-
-                    // add constructor
-                    let outt = if args.len() == 0 {
-                        Box::new(Type::Ident(name.clone()))
-                    } else {
-                        Box::new(Type::Generic(
-                            args.clone().into_iter().map(|s| Type::Ident(s)).collect(),
-                            Box::new(Type::Ident(name.clone())),
-                        ))
-                    };
-
-                    let inputt = members
-                        .into_iter()
-                        .map(|(_, t)| t.clone())
-                        .collect::<Vec<_>>();
-
-                    let inputt = match inputt.len() {
-                        0 => Box::new(Type::Unit),
-                        1 => Box::new(inputt.into_iter().next().unwrap()),
-                        _ => Box::new(Type::Tuple(inputt)),
-                    };
-
-                    constructors.insert(
-                        name.clone(),
-                        Type::ForAll(args.clone(), Box::new(Type::Arrow(inputt, outt))),
-                    );
                 }
             }
         }
@@ -191,7 +154,6 @@ impl MIRTree {
             defs,
             constructors,
             declarations,
-            structs,
             impl_map,
             imports: tree.imports,
             import_funcs: tree.import_funcs,
@@ -224,8 +186,7 @@ impl MIRTree {
             .types
             .iter()
             .filter_map(|t| match &t.1 {
-                DataDecl::Product(..) => None,
-                DataDecl::Sum(_, _, cons) => {
+                DataDecl(_, _, cons) => {
                     Some(cons.iter().map(|tc| tc.name.clone()).collect::<Vec<_>>())
                 }
             })
@@ -274,8 +235,7 @@ impl MIRTree {
         // split out the generic type prototypes and the concrete types
         for (name, t) in self.types {
             let argc = match t.clone() {
-                DataDecl::Sum(_, args, _) => args.len(),
-                DataDecl::Product(_, args, _) => args.len(),
+                DataDecl(_, args, _) => args.len(),
             };
 
             if argc == 0 {
@@ -298,21 +258,7 @@ impl MIRTree {
         let mut other_concretes = HashMap::new();
         for (_, t) in concrete_types.iter_mut() {
             *t = match t {
-                DataDecl::Product(n, v, mems) => {
-                    let mems = mems
-                        .into_iter()
-                        .map(|(name, t)| {
-                            let (newt, concs) = t.clone().extract_generics(&generic_types);
-                            for conc in concs {
-                                other_concretes.insert(conc.name(), conc);
-                            }
-                            (name.clone(), newt)
-                        })
-                        .collect();
-
-                    DataDecl::Product(n.clone(), v.clone(), mems)
-                }
-                DataDecl::Sum(n, v, cons) => {
+                DataDecl(n, v, cons) => {
                     let cons = cons
                         .into_iter()
                         .map(|TypeCons { name, args }| {
@@ -327,7 +273,7 @@ impl MIRTree {
                         })
                         .collect();
 
-                    DataDecl::Sum(n.clone(), v.clone(), cons)
+                    DataDecl(n.clone(), v.clone(), cons)
                 }
             };
         }
@@ -338,8 +284,7 @@ impl MIRTree {
         for (_, data) in concrete_types.iter_mut() {
             let name = data.name();
             match data {
-                DataDecl::Product(..) => {}
-                DataDecl::Sum(_, _, cons) => {
+                DataDecl(_, _, cons) => {
                     for cons in cons.iter_mut() {
                         let newname = format!("{}${}$", cons.name, name);
                         cons.name = newname;
@@ -391,9 +336,6 @@ pub enum MIRExpression {
     /// Can be a global function, a lambda, or a constructor
     Call(Box<MIRExpression>, Box<MIRExpression>, Option<Type>),
 
-    /// Get the member of a struct
-    Member(Box<MIRExpression>, String, Option<Type>),
-
     /// A lambda expression with pattern args and an expression body
     Lambda1(Option<String>, Box<MIRExpression>, Option<Type>),
 
@@ -431,9 +373,6 @@ impl MIRExpression {
             MIRExpression::Tuple(es, _) => {
                 MIRExpression::Tuple(es.into_iter().map(|e| e.sub_types(subs)).collect(), Some(t))
             }
-            MIRExpression::Member(e, mem, _) => {
-                MIRExpression::Member(Box::new(e.sub_types(subs)), mem, Some(t))
-            }
         }
     }
 
@@ -468,21 +407,6 @@ impl MIRExpression {
                 Box::new(MIRExpression::from(*args, cons)),
                 None,
             ),
-            Expression::Member(t, variant) => {
-                if let Expression::Identifier(t) = *t {
-                    if cons.contains_key(&format!("{t}.{variant}")) {
-                        MIRExpression::Identifier(format!("{t}.{variant}"), None)
-                    } else {
-                        MIRExpression::Member(
-                            Box::new(MIRExpression::Identifier(t, None)),
-                            variant,
-                            None,
-                        )
-                    }
-                } else {
-                    MIRExpression::Member(Box::new(MIRExpression::from(*t, cons)), variant, None)
-                }
-            }
             Expression::Lambda(pat, body) => match pat.trans_cons(cons) {
                 Pattern::Var(s, _) => {
                     Self::Lambda1(Some(s), Box::new(MIRExpression::from(*body, cons)), None)
@@ -577,7 +501,6 @@ impl MIRExpression {
                 t,
             ),
             Self::Lambda1(x, m, t) => Self::Lambda1(x, Box::new(m.resolve_typefn(impl_map)), t),
-            Self::Member(x, m, t) => Self::Member(Box::new(x.resolve_typefn(impl_map)), m, t),
             a => a,
         }
     }
@@ -592,7 +515,6 @@ impl MIRExpression {
             Self::Match(_, _, t) => t,
             Self::Call(_, _, t) => t,
             Self::Lambda1(_, _, t) => t,
-            Self::Member(_, _, t) => t,
         }
         .clone()
         .expect(&format!("{:?}", self))
@@ -608,7 +530,6 @@ impl MIRExpression {
             Self::Match(_, _, t) => *t = Some(ty),
             Self::Call(_, _, t) => *t = Some(ty),
             Self::Lambda1(_, _, t) => *t = Some(ty),
-            Self::Member(_, _, t) => *t = Some(ty),
         }
     }
 
@@ -634,9 +555,6 @@ impl MIRExpression {
             }
             Self::Lambda1(_, b, ..) => {
                 b.apply(subs);
-            }
-            Self::Member(a, ..) => {
-                a.apply(subs);
             }
             _ => {}
         }
@@ -702,10 +620,6 @@ impl MIRExpression {
             MIRExpression::Lambda1(arg, body, t) => {
                 let (body, gens) = body.extract_calls(generics, cons);
                 (MIRExpression::Lambda1(arg, Box::new(body), t), gens)
-            }
-            MIRExpression::Member(e, mem, t) => {
-                let (e, gens) = e.extract_calls(generics, cons);
-                (MIRExpression::Member(Box::new(e), mem, t), gens)
             }
             MIRExpression::Match(e, ps, t) => {
                 // I don't think that we need to check the patterns, but I'm not entirely sure
@@ -968,7 +882,7 @@ impl Type {
 impl DataDecl {
     fn substitute(&self, name: String, vals: &Vec<Type>) -> Self {
         match self {
-            DataDecl::Sum(_, args, cons) => {
+            DataDecl(_, args, cons) => {
                 let mut new_cons = vec![];
 
                 for con in cons {
@@ -981,27 +895,14 @@ impl DataDecl {
                     new_cons.push(con);
                 }
 
-                DataDecl::Sum(name, vec![], new_cons)
-            }
-            DataDecl::Product(_, args, mems) => {
-                let mut new_mems = vec![];
-
-                for (mem_n, mut mem) in mems.clone() {
-                    for (arg, val) in args.iter().zip(vals.iter()) {
-                        mem = mem.replace(arg, val);
-                    }
-                    new_mems.push((mem_n, mem));
-                }
-
-                DataDecl::Product(name, vec![], new_mems)
+                DataDecl(name, vec![], new_cons)
             }
         }
     }
 
     fn name(&self) -> String {
         match self {
-            Self::Sum(n, _, _) => n,
-            Self::Product(n, _, _) => n,
+            Self(n, _, _) => n,
         }
         .clone()
     }

@@ -342,29 +342,19 @@ impl ParseTree {
 
 impl DataDecl {
     fn qualify(self, prefix: &str, me: &ParseTree) -> Self {
-        match self {
-            Self::Product(name, args, mems) => Self::Product(
-                name,
-                args,
-                mems.into_iter()
-                    .map(|(name, t)| (name, t.qualify(prefix, me)))
-                    .collect(),
-            ),
-            Self::Sum(name, args, cons) => Self::Sum(
-                name,
-                args,
-                cons.into_iter()
-                    .map(|cons| cons.qualify(prefix, me))
-                    .collect(),
-            ),
-        }
+        let DataDecl(name, args, cons) = self;
+        DataDecl(
+            name,
+            args,
+            cons.into_iter()
+                .map(|cons| cons.qualify(prefix, me))
+                .collect(),
+        )
     }
 
     fn has_cons(&self, name: &str) -> bool {
-        match self {
-            Self::Product(..) => false,
-            Self::Sum(_, _, cons) => cons.iter().any(|c| c.name == name),
-        }
+        let DataDecl(_, _, cons) = self;
+        cons.iter().any(|c| c.name == name)
     }
 
     fn resolve(
@@ -372,55 +362,25 @@ impl DataDecl {
         rt: &mut HashMap<String, DataDecl>,
         mods: &HashMap<String, ParseTree>,
     ) -> Self {
-        match self {
-            Self::Product(name, args, mems) => Self::Product(
-                name,
-                args,
-                mems.into_iter()
-                    .map(|(n, t)| (n, t.resolve(rt, mods)))
-                    .collect(),
-            ),
-            Self::Sum(name, args, cons) => Self::Sum(
-                name,
-                args,
-                cons.into_iter().map(|c| c.resolve(rt, mods)).collect(),
-            ),
-        }
+        let DataDecl(name, args, cons) = self;
+        DataDecl(
+            name,
+            args,
+            cons.into_iter().map(|c| c.resolve(rt, mods)).collect(),
+        )
     }
 
     fn parse(t: &mut TokenStream, name: String, args: Vec<String>) -> Result<Self, String> {
-        if t.consume(Token::LCurly).is_some() {
-            let mut members = Vec::new();
+        let mut cons = Vec::new();
+        let con = TypeCons::parse(t)?;
+        cons.push(con);
 
-            if let Some(()) = t.consume(Token::RCurly) {
-                return Ok(Self::Product(name, args, members));
-            }
-
-            let n = t.ident()?;
-            let ty = Type::parse(t)?;
-            members.push((n, ty));
-
-            while t.consume(Token::Comma).is_some() {
-                let n = t.ident()?;
-                let ty = Type::parse(t)?;
-                members.push((n, ty));
-            }
-
-            t.assert(Token::RCurly)?;
-
-            Ok(Self::Product(name, args, members))
-        } else {
-            let mut cons = Vec::new();
+        while t.consume(Token::Bar).is_some() {
             let con = TypeCons::parse(t)?;
             cons.push(con);
-
-            while t.consume(Token::Bar).is_some() {
-                let con = TypeCons::parse(t)?;
-                cons.push(con);
-            }
-
-            Ok(Self::Sum(name, args, cons))
         }
+
+        Ok(Self(name, args, cons))
     }
 }
 
@@ -740,7 +700,6 @@ impl Expression {
                 Box::new(m.qualify(prefix, me)),
                 Box::new(n.qualify(prefix, me)),
             ),
-            Expression::Member(e, n) => Expression::Member(Box::new(e.qualify(prefix, me)), n),
             Expression::Lambda(x, n) => {
                 Expression::Lambda(x.qualify(prefix, me), Box::new(n.qualify(prefix, me)))
             }
@@ -820,7 +779,6 @@ impl Expression {
                 Box::new(m.resolve(rt, td, g, mods)),
                 Box::new(n.resolve(rt, td, g, mods)),
             ),
-            Expression::Member(e, n) => Expression::Member(Box::new(e.resolve(rt, td, g, mods)), n),
             Expression::Lambda(x, n) => {
                 Expression::Lambda(x.resolve(rt, mods), Box::new(n.resolve(rt, td, g, mods)))
             }
@@ -830,15 +788,6 @@ impl Expression {
 
     fn extract_ns(self, ns: &HashSet<String>) -> Self {
         match self {
-            Expression::Member(e, n) => {
-                for ns in ns {
-                    if e.is_ns(ns) {
-                        return Expression::Namespace(ns.to_string(), n);
-                    }
-                }
-
-                Expression::Member(Box::new(e.extract_ns(ns)), n)
-            }
             Expression::Tuple(es) => {
                 Expression::Tuple(es.into_iter().map(|e| e.extract_ns(ns)).collect())
             }
@@ -863,16 +812,6 @@ impl Expression {
             Expression::Lambda(x, m) => Expression::Lambda(x, Box::new(m.extract_ns(ns))),
             a => a,
         }
-    }
-
-    fn is_ns(&self, ns: &str) -> bool {
-        if let Expression::Member(e, n) = self {
-            if let Some((left, right)) = ns.rsplit_once(".") {
-                return right == n && e.is_ns(left);
-            }
-        }
-
-        true
     }
 
     pub fn parse_list(t: &mut TokenStream) -> Result<Self, String> {
@@ -1206,13 +1145,21 @@ impl Expression {
                 Box::new(Self::Tuple(vec![primary, end])),
             ))
         } else if t.consume(Token::Dot).is_some() {
-            // Struct membership
-            // must be followed by an identifier, which can then be followed
-            // by other postfix posts
+            let func = Expression::Identifier(t.ident()?);
+            let e = Self::postfix_post(t, func)?;
 
-            let i = t.ident()?;
+            let e = match e {
+                Expression::Call(f, args) => match *args {
+                    Expression::Unit => Expression::Call(f, Box::new(primary)),
+                    Expression::Tuple(mut es) => {
+                        es.insert(0, primary);
+                        Expression::Call(f, Box::new(Expression::Tuple(es)))
+                    }
+                    a => Expression::Call(f, Box::new(Expression::Tuple(vec![primary, a]))),
+                },
+                _ => panic!(),
+            };
 
-            let e = Self::Member(Box::new(primary), i);
             Self::postfix_post(t, e)
         } else if t.consume(Token::Question).is_some() {
             let then = Expression::parse(t)?;

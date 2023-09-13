@@ -75,11 +75,6 @@ impl MIRExpression {
                 SExpr::List(inner)
             }
             MIRExpression::Call(f, args, _) => SExpr::List(vec![f.to_sexpr(), args.to_sexpr()]),
-            MIRExpression::Member(m, x, _) => SExpr::List(vec![
-                SExpr::Atom("member".to_string()),
-                m.to_sexpr(),
-                SExpr::Atom(x.clone()),
-            ]),
             MIRExpression::Lambda1(x, m, _) => SExpr::List(vec![
                 SExpr::Atom("lambda".to_string()),
                 x.clone()

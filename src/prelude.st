@@ -287,6 +287,14 @@ eq(a, b) = llvm!(
 	%cast = zext i1 %cmp to i8
 	%out = insertvalue %bool undef, i8 %cast, 0")
 
+impl eq(char)
+eq(Char(a), Char(b)) = a==b
+
+impl eq<a>([a])
+eq([], []) = True
+eq(a::as, b::bs) = a==b && as==bs
+eq(_, _) = False
+
 typefn geq(a) = (a, a) -> bool
 
 impl geq(i8)

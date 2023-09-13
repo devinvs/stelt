@@ -97,11 +97,6 @@ impl Module {
             writeln!(self, "declare {out} @{name} ({args})")?;
         }
 
-        // Output all named structs
-        for (name, t) in tree.structs.iter() {
-            writeln!(self, "%{} = type {}\n", name, t)?;
-        }
-
         // Output all enum types
         for (name, t) in tree.enums.iter() {
             writeln!(self, "%{} = type {}", name, t)?;
@@ -115,41 +110,6 @@ impl Module {
         }
 
         writeln!(self)?;
-
-        // Output struct constructors
-        for (name, t) in tree.structs {
-            writeln!(self, "define private fastcc %{name} @{name} ({t} %in) {{")?;
-
-            let out = match t.clone() {
-                LLVMType::Struct(ts) => {
-                    let mut v = self.var("struct");
-                    let w = self.var("input");
-                    let ty = &ts[0];
-
-                    writeln!(self, "\t{w} = extractvalue {t} %in, 0")?;
-                    writeln!(self, "\t{v} = insertvalue %{name} poison, {ty} {w}, 0")?;
-
-                    for (i, ty) in ts[1..].iter().enumerate() {
-                        let old = v;
-                        let w = self.var("input");
-                        v = self.var("struct");
-
-                        writeln!(self, "\t{w} = extractvalue {t} %in, {}", i + 1)?;
-                        writeln!(
-                            self,
-                            "\t{v} = insertvalue %{name} {old}, {ty} {w}, {}",
-                            i + 1
-                        )?;
-                    }
-
-                    v
-                }
-                _ => panic!("this probably shouldn't happen"),
-            };
-
-            writeln!(self, "\tret %{name} {out}")?;
-            writeln!(self, "}}\n")?;
-        }
 
         // Output enum constructors
         for (name, _) in tree.enums {
