@@ -121,7 +121,7 @@ impl LLVMType {
 
     pub fn alignment(&self) -> usize {
         match self {
-            Self::Void => 0,
+            Self::Void => 8,
             Self::I1 => 8,
             Self::I8 => 8,
             Self::U8 => 8,

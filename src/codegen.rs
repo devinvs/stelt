@@ -684,7 +684,7 @@ impl LIRExpression {
                 // Ok(Some("%wehitathunkhooray".to_string()))
             }
             Self::Box(e, t) => {
-                let e = e.compile(module, named_vars, None, types)?.unwrap();
+                let e = e.compile(module, named_vars, None, types)?;
                 let out = module.var("box");
 
                 let inner_ty = match t {
@@ -695,7 +695,25 @@ impl LIRExpression {
                 let size = inner_ty.size(0, types).unwrap();
 
                 writeln!(module, "\t{out} = call ptr @malloc(i32 {size})")?;
-                writeln!(module, "\tstore {inner_ty} {e}, ptr {out}")?;
+
+                if inner_ty != LLVMType::Void {
+                    writeln!(module, "\tstore {inner_ty} {}, ptr {out}", e.unwrap())?;
+                }
+
+                Ok(Some(out))
+            }
+            Self::NullClosure(func, _) => {
+                let clos = module.var("clos");
+                let out = out.unwrap_or(module.var("null_closure"));
+
+                writeln!(
+                    module,
+                    "\t{clos} = insertvalue {{ptr, ptr}} poison, ptr @{func}, 0"
+                )?;
+                writeln!(
+                    module,
+                    "\t{out} = insertvalue {{ptr, ptr}} {clos}, ptr null, 1"
+                )?;
 
                 Ok(Some(out))
             }

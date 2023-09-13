@@ -297,6 +297,8 @@ pub enum LIRExpression {
     Unbox(Box<LIRExpression>, LLVMType),
     Error(String),
 
+    NullClosure(String, LLVMType),
+
     LLVM(String, String, LLVMType),
 }
 
@@ -381,6 +383,7 @@ impl LIRExpression {
                 free
             }
             Self::GotoThunk(_, _) => vec![],
+            Self::NullClosure(_, _) => vec![],
         }
     }
 
@@ -418,9 +421,29 @@ impl LIRExpression {
                 let formals = e.free_non_globals(globals);
 
                 // the type of our environment, a boxed tuple
-                let env_tup_t =
-                    LLVMType::Struct(formals.clone().into_iter().map(|(_, a)| a).collect());
+                let env_tup_t = match formals.len() {
+                    0 => LLVMType::Void,
+                    _ => LLVMType::Struct(formals.clone().into_iter().map(|(_, a)| a).collect()),
+                };
                 let env_t = LLVMType::Ptr(Box::new(env_tup_t.clone()));
+
+                let env_tup = match formals.len() {
+                    0 => Self::Box(
+                        Box::new(Self::Unit),
+                        LLVMType::Ptr(Box::new(LLVMType::Void)),
+                    ),
+                    _ => LIRExpression::Box(
+                        Box::new(LIRExpression::Tuple(
+                            formals
+                                .clone()
+                                .into_iter()
+                                .map(|(name, t)| LIRExpression::Identifier(name, t))
+                                .collect(),
+                            env_tup_t.clone(),
+                        )),
+                        env_t.clone(),
+                    ),
+                };
 
                 // modify the from type of our lambda to take a tuple of (arg.0, env)
                 let (from, n) = match *from {
@@ -429,20 +452,25 @@ impl LIRExpression {
                 };
 
                 if id.starts_with("lambda.") {
-                    // now modify the body of the lambda expression to extract
-                    // the formals from the env which is passed in
-                    let env_name = crate::gen_var("env");
-                    let env_var = LIRExpression::Identifier(env_name.clone(), env_tup_t.clone());
-                    for (i, (name, t)) in formals.clone().into_iter().enumerate() {
-                        let e_ty = e.ty();
-                        e = LIRExpression::Let1(
-                            name,
-                            Box::new(LIRExpression::GetTuple(Box::new(env_var.clone()), i, t)),
-                            Box::new(e),
-                            e_ty,
-                        )
-                    }
-
+                    let env_name = if formals.len() > 0 {
+                        // now modify the body of the lambda expression to extract
+                        // the formals from the env which is passed in
+                        let env_name = crate::gen_var("env");
+                        let env_var =
+                            LIRExpression::Identifier(env_name.clone(), env_tup_t.clone());
+                        for (i, (name, t)) in formals.clone().into_iter().enumerate() {
+                            let e_ty = e.ty();
+                            e = LIRExpression::Let1(
+                                name,
+                                Box::new(LIRExpression::GetTuple(Box::new(env_var.clone()), i, t)),
+                                Box::new(e),
+                                e_ty,
+                            )
+                        }
+                        env_name
+                    } else {
+                        "".to_string()
+                    };
                     // now we need to make arg.0 point to the actual arg...
                     // this means extracting the first arg from the tuple,
                     // but only if the arg isn't type void
@@ -469,24 +497,26 @@ impl LIRExpression {
                         );
                     }
 
-                    // and now a let statement for the env
-                    let e_ty = e.ty();
-                    e = LIRExpression::Let1(
-                        env_name,
-                        Box::new(LIRExpression::Unbox(
-                            Box::new(LIRExpression::GetTuple(
-                                Box::new(LIRExpression::Identifier(
-                                    "arg.0".to_string(),
-                                    from.clone(),
+                    if formals.len() > 0 {
+                        // and now a let statement for the env
+                        let e_ty = e.ty();
+                        e = LIRExpression::Let1(
+                            env_name,
+                            Box::new(LIRExpression::Unbox(
+                                Box::new(LIRExpression::GetTuple(
+                                    Box::new(LIRExpression::Identifier(
+                                        "arg.0".to_string(),
+                                        from.clone(),
+                                    )),
+                                    n,
+                                    env_t.clone(),
                                 )),
-                                n,
-                                env_t.clone(),
+                                env_tup_t.clone(),
                             )),
-                            env_tup_t.clone(),
-                        )),
-                        Box::new(e),
-                        e_ty,
-                    );
+                            Box::new(e),
+                            e_ty,
+                        );
+                    }
                 }
 
                 // insert into our list of closures
@@ -507,16 +537,7 @@ impl LIRExpression {
                                 LLVMType::Func(Box::new(from), to),
                             ),
                             // build the environment
-                            LIRExpression::Box(
-                                Box::new(LIRExpression::Tuple(
-                                    formals
-                                        .into_iter()
-                                        .map(|(name, t)| LIRExpression::Identifier(name, t))
-                                        .collect(),
-                                    env_tup_t,
-                                )),
-                                env_t,
-                            ),
+                            env_tup,
                         ],
                         clos_t,
                     ),
@@ -676,6 +697,7 @@ impl LIRExpression {
             Self::Box(_, t) => t.clone(),
             Self::Unbox(_, t) => t.clone(),
             Self::LLVM(_, _, t) => t.clone(),
+            Self::NullClosure(_, t) => t.clone(),
         }
     }
 
@@ -736,11 +758,10 @@ impl MIRExpression {
     ) -> LIRExpression {
         match self {
             Self::Call(f, args, t) => {
-                let f = f.lower(vars, global, externs, eq_impls);
                 let args = args.lower(vars, global, externs, eq_impls);
 
                 // auto box args if necessary
-                if let LIRExpression::Identifier(n, _) = &f {
+                if let MIRExpression::Identifier(n, _) = &*f.clone() {
                     // the llvm macro directly injects llvm code
                     // for the expression
                     if n.starts_with("llvm!") {
@@ -782,6 +803,7 @@ impl MIRExpression {
                     }
                 }
 
+                let f = f.lower(vars, global, externs, eq_impls);
                 LIRExpression::Call(Box::new(f), Box::new(args), LLVMType::from_type(t.unwrap()))
             }
             Self::Lambda1(arg, body, t) => {
@@ -861,7 +883,22 @@ impl MIRExpression {
                     )
                 }
             }
-            Self::Identifier(s, t) => LIRExpression::Identifier(s, LLVMType::from_type(t.unwrap())),
+            Self::Identifier(s, t) => {
+                // if the type of an identifier is a function and in our globals,
+                // wrap it in a null closure (a closure with null env)
+                let need_wrap = if let Some(Type::Arrow(_, _)) = t {
+                    global.contains(&s)
+                } else {
+                    false
+                };
+
+                let t = LLVMType::from_type(t.unwrap());
+                if need_wrap {
+                    LIRExpression::NullClosure(s, t)
+                } else {
+                    LIRExpression::Identifier(s, t)
+                }
+            }
             Self::Num(n, t) => LIRExpression::Num(n, LLVMType::from_type(t.unwrap())),
             Self::Tuple(es, t) => LIRExpression::Tuple(
                 es.into_iter()

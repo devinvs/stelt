@@ -193,7 +193,7 @@ impl TypeChecker {
     }
 
     fn gen_fresh_type(&mut self, t: &Type) -> Type {
-        match t {
+        let out = match t {
             Type::ForAll(vars, inner) => {
                 let mut m = HashMap::new();
                 for v in vars {
@@ -203,7 +203,9 @@ impl TypeChecker {
                 inner.map(&m)
             }
             a => a.clone(),
-        }
+        };
+
+        out
     }
 
     fn apply_gamma(&mut self, n: &String, g: Gamma) -> Option<Type> {
