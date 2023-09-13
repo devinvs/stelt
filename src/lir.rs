@@ -540,9 +540,8 @@ impl LIRExpression {
 
                 (Self::ExternCall(f, newes, t), cs)
             }
-            Self::Call(func, args, _) => {
+            Self::Call(func, args, t) => {
                 let (e, mut cs) = func.extract_funcs(id, types, globals, subs);
-                let t = e.ty();
 
                 let id = freshen_var(id.clone(), &cs);
                 let (argse, argscs) = args.extract_funcs(&id, types, globals, subs);
