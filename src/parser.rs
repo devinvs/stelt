@@ -1079,19 +1079,27 @@ impl Expression {
             )
         } else if t.consume(Token::Dot).is_some() {
             let func = Expression::Identifier(t.ident()?);
-            let e = Self::postfix_post(t, func)?;
 
-            match e {
-                Expression::Call(f, args) => match *args {
-                    Expression::Unit => Expression::Call(f, Box::new(primary)),
-                    Expression::Tuple(mut es) => {
-                        es.insert(0, primary);
-                        Expression::Call(f, Box::new(Expression::Tuple(es)))
-                    }
-                    a => Expression::Call(f, Box::new(Expression::Tuple(vec![primary, a]))),
-                },
-                _ => panic!(),
+            let mut es = vec![];
+            t.assert(Token::LParen)?;
+
+            while !t.test(Token::RParen) {
+                es.push(Expression::parse(t)?);
+                if t.consume(Token::Comma).is_none() {
+                    break;
+                }
             }
+            t.assert(Token::RParen)?;
+
+            let args = match es.len() {
+                0 => primary,
+                _ => {
+                    es.insert(0, primary);
+                    Expression::Tuple(es)
+                }
+            };
+
+            Expression::Call(Box::new(func), Box::new(args))
         } else if t.consume(Token::Question).is_some() {
             let then = Expression::parse(t)?;
 
