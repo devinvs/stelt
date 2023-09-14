@@ -36,22 +36,6 @@ xor(True, False) = True
 xor(False, True) = True
 xor(_, _) = False
 
-// some utility printing functions, might be moved somewhere else later
-extern type putchar: u32 -> ()
-
-type print: [char] -> ()
-print([]) = ()
-print(Char(i)::cs) = {
-	putchar(i)
-	print(cs)
-}
-
-type println: [char] -> ()
-println(s) = {
-	print(s)
-	putchar(10)
-}
-
 // an iterator is defined simply as just having being able to retreive the next element
 typefn next(iter, out) = iter -> (out, iter)
 

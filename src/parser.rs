@@ -814,112 +814,24 @@ impl Expression {
         }
     }
 
-    pub fn parse_list(t: &mut TokenStream) -> Result<Self, String> {
-        t.assert(Token::LCurly)?;
-        let mut exprs = Vec::new();
-        while !t.test(Token::RCurly) {
-            exprs.push(Self::parse(t)?);
-        }
-        t.assert(Token::RCurly)?;
-
-        match exprs.len() {
-            0 => Ok(Expression::Unit),
-            1 => Ok(exprs.into_iter().next().unwrap()),
-            _ => Ok(Self::ExprList(exprs)),
-        }
-    }
-
+    // general parsing strategy for expressions:
+    // - start with all the left recursive operators
+    // - which fall through to the right recursive operators
+    // - which call the base expressions
+    //    + base is a little misleading, this includes
+    //      ifelse, letin, etc
+    //    + anything that has an unambiguous delimiting tokens
     pub fn parse(t: &mut TokenStream) -> Result<Self, String> {
-        if t.test(Token::LCurly) {
-            Self::parse_list(t)
-        } else if let Some(()) = t.consume(Token::Let) {
-            let pat = Pattern::parse(t)?;
+        let and = Self::andexpr(t)?;
 
-            t.assert(Token::Assign)?;
-
-            let lam = Self::lambda(t)?;
-
-            t.assert(Token::In)?;
-
-            let expr = Self::parse(t)?;
-
-            Ok(Self::Let(pat, Box::new(lam), Box::new(expr)))
-        } else if let Some(()) = t.consume(Token::If) {
-            let cond = Self::parse(t)?;
-
-            t.assert(Token::Then)?;
-
-            let then = Self::parse(t)?;
-
-            t.assert(Token::Else)?;
-
-            let else_ = Self::parse(t)?;
-
-            Ok(Self::If(Box::new(cond), Box::new(then), Box::new(else_)))
-        } else if let Some(()) = t.consume(Token::Match) {
-            let match_ = Self::parse(t)?;
-
-            t.assert(Token::LCurly)?;
-
-            let pat = Pattern::parse(t)?;
-            t.assert(Token::Colon)?;
-            let e = Self::parse(t)?;
-
-            let mut cases = vec![(pat, e)];
-
-            while t.consume(Token::Comma).is_some() {
-                let pat = Pattern::parse(t)?;
-                t.assert(Token::Colon)?;
-                let e = Self::parse(t)?;
-                cases.push((pat, e));
-            }
-
-            t.assert(Token::RCurly)?;
-
-            Ok(Self::Match(Box::new(match_), cases))
+        if let Some(()) = t.consume(Token::Or) {
+            let end = Self::orexpr(t)?;
+            Ok(Self::Call(
+                Box::new(Self::Identifier("or".into())),
+                Box::new(Self::Tuple(vec![and, end])),
+            ))
         } else {
-            Ok(Self::lambda(t)?)
-        }
-    }
-
-    pub fn lambda(t: &mut TokenStream) -> Result<Self, String> {
-        let tup = Self::tuple(t)?;
-
-        if t.consume(Token::Arrow).is_some() {
-            let pat = tup.to_lambda_pattern();
-            let e = Self::parse(t)?;
-            Ok(Self::Lambda(pat, Box::new(e)))
-        } else {
-            Ok(tup)
-        }
-    }
-
-    pub fn tuple(t: &mut TokenStream) -> Result<Self, String> {
-        if let Some(()) = t.consume(Token::LParen) {
-            if let Some(()) = t.consume(Token::RParen) {
-                return Ok(Self::Unit);
-            }
-
-            let mut es = Vec::new();
-            let e = Self::parse(t)?;
-            es.push(e);
-
-            while t.consume(Token::Comma).is_some() {
-                es.push(Self::parse(t)?);
-            }
-
-            t.assert(Token::RParen)?;
-
-            let e = if es.len() == 1 {
-                es.into_iter().next().unwrap()
-            } else {
-                Self::Tuple(es)
-            };
-
-            // allow postfix expressions on tuples
-            Self::postfix_post(t, e)
-        } else {
-            Self::orexpr(t)
+            Ok(and)
         }
     }
 
@@ -1135,20 +1047,41 @@ impl Expression {
     }
 
     fn postfix_post(t: &mut TokenStream, primary: Expression) -> Result<Self, String> {
-        if t.test(Token::LParen) {
-            let t = Self::tuple(t)?;
-            Ok(Self::Call(Box::new(primary), Box::new(t)))
+        let pfix = if t.consume(Token::LParen).is_some() {
+            // parse a call with a tuple
+            let tup = if let Some(()) = t.consume(Token::RParen) {
+                Self::Unit
+            } else {
+                let mut es = Vec::new();
+                let e = Self::parse(t)?;
+                es.push(e);
+
+                while t.consume(Token::Comma).is_some() {
+                    es.push(Self::parse(t)?);
+                }
+
+                t.assert(Token::RParen)?;
+
+                if es.len() == 1 {
+                    es.into_iter().next().unwrap()
+                } else {
+                    Self::Tuple(es)
+                }
+            };
+
+            Self::Call(Box::new(primary), Box::new(tup))
         } else if t.consume(Token::Concat).is_some() {
+            // parse a concat expression
             let end = Self::parse(t)?;
-            Ok(Self::Call(
+            Self::Call(
                 Box::new(Self::Identifier("Cons".into())),
                 Box::new(Self::Tuple(vec![primary, end])),
-            ))
+            )
         } else if t.consume(Token::Dot).is_some() {
             let func = Expression::Identifier(t.ident()?);
             let e = Self::postfix_post(t, func)?;
 
-            let e = match e {
+            match e {
                 Expression::Call(f, args) => match *args {
                     Expression::Unit => Expression::Call(f, Box::new(primary)),
                     Expression::Tuple(mut es) => {
@@ -1158,9 +1091,7 @@ impl Expression {
                     a => Expression::Call(f, Box::new(Expression::Tuple(vec![primary, a]))),
                 },
                 _ => panic!(),
-            };
-
-            Self::postfix_post(t, e)
+            }
         } else if t.consume(Token::Question).is_some() {
             let then = Expression::parse(t)?;
 
@@ -1168,7 +1099,7 @@ impl Expression {
 
             let else_ = Expression::parse(t)?;
 
-            Ok(Self::If(Box::new(primary), Box::new(then), Box::new(else_)))
+            Self::If(Box::new(primary), Box::new(then), Box::new(else_))
         } else if t.consume(Token::FatArrow).is_some() {
             // Fancy call with primary as first arg.
 
@@ -1190,28 +1121,93 @@ impl Expression {
 
             let args = Self::Tuple(args);
 
-            let e = Self::Call(Box::new(Self::Identifier(f)), Box::new(args));
+            Self::Call(Box::new(Self::Identifier(f)), Box::new(args))
+        } else if t.consume(Token::Arrow).is_some() {
+            // parse lambda expression
+            let pat = primary.to_lambda_pattern();
+            let end = Self::parse(t)?;
 
-            Self::postfix_post(t, e)
+            Self::Lambda(pat, Box::new(end))
         } else {
-            Ok(primary)
-        }
+            return Ok(primary);
+        };
+
+        Self::postfix_post(t, pfix)
     }
 
     fn primary(t: &mut TokenStream) -> Result<Self, String> {
-        match t.next() {
-            Some(Lexeme {
+        let next = match t.next() {
+            Some(t) => t,
+            None => return Err("".to_string()),
+        };
+
+        match next {
+            // Let statement
+            Lexeme { token: Token::Let } => {
+                let pat = Pattern::parse(t)?;
+
+                t.assert(Token::Assign)?;
+
+                let e = Self::parse(t)?;
+
+                t.assert(Token::In)?;
+
+                let body = Self::parse(t)?;
+
+                Ok(Self::Let(pat, Box::new(e), Box::new(body)))
+            }
+            // If statement
+            Lexeme { token: Token::If } => {
+                let cond = Self::parse(t)?;
+
+                t.assert(Token::Then)?;
+
+                let then = Self::parse(t)?;
+
+                t.assert(Token::Else)?;
+
+                let else_ = Self::parse(t)?;
+
+                Ok(Self::If(Box::new(cond), Box::new(then), Box::new(else_)))
+            }
+            // Match statement
+            Lexeme {
+                token: Token::Match,
+            } => {
+                let match_ = Self::parse(t)?;
+
+                t.assert(Token::With)?;
+
+                let pat = Pattern::parse(t)?;
+                t.assert(Token::Colon)?;
+                let e = Self::parse(t)?;
+
+                let mut cases = vec![(pat, e)];
+
+                while t.consume(Token::Comma).is_some() {
+                    let pat = Pattern::parse(t)?;
+                    t.assert(Token::Colon)?;
+                    let e = Self::parse(t)?;
+                    cases.push((pat, e));
+                }
+
+                Ok(Self::Match(Box::new(match_), cases))
+            }
+            // String literal
+            Lexeme {
                 token: Token::String(s),
                 ..
-            }) => Ok(Self::cons_from_str(&s)),
-            Some(Lexeme {
+            } => Ok(Self::cons_from_str(&s)),
+            // Number literal
+            Lexeme {
                 token: Token::Num(n),
                 ..
-            }) => Ok(Self::Num(n)),
-            Some(Lexeme {
+            } => Ok(Self::Num(n)),
+            // Identifier
+            Lexeme {
                 token: Token::Ident(i),
                 ..
-            }) => {
+            } => {
                 if i.chars().next().unwrap().is_uppercase() && !t.test(Token::LParen) {
                     Ok(Self::Call(
                         Box::new(Self::Identifier(i)),
@@ -1221,38 +1217,52 @@ impl Expression {
                     Ok(Self::Identifier(i))
                 }
             }
-            Some(Lexeme {
+            // Tuple
+            Lexeme {
                 token: Token::LParen,
                 ..
-            }) => {
-                let e = Expression::parse(t)?;
-                t.assert(Token::RParen)?;
-                Ok(e)
-            }
-            Some(Lexeme {
-                token: Token::LBrace,
-                ..
-            }) => {
-                if let Some(()) = t.consume(Token::RBrace) {
-                    return Ok(Self::Call(
-                        Box::new(Self::Identifier("Nil".to_string())),
-                        Box::new(Self::Unit),
-                    ));
-                }
+            } => {
+                if let Some(()) = t.consume(Token::RParen) {
+                    Ok(Self::Unit)
+                } else {
+                    let mut es = Vec::new();
+                    let e = Self::parse(t)?;
+                    es.push(e);
 
-                let mut es = vec![Self::parse(t)?];
-                while t.consume(Token::Comma).is_some() {
+                    while t.consume(Token::Comma).is_some() {
+                        es.push(Self::parse(t)?);
+                    }
+
+                    t.assert(Token::RParen)?;
+
+                    if es.len() == 1 {
+                        Ok(es.into_iter().next().unwrap())
+                    } else {
+                        Ok(Self::Tuple(es))
+                    }
+                }
+            }
+            // List
+            Lexeme {
+                token: Token::LBrace,
+            } => {
+                let mut es = Vec::new();
+
+                while !t.test(Token::RBrace) {
                     es.push(Self::parse(t)?);
+                    if t.consume(Token::Comma).is_none() {
+                        break;
+                    }
                 }
                 t.assert(Token::RBrace)?;
 
                 Ok(Self::cons_from_es(&es))
             }
-            Some(a) => {
+            // otherwise error
+            a => {
                 //panic!("PrimaryExpr: Expected identifier, constant, or expression, found: {:?}", a);
                 Err(format!("Expected expression, found '{}'", a.token.name()))
             }
-            None => Err("Expected expression".into()),
         }
     }
 
@@ -1291,6 +1301,13 @@ impl Expression {
                 Pattern::Tuple(es.iter().map(|e| e.to_lambda_pattern()).collect(), None)
             }
             Self::Unit => Pattern::Unit(Some(Type::Unit)),
+            Self::Call(f, args) => {
+                if let Expression::Identifier(s) = &**f {
+                    Pattern::Cons(s.clone(), Box::new(args.to_lambda_pattern()), None)
+                } else {
+                    panic!("lambda what?")
+                }
+            }
             _ => panic!("ahh"),
         }
     }

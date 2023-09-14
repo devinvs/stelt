@@ -10,6 +10,7 @@ lazy_static! {
         // Keywords
         m.insert("def", Token::Def);
         m.insert("let", Token::Let);
+        m.insert("in", Token::In);
         m.insert("type", Token::Type);
         m.insert("typefn", Token::Typefn);
         m.insert("impl", Token::Impl);
@@ -18,9 +19,9 @@ lazy_static! {
         m.insert("then", Token::Then);
         m.insert("else", Token::Else);
         m.insert("match", Token::Match);
+        m.insert("with", Token::With);
         m.insert("extern", Token::Extern);
         m.insert("import", Token::Import);
-        m.insert("in", Token::In);
 
         // Built types
         m.insert("u8", Token::U8);
@@ -149,6 +150,7 @@ pub enum Token {
     Def,
     Type,
     Let,
+    In,
     Typefn,
     Impl,
     For,
@@ -156,9 +158,9 @@ pub enum Token {
     Then,
     Else,
     Match,
+    With,
     Extern,
     Import,
-    In,
     Underscore,
 
     // Builtin Types
@@ -219,6 +221,7 @@ pub enum Token {
 impl Token {
     pub fn name(&self) -> String {
         match self {
+            Self::With => "with",
             Self::Then => "then",
             Self::In => "in",
             Self::Underscore => "_",

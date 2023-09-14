@@ -97,6 +97,7 @@ fn compile(path: &Path, outdir: &Path) {
 
     // Now compile :)
     for (name, mut mir) in modules_mir.into_iter() {
+        eprintln!("{}", mir.funcs["main"].to_sexpr().to_string());
         let mut checker = TypeChecker::default();
         match checker.check_program(&mut mir) {
             Ok(_) => {}
