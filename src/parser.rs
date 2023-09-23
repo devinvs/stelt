@@ -450,7 +450,27 @@ impl FunctionDef {
 
         t.assert(Token::Assign)?;
 
-        let body = Expression::parse(t)?.extract_ns(ns);
+        let mut body = Expression::parse(t)?.extract_ns(ns);
+
+        if t.consume(Token::Where).is_some() {
+            let ident = t.ident()?;
+            t.assert(Token::Assign)?;
+            let e = Expression::parse(t)?;
+
+            let mut bindings = vec![(ident, e)];
+
+            while t.consume(Token::Bar).is_some() {
+                let ident = t.ident()?;
+                t.assert(Token::Assign)?;
+                let e = Expression::parse(t)?;
+                bindings.push((ident, e));
+            }
+            bindings.reverse();
+
+            for (i, e) in bindings {
+                body = Expression::Let(Pattern::Var(i, None), Box::new(e), Box::new(body));
+            }
+        }
 
         return Ok(FunctionDef { name, args, body });
     }

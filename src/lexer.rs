@@ -22,6 +22,7 @@ lazy_static! {
         m.insert("with", Token::With);
         m.insert("extern", Token::Extern);
         m.insert("import", Token::Import);
+        m.insert("where", Token::Where);
 
         // Built types
         m.insert("u8", Token::U8);
@@ -161,6 +162,7 @@ pub enum Token {
     With,
     Extern,
     Import,
+    Where,
     Underscore,
 
     // Builtin Types
@@ -221,6 +223,7 @@ pub enum Token {
 impl Token {
     pub fn name(&self) -> String {
         match self {
+            Self::Where => "where",
             Self::With => "with",
             Self::Then => "then",
             Self::In => "in",
