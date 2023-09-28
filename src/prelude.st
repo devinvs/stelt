@@ -394,3 +394,5 @@ leq(a, b) = llvm!(
 	%cmp = icmp ule i64 %a, %b
 	%cast = zext i1 %cmp to i8
 	%out = insertvalue %bool undef, i8 %cast, 0")
+
+typefn lt(a) = (a, a) -> bool

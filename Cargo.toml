@@ -6,12 +6,12 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [profile.release]
-strip = true
-opt-level = "z"
+# strip = true
+# opt-level = "z"
 lto = true
 panic = "abort"
+debug = true
 
 [dependencies]
 lazy_static = "*"
-rand = "*"
 termcolor = "1.2"

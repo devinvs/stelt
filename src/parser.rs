@@ -229,12 +229,7 @@ impl ParseTree {
                         me.funcs.insert(func.name.clone(), vec![func]);
                     }
                 }
-                Some(a) => {
-                    return Err(format!(
-                        "Unexpected token in declaration: '{}'",
-                        a.token.name()
-                    ))
-                }
+                Some(a) => return Err(format!("Unexpected token in declaration: '{:?}'", a.token)),
                 None => break,
             }
         }
@@ -453,22 +448,22 @@ impl FunctionDef {
         let mut body = Expression::parse(t)?.extract_ns(ns);
 
         if t.consume(Token::Where).is_some() {
-            let ident = t.ident()?;
+            let p = Pattern::parse(t)?;
             t.assert(Token::Assign)?;
             let e = Expression::parse(t)?;
 
-            let mut bindings = vec![(ident, e)];
+            let mut bindings = vec![(p, e)];
 
             while t.consume(Token::Bar).is_some() {
-                let ident = t.ident()?;
+                let p = Pattern::parse(t)?;
                 t.assert(Token::Assign)?;
                 let e = Expression::parse(t)?;
-                bindings.push((ident, e));
+                bindings.push((p, e));
             }
             bindings.reverse();
 
-            for (i, e) in bindings {
-                body = Expression::Let(Pattern::Var(i, None), Box::new(e), Box::new(body));
+            for (p, e) in bindings {
+                body = Expression::Let(p, Box::new(e), Box::new(body));
             }
         }
 
@@ -885,16 +880,17 @@ impl Expression {
 
     fn bitorexpr(t: &mut TokenStream) -> Result<Self, String> {
         let xor = Self::bitxorexpr(t)?;
+        Ok(xor)
 
-        if let Some(()) = t.consume(Token::Bar) {
-            let end = Self::bitorexpr(t)?;
-            Ok(Self::Call(
-                Box::new(Self::Identifier("bitor".into())),
-                Box::new(Self::Tuple(vec![xor, end])),
-            ))
-        } else {
-            Ok(xor)
-        }
+        // if let Some(()) = t.consume(Token::Bar) {
+        //     let end = Self::bitorexpr(t)?;
+        //     Ok(Self::Call(
+        //         Box::new(Self::Identifier("bitor".into())),
+        //         Box::new(Self::Tuple(vec![xor, end])),
+        //     ))
+        // } else {
+        //     Ok(xor)
+        // }
     }
 
     fn bitxorexpr(t: &mut TokenStream) -> Result<Self, String> {

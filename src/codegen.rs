@@ -230,10 +230,12 @@ impl Module {
             // get function type
             let (from, to) = tree.func_types.get(&name).unwrap();
 
+            let vis = if name == "main" { "" } else { "private " };
+
             if *from == LLVMType::Void {
-                writeln!(self, "define fastcc {to} @{name}() {{")?;
+                writeln!(self, "define {vis}fastcc {to} @{name}() {{")?;
             } else {
-                writeln!(self, "define fastcc {to} @{name}({from} %arg.0) {{")?;
+                writeln!(self, "define {vis}fastcc {to} @{name}({from} %arg.0) {{")?;
             }
 
             let var = self.var("return");
@@ -466,17 +468,15 @@ impl LIRExpression {
                         module.var("tuple")
                     };
 
-                    let v = e
-                        .clone()
-                        .compile(module, named_vars.clone(), None, types)?
-                        .unwrap();
-                    writeln!(
-                        module,
-                        "\t{tout} = insertvalue {t} {old}, {} {}, {}",
-                        e.ty(),
-                        v,
-                        i + 1
-                    )?;
+                    if let Some(v) = e.clone().compile(module, named_vars.clone(), None, types)? {
+                        writeln!(
+                            module,
+                            "\t{tout} = insertvalue {t} {old}, {} {}, {}",
+                            e.ty(),
+                            v,
+                            i + 1
+                        )?;
+                    }
                 }
 
                 Ok(Some(tout))
@@ -485,7 +485,9 @@ impl LIRExpression {
                 let v = module.var(&id);
                 let e = e.compile(module, named_vars.clone(), Some(v), types)?;
                 let mut named_vars = named_vars.clone();
-                named_vars.insert(id, e.unwrap());
+                if let Some(e) = e {
+                    named_vars.insert(id, e);
+                }
 
                 body.compile(module, named_vars, out, types)
             }

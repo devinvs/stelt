@@ -411,24 +411,21 @@ impl MIRExpression {
                 Pattern::Var(s, _) => {
                     Self::Lambda1(Some(s), Box::new(MIRExpression::from(*body, cons)), None)
                 }
-                Pattern::Tuple(ps, _) => {
-                    let mut i = ps.into_iter();
-                    let first = i.next().unwrap();
-                    let rest: Vec<_> = i.collect();
-
-                    if rest.is_empty() {
-                        let l = Expression::Lambda(first, body);
-                        MIRExpression::from(l, cons)
-                    } else {
-                        let l = Expression::Lambda(Pattern::Tuple(rest, None), body);
-                        let l = Expression::Lambda(first, Box::new(l));
-                        MIRExpression::from(l, cons)
-                    }
-                }
                 Pattern::Unit(..) => {
                     Self::Lambda1(None, Box::new(MIRExpression::from(*body, cons)), None)
                 }
-                _ => panic!(),
+                p => {
+                    let v = crate::gen_var("cons_pat");
+                    Self::Lambda1(
+                        Some(v.clone()),
+                        Box::new(Self::Match(
+                            Box::new(Self::Identifier(v, None)),
+                            vec![(p, Self::from(*body, cons))],
+                            None,
+                        )),
+                        None,
+                    )
+                }
             },
             Expression::Let(pat, val, body) => Self::Match(
                 Box::new(MIRExpression::from(*val, cons)),
