@@ -11,7 +11,7 @@ pub enum Term<T: std::cmp::Eq + std::hash::Hash + Clone> {
 impl Term<String> {
     pub fn name(&self) -> String {
         match self {
-            Self::Var(_) => "?".to_string(),
+            Self::Var(i) => format!("{i}?"),
             Self::Const(s) => s.clone(),
             Self::Composite(s, ts) => match s.as_str() {
                 "->" => format!("{} -> {}", ts[0].name(), ts[1].name()),
