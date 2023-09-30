@@ -217,7 +217,7 @@ impl MIRTree {
         }
 
         // add all types of functions that we know
-        for (f, t) in self.typedefs.iter() {
+        for (f, t) in self.typedecls.iter() {
             let t = match t.clone() {
                 Type::ForAll(_, a) => *a,
                 a => a,
@@ -233,7 +233,7 @@ impl MIRTree {
 
         let mut extern_types = HashMap::new();
         for f in self.external.iter() {
-            let t = &self.typedefs[f];
+            let t = &self.typedecls[f];
 
             let (from, to) = match t.clone() {
                 Type::Arrow(from, to) => {

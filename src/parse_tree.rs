@@ -7,7 +7,7 @@ pub struct ParseTree {
     pub types: Vec<(String, DataDecl)>,
 
     pub external: HashSet<String>,
-    pub typedefs: HashMap<String, Type>,
+    pub typedecls: HashMap<String, Type>,
 
     pub typefuns: HashMap<String, TypeFun>,
     pub impls: Vec<Impl>,

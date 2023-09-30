@@ -21,7 +21,7 @@ lazy_static! {
 
         let me = ParseTree {
             types: Vec::new(),
-            typedefs: HashMap::new(),
+            typedecls: HashMap::new(),
             funcs: HashMap::new(),
             defs: HashMap::new(),
             external: HashSet::new(),
@@ -56,19 +56,7 @@ impl ParseTree {
                     t.assert(Token::Impl)?;
                     let name = t.ident()?;
 
-                    let mut gen_args = vec![];
-                    if t.consume(Token::LArrow).is_some() {
-                        loop {
-                            let i = t.ident()?;
-                            gen_args.push(i);
-                            if t.consume(Token::Comma).is_none() {
-                                break;
-                            }
-                        }
-
-                        t.assert(Token::RArrow)?;
-                    }
-
+                    let gen_args = parse_genargs(t)?;
                     let mut args = vec![];
                     t.assert(Token::LParen)?;
                     while let Ok(ty) = Type::parse(t) {
@@ -103,16 +91,7 @@ impl ParseTree {
                     t.assert(Token::Typefn)?;
 
                     let name = t.ident()?;
-                    let mut gen_args = vec![];
-                    if t.consume(Token::LArrow).is_some() {
-                        while let Ok(id) = t.ident() {
-                            gen_args.push(id);
-                            if t.consume(Token::Comma).is_none() {
-                                break;
-                            }
-                        }
-                        t.assert(Token::RArrow)?;
-                    }
+                    let gen_args = parse_genargs(t)?;
 
                     let mut args = vec![];
                     t.assert(Token::LParen)?;
@@ -160,7 +139,7 @@ impl ParseTree {
                     t.assert(Token::Colon)?;
 
                     let ty = Type::parse(t)?;
-                    me.typedefs.insert(name.clone(), ty);
+                    me.typedecls.insert(name.clone(), ty);
                     me.external.insert(name);
                 }
                 Some(Lexeme {
@@ -172,18 +151,7 @@ impl ParseTree {
                     let name = t.ident()?;
 
                     // generic args for forall type
-                    let mut args = Vec::new();
-                    if t.consume(Token::LArrow).is_some() {
-                        let arg = t.ident()?;
-                        args.push(arg);
-
-                        while t.consume(Token::Comma).is_some() {
-                            let arg = t.ident()?;
-                            args.push(arg);
-                        }
-
-                        t.assert(Token::RArrow)?;
-                    }
+                    let args = parse_genargs(t)?;
 
                     match t.next() {
                         Some(Lexeme {
@@ -198,7 +166,7 @@ impl ParseTree {
                             ..
                         }) => {
                             let ty = Type::parse(t)?;
-                            me.typedefs.insert(name, Type::ForAll(args, Box::new(ty)));
+                            me.typedecls.insert(name, Type::ForAll(args, Box::new(ty)));
                         }
                         Some(a) => {
                             return Err(format!(
@@ -248,8 +216,8 @@ impl ParseTree {
         let mut ref_types = HashMap::new();
         let mut type_decls = HashMap::new();
 
-        let mut typedefs: HashMap<String, Type> = self
-            .typedefs
+        let mut typedecls: HashMap<String, Type> = self
+            .typedecls
             .iter()
             .map(|(name, td)| {
                 (
@@ -315,13 +283,13 @@ impl ParseTree {
         imports.extend(type_decls.clone().into_keys());
 
         types.extend(ref_types);
-        typedefs.extend(type_decls.clone());
+        typedecls.extend(type_decls.clone());
         funcs.extend(generics);
 
         Self {
             types,
             external: self.external,
-            typedefs,
+            typedecls,
             funcs,
             defs,
             namespaces: self.namespaces,
@@ -332,6 +300,25 @@ impl ParseTree {
             impls: self.impls,
             typefuns: self.typefuns,
         }
+    }
+}
+
+fn parse_genargs(t: &mut TokenStream) -> Result<Vec<String>, String> {
+    if t.consume(Token::LArrow).is_some() {
+        let mut args = vec![];
+        while !t.test(Token::RArrow) {
+            args.push(t.ident()?);
+
+            if t.consume(Token::Comma).is_none() {
+                break;
+            }
+        }
+
+        t.assert(Token::RArrow)?;
+
+        Ok(args)
+    } else {
+        Ok(vec![])
     }
 }
 
@@ -676,7 +663,7 @@ impl Expression {
             Self::Identifier(i) => {
                 if me.external.contains(&i) {
                     Self::Identifier(i)
-                } else if me.typedefs.contains_key(&i) {
+                } else if me.typedecls.contains_key(&i) {
                     Expression::Identifier(prefixed(prefix, &i))
                 } else if me
                     .types
@@ -731,7 +718,7 @@ impl Expression {
     ) -> Self {
         match self {
             Expression::Namespace(ns, n) => {
-                if let Some(t) = mods[&ns].typedefs.get(&n) {
+                if let Some(t) = mods[&ns].typedecls.get(&n) {
                     // this is a function/def with a declared tye
                     let t = t.clone().resolve(rt, mods).qualify(&ns, &mods[&ns]);
 

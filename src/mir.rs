@@ -14,7 +14,7 @@ type Theta = HashMap<Term<String>, Term<String>>;
 pub struct MIRTree {
     pub external: HashSet<String>,
     pub types: Vec<(String, DataDecl)>,
-    pub typedefs: HashMap<String, Type>,
+    pub typedecls: HashMap<String, Type>,
     pub funcs: HashMap<String, MIRExpression>,
     pub defs: HashMap<String, MIRExpression>,
     pub impl_map: HashMap<String, Vec<(String, Type)>>,
@@ -28,7 +28,7 @@ pub struct MIRTree {
 
 impl MIRTree {
     pub fn from(mut tree: ParseTree) -> Self {
-        let mut typedefs = tree.typedefs;
+        let mut typedecls = tree.typedecls;
         let mut declarations = HashMap::new();
 
         // Type functions type check as a forall type
@@ -72,12 +72,12 @@ impl MIRTree {
                 );
             }
 
-            typedefs.insert(new_name.clone(), real_type);
+            typedecls.insert(new_name.clone(), real_type);
             tree.funcs.insert(new_name, imp.body);
         }
 
         // Add all user defined type definitions to declaratiosn
-        for (name, t) in typedefs.iter() {
+        for (name, t) in typedecls.iter() {
             declarations.insert(name.clone(), t.clone());
         }
 
@@ -149,7 +149,7 @@ impl MIRTree {
         Self {
             external: tree.external,
             types: tree.types,
-            typedefs,
+            typedecls,
             funcs,
             defs,
             constructors,
@@ -165,7 +165,7 @@ impl MIRTree {
         let mut concrete_decls = HashMap::new();
 
         // split out generic typedecls from the concrete ones
-        for (name, t) in self.typedefs {
+        for (name, t) in self.typedecls {
             match t {
                 Type::ForAll(args, inner) => {
                     if args.len() == 0 {
@@ -294,7 +294,7 @@ impl MIRTree {
         }
 
         self.types = concrete_types.into_iter().collect();
-        self.typedefs = concrete_decls;
+        self.typedecls = concrete_decls;
         self.funcs = concrete_funcs;
 
         // remove recursion from recursive types with boxing
