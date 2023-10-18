@@ -16,8 +16,17 @@ type maybe<a> = None | Some(a)
 // A recursive linked list, in all its glory
 type list<a> = Nil | Cons(a, list<a>)
 
+type unrolledlist<a> = ([a; 4], maybe<packedlist<a>>)
+
 // It's pretty cool that we can define logic entirely in the lang
 // let's just hope it gets optimized
+
+
+a -> a -> a -> a -> Nil
+
+[a, a, a, a] -> [a, a, a, a] -> [a, a, a, a]
+
+
 
 type not: bool -> bool
 not(True) = False

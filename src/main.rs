@@ -88,10 +88,7 @@ fn compile(path: &Path, outdir: &Path) {
 
     // Resolve namespace references and convert to mir
     let mut modules_mir = HashMap::new();
-    for (name, tree) in modules.iter() {
-        let tree = tree.clone();
-        let tree = tree.resolve(&modules, if *name == mod_name { "" } else { name });
-
+    for (name, tree) in modules.into_iter() {
         modules_mir.insert(name, MIRTree::from(tree));
     }
 

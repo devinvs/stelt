@@ -7,7 +7,7 @@ pub struct ParseTree {
     pub types: Vec<(String, DataDecl)>,
 
     pub external: HashSet<String>,
-    pub typedecls: HashMap<String, Type>,
+    pub typedecls: HashMap<String, QualType>,
 
     pub typefuns: HashMap<String, TypeFun>,
     pub impls: Vec<Impl>,
@@ -17,14 +17,14 @@ pub struct ParseTree {
 
     pub namespaces: HashSet<String>,
     pub imports: HashSet<String>,
-    pub import_funcs: HashMap<String, Type>,
+    pub import_funcs: HashMap<String, QualType>,
 }
 
 #[derive(Debug, Clone)]
 pub struct TypeFun {
     pub name: String,
     pub vars: Vec<String>,
-    pub ty: Type,
+    pub ty: QualType,
 }
 
 #[derive(Debug, Clone)]
@@ -65,8 +65,14 @@ pub struct TypeCons {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub struct Constraint(pub String, pub Vec<String>);
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub struct QualType(pub Vec<Constraint>, pub Type);
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum Type {
-    ForAll(Vec<String>, Box<Type>),
+    ForAll(Vec<String>, Vec<Constraint>, Box<Type>),
     Generic(Vec<Type>, Box<Type>),
     Arrow(Box<Type>, Box<Type>),
     Tuple(Vec<Type>),

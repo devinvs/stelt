@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 
 use crate::mir::MIRExpression as Expression;
-use crate::parse_tree::{Pattern, Type};
+use crate::parse_tree::{Pattern, QualType, Type};
 use crate::unify::apply_unifier;
 use crate::unify::unify;
 use crate::unify::Term;
@@ -10,8 +10,8 @@ use crate::unify::Term;
 use crate::mir::MIRTree;
 
 type Theta = HashMap<Term<String>, Term<String>>;
-type Gamma<'a> = &'a HashMap<String, Type>;
-type MutGamma<'a> = &'a mut HashMap<String, Type>;
+type Gamma<'a> = &'a HashMap<String, QualType>;
+type MutGamma<'a> = &'a mut HashMap<String, QualType>;
 
 impl Type {
     pub fn to_term(&self) -> Term<String> {
@@ -165,11 +165,11 @@ impl TypeChecker {
         c: Gamma,
         d: Gamma,
         e: &mut Expression,
-        t: Type,
+        t: QualType,
     ) -> Result<Theta, String> {
         let simple = match t {
-            Type::ForAll(_, t) => *t,
-            _ => t.clone(),
+            QualType(_, Type::ForAll(_, t)) => *t,
+            QualType(_, t) => t.clone(),
         };
 
         let subs = self.judge_type(b, c, d, e, simple.clone(), HashMap::new())?;

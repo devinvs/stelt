@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 
-use crate::parse_tree::{DataDecl, Expression, ParseTree, Pattern, Type, TypeCons};
+use crate::parse_tree::{DataDecl, Expression, ParseTree, Pattern, QualType, Type, TypeCons};
 
 use crate::unify::apply_unifier;
 use crate::unify::unify;
@@ -19,29 +19,14 @@ pub struct MIRTree {
     pub defs: HashMap<String, MIRExpression>,
     pub impl_map: HashMap<String, Vec<(String, Type)>>,
 
-    pub constructors: HashMap<String, Type>,
-    pub declarations: HashMap<String, Type>,
-
-    pub imports: HashSet<String>,
-    pub import_funcs: HashMap<String, Type>,
+    pub constructors: HashMap<String, QualType>,
+    pub declarations: HashMap<String, QualType>,
 }
 
 impl MIRTree {
     pub fn from(mut tree: ParseTree) -> Self {
         let mut typedecls = tree.typedecls;
         let mut declarations = HashMap::new();
-
-        // Type functions type check as a forall type
-        for (name, typefn) in tree.typefuns.clone() {
-            let t = match typefn.ty {
-                Type::ForAll(mut vars, t) => {
-                    vars.extend(typefn.vars);
-                    Type::ForAll(vars, t)
-                }
-                t => Type::ForAll(typefn.vars, Box::new(t)),
-            };
-            declarations.insert(name, t);
-        }
 
         // Generate a new name for each typefn impl, adding its type and body to the funcs
         // Additionally create a map of each (typefn, type) to the new name
@@ -155,8 +140,6 @@ impl MIRTree {
             constructors,
             declarations,
             impl_map,
-            imports: tree.imports,
-            import_funcs: tree.import_funcs,
         }
     }
 
