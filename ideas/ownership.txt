@@ -1,0 +1,11 @@
+Ownership should be *opt-in*, ie most types should
+be copy by default. Types can be explicitly specified as owned:
+
+```
+// the type of a file descriptor
+owned type fd = Fd(u32)
+```
+
+Since owned types are the only type that can be mutated
+they cannot be copied, or referenced twice.
+

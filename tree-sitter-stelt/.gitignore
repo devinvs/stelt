@@ -1,0 +1,7 @@
+Cargo.lock
+Cargo.toml
+binding.gyp
+bindings/
+package.json
+src/
+target/
