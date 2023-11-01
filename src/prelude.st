@@ -16,8 +16,8 @@ type maybe<a> = None | Some(a)
 // A recursive linked list, in all its glory
 type list<a> = Nil | Cons(a, list<a>)
 
-// It's pretty cool that we can define logic entirely in the lang
-// let's just hope it gets optimized
+type unrolledlist<a> = ([a; 4], maybe<packedlist<a>>)
+
 
 type not: bool -> bool
 not(True) = False
@@ -39,18 +39,18 @@ xor(_, _) = False
 // an iterator is defined simply as just having being able to retreive the next element
 typefn next(iter, out) = iter -> (out, iter)
 
-type skip<iter>: (iter, u32) -> iter
+type skip: (iter, u32) -> iter
 skip(iter, 0) = iter
 skip(iter, n) = let (_, iter) = next(iter) in skip(iter, n-1)
 
-type take<iter, out>: (iter, u32) -> (list<out>, iter)
+type take: (iter, u32) -> (list<out>, iter)
 take(iter, 0) = ([], iter)
 take(iter, n) =
 	let (v, iter) = next(iter) in
 	let (list, iter) = take(iter, n-1) in
 	(v::list, iter)
 
-type nth<iter, out>: (iter, u32) -> out
+type nth: (iter, u32) -> out
 nth(iter, n) = let (out, _) = next(skip(iter, n)) in out
 
 //

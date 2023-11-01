@@ -1,86 +1,19 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
+use crate::mir::Constraint;
 use crate::mir::MIRExpression as Expression;
 use crate::parse_tree::{Pattern, Type};
 use crate::unify::apply_unifier;
 use crate::unify::unify;
-use crate::unify::Term;
 
 use crate::mir::MIRTree;
 
-type Theta = HashMap<Term<String>, Term<String>>;
+type Theta = HashMap<Type, Type>;
 type Gamma<'a> = &'a HashMap<String, Type>;
 type MutGamma<'a> = &'a mut HashMap<String, Type>;
 
 impl Type {
-    pub fn to_term(&self) -> Term<String> {
-        match self {
-            // Base types
-            Self::U8 => Term::Const("u8".to_string()),
-            Self::U16 => Term::Const("u16".to_string()),
-            Self::U32 => Term::Const("u32".to_string()),
-            Self::U64 => Term::Const("u64".to_string()),
-            Self::I8 => Term::Const("i8".to_string()),
-            Self::I16 => Term::Const("i16".to_string()),
-            Self::I32 => Term::Const("i32".to_string()),
-            Self::I64 => Term::Const("i64".to_string()),
-            Self::Unit => Term::Const("()".to_string()),
-            Self::Generic(args, t) => {
-                let mut rest = vec![t.to_term()];
-                rest.extend(args.into_iter().map(|a| a.to_term()));
-
-                Term::Composite("generic".to_string(), rest)
-            }
-            Self::Arrow(a, b) => Term::Composite("->".to_string(), vec![a.to_term(), b.to_term()]),
-            Self::Tuple(ts) => Term::Composite(
-                "tuple".to_string(),
-                ts.into_iter().map(|t| t.to_term()).collect(),
-            ),
-            Self::Ident(s) => Term::Const(s.clone()),
-            Self::Var(n) => Term::Var(*n),
-            Self::NumVar(n) => Term::Number(*n),
-            _ => panic!("plz no"),
-        }
-    }
-
-    pub fn from_term(t: Term<String>) -> Self {
-        match t {
-            // Base const types
-            Term::Const(a) if a == "u8" => Self::U8,
-            Term::Const(a) if a == "u16" => Self::U16,
-            Term::Const(a) if a == "u32" => Self::U32,
-            Term::Const(a) if a == "u64" => Self::U64,
-            Term::Const(a) if a == "i8" => Self::I8,
-            Term::Const(a) if a == "i16" => Self::I16,
-            Term::Const(a) if a == "i32" => Self::I32,
-            Term::Const(a) if a == "i64" => Self::I64,
-            Term::Const(a) if a == "()" => Self::Unit,
-            Term::Const(a) => Self::Ident(a),
-
-            // Composite types
-            Term::Composite(a, b) if a == "tuple" => {
-                Self::Tuple(b.into_iter().map(|t| Type::from_term(t)).collect())
-            }
-            Term::Composite(a, b) if a == "->" => Self::Arrow(
-                Box::new(Type::from_term(b[0].clone())),
-                Box::new(Type::from_term(b[1].clone())),
-            ),
-            Term::Composite(a, b) if a == "generic" => {
-                let t = Type::from_term(b[0].clone());
-
-                Self::Generic(
-                    b.into_iter().skip(1).map(|t| Type::from_term(t)).collect(),
-                    Box::new(t),
-                )
-            }
-            // Var...
-            Term::Var(i) => Self::Var(i),
-            Term::Number(i) => Self::NumVar(i),
-            _ => panic!("whoah this is weird"),
-        }
-    }
-
     pub fn map(&self, m: &HashMap<String, Type>) -> Self {
         match self {
             Self::Ident(s) => m.get(s).unwrap_or(&self).clone(),
@@ -112,6 +45,7 @@ impl TypeChecker {
             "llvm!".to_string(),
             Type::ForAll(
                 vec!["a".to_string()],
+                vec![],
                 Box::new(Type::Arrow(
                     Box::new(Type::Tuple(vec![
                         Type::Generic(
@@ -137,6 +71,7 @@ impl TypeChecker {
                 &tree.constructors,
                 &tree.declarations,
                 def,
+                &tree.impl_map,
                 ty.clone(),
             )?;
             def.apply(&subs)
@@ -146,33 +81,72 @@ impl TypeChecker {
         for (name, func) in tree.funcs.iter_mut() {
             let ty = tree.declarations.get(name).unwrap().clone();
 
-            let subs = self.check_expression(
+            self.check_expression(
                 &builtins,
                 &tree.constructors,
                 &tree.declarations,
                 func,
+                &tree.impl_map,
                 ty.clone(),
             )?;
-            func.apply(&subs)
         }
 
         Ok(())
     }
 
+    // Check an expression against a type, modifying the tree
+    // to be fully typed tree. Constraints are bubbled up to
+    // here and are checked against the real impls and impls
+    // inferred by constraints
     fn check_expression(
         &mut self,
         b: Gamma,
         c: Gamma,
         d: Gamma,
         e: &mut Expression,
+        impls: &HashMap<String, Vec<(String, Type)>>,
         t: Type,
     ) -> Result<Theta, String> {
-        let simple = match t {
-            Type::ForAll(_, t) => *t,
-            _ => t.clone(),
+        let (simple, gen_cons) = match t {
+            Type::ForAll(_, cs, t) => (*t, cs),
+            _ => (t, vec![]),
         };
 
-        let subs = self.judge_type(b, c, d, e, simple.clone(), HashMap::new())?;
+        // Generate subs and constraints for expression, and apply them to the tree
+        let (subs, cons) = self.judge_type(b, c, d, e, simple.clone(), HashMap::new())?;
+        e.apply(&subs);
+
+        // eprintln!("{:#?}", e);
+
+        // Check constraints against generic constraints and impls
+        // Since all constraints have already been expanded via their
+        // typefunctions we just do type unification on the needed type
+        // constraint and the provided type constraints from impls and gen_cons
+        'outer: for Constraint(tfname, t) in cons {
+            // the type of of the constraint we need to fill
+            let t = apply_unifier(t, &subs);
+
+            // generic constraints of this expression provide extra implementations,
+            // and thus get first priority in checking
+            for Constraint(gtfun, gt) in gen_cons.iter() {
+                if &tfname == gtfun && unify(gt.clone(), t.clone(), subs.clone()).is_some() {
+                    // Found constraint impl in generic constraints
+                    continue 'outer;
+                }
+            }
+
+            // Next we check the implementations of this type function
+            for (_, ty) in impls[&tfname].iter() {
+                eprintln!("check {ty:?}");
+                if unify(ty.clone(), t.clone(), subs.clone()).is_some() {
+                    continue 'outer;
+                }
+            }
+
+            // Fail
+            return Err(format!("Failed to find {tfname} with type {t:?}"));
+        }
+
         Ok(subs)
     }
 
@@ -188,27 +162,32 @@ impl TypeChecker {
         t
     }
 
-    fn gen_fresh_type(&mut self, t: &Type) -> Type {
-        let out = match t {
-            Type::ForAll(vars, inner) => {
+    fn gen_fresh_type(&mut self, t: &Type) -> (Type, Vec<Constraint>) {
+        match t {
+            Type::ForAll(vars, cons, inner) => {
                 let mut m = HashMap::new();
                 for v in vars {
                     m.insert(v.clone(), self.gen_var());
                 }
 
-                inner.map(&m)
+                let cons = cons
+                    .into_iter()
+                    .map(|Constraint(name, t)| Constraint(name.clone(), t.map(&m)))
+                    .collect();
+
+                (inner.map(&m), cons)
             }
-            a => a.clone(),
-        };
-
-        out
+            a => (a.clone(), vec![]),
+        }
     }
 
-    fn apply_gamma(&mut self, n: &String, g: Gamma) -> Option<Type> {
-        g.get(n).map(|t| self.gen_fresh_type(t))
-    }
-
-    fn apply_gamma_all(&mut self, n: &String, b: Gamma, c: Gamma, d: Gamma) -> Option<Type> {
+    fn apply_gamma_all(
+        &mut self,
+        n: &String,
+        b: Gamma,
+        c: Gamma,
+        d: Gamma,
+    ) -> Option<(Type, Vec<Constraint>)> {
         match (b.get(n), c.get(n), d.get(n)) {
             (Some(t), _, _) => Some(t),
             (_, Some(t), _) => Some(t),
@@ -218,18 +197,27 @@ impl TypeChecker {
         .map(|t| self.gen_fresh_type(t))
     }
 
-    fn judge_unit(&mut self, t: Type, subs: Theta) -> Result<Theta, String> {
-        let tname = apply_unifier(t.to_term(), &subs).name();
-        unify(Type::Unit.to_term(), t.to_term(), subs)
-            .ok_or(format!("Type Mismatch: Expected () found {:?}", tname))
+    fn judge_unit(&mut self, t: Type, subs: Theta) -> Result<(Theta, Vec<Constraint>), String> {
+        let subs = unify(Type::Unit, t.clone(), subs.clone()).ok_or_else(|| {
+            let realtype = apply_unifier(t, &subs);
+            format!("Type mismatch: Expected () found {:?}", realtype)
+        })?;
+        Ok((subs, vec![]))
     }
 
-    fn judge_num(&mut self, e: &mut Expression, t: Type, subs: Theta) -> Result<Theta, String> {
-        let tname = apply_unifier(t.to_term(), &subs).name();
+    fn judge_num(
+        &mut self,
+        e: &mut Expression,
+        t: Type,
+        subs: Theta,
+    ) -> Result<(Theta, Vec<Constraint>), String> {
         let v = self.gen_num_var();
         e.set_type(v.clone());
-        unify(v.to_term(), t.to_term(), subs)
-            .ok_or(format!("Type Mismatch: Expected {v:?} found {:?}", tname))
+        let subs = unify(v.clone(), t.clone(), subs.clone()).ok_or_else(|| {
+            let realtype = apply_unifier(t, &subs);
+            format!("Type Mismatch: Expected {v:?} found {:?}", realtype)
+        })?;
+        Ok((subs, vec![]))
     }
 
     fn judge_var(
@@ -240,26 +228,27 @@ impl TypeChecker {
         e: &mut Expression,
         t: Type,
         subs: Theta,
-    ) -> Result<Theta, String> {
+    ) -> Result<(Theta, Vec<Constraint>), String> {
         let name = match e {
             Expression::Identifier(a, None) => a,
             _ => panic!(),
         };
-        let x = self
+        let (x, cons) = self
             .apply_gamma_all(&name, builtins, cons, defined)
             .ok_or(format!("judge_var: Type not known for {name:?}"))?;
 
-        let tname = apply_unifier(t.to_term(), &subs).name();
-        let xname = apply_unifier(x.to_term(), &subs).name();
+        let theta = unify(x.clone(), t.clone(), subs.clone()).ok_or_else(|| {
+            let tname = apply_unifier(t.clone(), &subs);
+            let xname = apply_unifier(x, &subs);
 
-        let theta = unify(x.to_term(), t.to_term(), subs).ok_or(format!(
-            "Type Mismatch: Expected {:?} found {:?}\n{:?}",
-            tname, xname, name,
-        ))?;
+            format!(
+                "Type Mismatch: Expected {:?} found {:?}\n{:?}",
+                tname, xname, name,
+            )
+        })?;
 
         e.set_type(t);
-
-        Ok(theta)
+        Ok((theta, cons))
     }
 
     fn judge_tuple(
@@ -270,30 +259,32 @@ impl TypeChecker {
         e: &mut Expression,
         t: Type,
         mut subs: Theta,
-    ) -> Result<Theta, String> {
+    ) -> Result<(Theta, Vec<Constraint>), String> {
         let mut ts = vec![];
+        let mut cons = vec![];
+
         match e {
             Expression::Tuple(es, _) => {
                 for exp in es {
                     let tv = self.gen_var();
-                    subs = self.judge_type(b, c, d, exp, tv.clone(), subs)?;
+                    let (sbs, ncons) = self.judge_type(b, c, d, exp, tv.clone(), subs)?;
+                    subs = sbs;
+                    cons.extend(ncons);
                     ts.push(tv);
                 }
             }
             _ => panic!(),
         }
 
-        let tname = apply_unifier(t.to_term(), &subs).name();
-        let xname = apply_unifier(Type::Tuple(ts.clone()).to_term(), &subs).name();
-
-        let subs = unify(Type::Tuple(ts).to_term(), t.to_term(), subs).ok_or(format!(
-            "Type Mismatch: Expected {:?} found {:?}",
-            xname, tname
-        ))?;
+        let subs = unify(Type::Tuple(ts.clone()), t.clone(), subs.clone()).ok_or_else(|| {
+            let tname = apply_unifier(t.clone(), &subs);
+            let xname = apply_unifier(Type::Tuple(ts.clone()), &subs);
+            format!("Type Mismatch: Expected {:?} found {:?}", xname, tname)
+        })?;
 
         e.set_type(t);
 
-        Ok(subs)
+        Ok((subs, cons))
     }
 
     fn judge_lambda(
@@ -304,7 +295,7 @@ impl TypeChecker {
         e: &mut Expression,
         ty: Type,
         mut subs: Theta,
-    ) -> Result<Theta, String> {
+    ) -> Result<(Theta, Vec<Constraint>), String> {
         let t1 = self.gen_var();
         let t2 = self.gen_var();
 
@@ -321,7 +312,7 @@ impl TypeChecker {
         // unify t1 with lambda arg type first so that struct resolution can work
         subs = match ty.clone() {
             Type::Arrow(a, _) => {
-                unify(a.to_term(), t1.to_term(), subs).ok_or(format!("Type check failed here"))?
+                unify(*a, t1.clone(), subs).ok_or(format!("Type check failed here"))?
             }
             _ => subs,
             /*
@@ -333,29 +324,31 @@ impl TypeChecker {
             }*/
         };
 
-        subs = self.judge_type(b, c, &d, m, t2.clone(), subs)?;
+        let (sbs, cons) = self.judge_type(b, c, &d, m, t2.clone(), subs)?;
+        subs = sbs;
 
-        let tname = apply_unifier(ty.to_term(), &subs).name();
-        let xname = apply_unifier(
-            Type::Arrow(Box::new(t1.clone()), Box::new(t2.clone())).to_term(),
-            &subs,
+        subs = unify(
+            Type::Arrow(Box::new(t1.clone()), Box::new(t2.clone())),
+            ty.clone(),
+            subs.clone(),
         )
-        .name();
+        .ok_or_else(|| {
+            let tname = apply_unifier(ty.clone(), &subs);
+            let xname = apply_unifier(
+                Type::Arrow(Box::new(t1.clone()), Box::new(t2.clone())),
+                &subs,
+            );
 
-        let subs = unify(
-            Type::Arrow(Box::new(t1), Box::new(t2.clone())).to_term(),
-            ty.to_term(),
-            subs,
-        )
-        .ok_or(format!(
-            "Type Mismatch: Expected {:?} found {:?}\n{:?}",
-            tname, xname, m
-        ))?;
+            format!(
+                "Type Mismatch: Expected {:?} found {:?}\n{:?}",
+                tname, xname, m
+            )
+        })?;
 
-        m.set_type(t2);
-        e.set_type(ty);
+        m.set_type(t2.clone());
+        e.set_type(ty.clone());
 
-        Ok(subs)
+        Ok((subs, cons))
     }
 
     fn judge_call(
@@ -365,22 +358,27 @@ impl TypeChecker {
         d: Gamma,
         e: &mut Expression,
         ty: Type,
-        mut subs: Theta,
-    ) -> Result<Theta, String> {
+        subs: Theta,
+    ) -> Result<(Theta, Vec<Constraint>), String> {
         let (m, n) = match e {
             Expression::Call(m, n, _) => (m, n),
             _ => panic!(),
         };
         let t = self.gen_var();
         let call_t = Type::Arrow(Box::new(t.clone()), Box::new(ty.clone()));
-        subs = self.judge_type(b, c, d, n, t.clone(), subs)?;
-        subs = self.judge_type(b, c, d, m, call_t.clone(), subs)?;
+        let mut cons = vec![];
+
+        let (sbs, a) = self.judge_type(b, c, d, n, t.clone(), subs)?;
+        let (sbs2, b) = self.judge_type(b, c, d, m, call_t.clone(), sbs)?;
+
+        cons.extend(a);
+        cons.extend(b);
 
         m.set_type(call_t);
         n.set_type(t.clone());
         e.set_type(ty);
 
-        Ok(subs)
+        Ok((sbs2, cons))
     }
 
     fn judge_match(
@@ -391,19 +389,26 @@ impl TypeChecker {
         e: &mut Expression,
         t: Type,
         mut subs: Theta,
-    ) -> Result<Theta, String> {
+    ) -> Result<(Theta, Vec<Constraint>), String> {
         let (mat, cases) = match e {
             Expression::Match(m, c, _) => (m, c),
             _ => panic!(),
         };
 
+        let mut cons = vec![];
+
         let m_type = self.gen_var();
-        subs = self.judge_type(b, c, d, mat, m_type.clone(), subs)?;
+        let (subs1, mut ncons) = self.judge_type(b, c, d, mat, m_type.clone(), subs)?;
+        subs = subs1;
+
+        cons.extend(ncons);
 
         for (pat, exp) in cases {
             let mut newd = d.clone();
-            subs = self.judge_pattern(c, &mut newd, pat, m_type.clone(), subs)?;
-            subs = self.judge_type(b, c, &newd, exp, t.clone(), subs)?;
+            (subs, ncons) = self.judge_pattern(c, &mut newd, pat, m_type.clone(), subs)?;
+            cons.extend(ncons);
+            (subs, ncons) = self.judge_type(b, c, &newd, exp, t.clone(), subs)?;
+            cons.extend(ncons);
 
             pat.set_type(m_type.clone());
             exp.set_type(t.clone());
@@ -411,33 +416,7 @@ impl TypeChecker {
 
         e.set_type(t);
 
-        Ok(subs)
-    }
-
-    fn judge_multiple(
-        &mut self,
-        b: Gamma,
-        c: Gamma,
-        d: Gamma,
-        e: &mut Expression,
-        t: Type,
-        mut subs: Theta,
-    ) -> Result<Theta, String> {
-        let es = match e {
-            Expression::List(a, _) => a,
-            _ => panic!(),
-        };
-        let last_i = es.len() - 1;
-
-        for i in 0..last_i {
-            let ty = self.gen_var();
-            es[i].set_type(ty.clone());
-            subs = self.judge_type(b, c, d, &mut es[i], ty, subs)?;
-        }
-
-        let e = &mut es[last_i];
-        e.set_type(t.clone());
-        self.judge_type(b, c, d, e, t, subs)
+        Ok((subs, cons))
     }
 
     fn judge_type(
@@ -448,7 +427,7 @@ impl TypeChecker {
         e: &mut Expression,
         t: Type,
         subs: Theta,
-    ) -> Result<Theta, String> {
+    ) -> Result<(Theta, Vec<Constraint>), String> {
         match e {
             Expression::Unit(..) => self.judge_unit(t, subs),
             Expression::Num(..) => self.judge_num(e, t, subs),
@@ -457,7 +436,6 @@ impl TypeChecker {
             Expression::Lambda1(..) => self.judge_lambda(builtins, cons, defs, e, t, subs),
             Expression::Call(..) => self.judge_call(builtins, cons, defs, e, t, subs),
             Expression::Match(..) => self.judge_match(builtins, cons, defs, e, t, subs),
-            Expression::List(..) => self.judge_multiple(builtins, cons, defs, e, t, subs),
         }
     }
 
@@ -466,12 +444,15 @@ impl TypeChecker {
         e: &mut Pattern,
         t: Type,
         subs: Theta,
-    ) -> Result<Theta, String> {
-        let tname = apply_unifier(t.to_term(), &subs).name();
+    ) -> Result<(Theta, Vec<Constraint>), String> {
         let v = self.gen_num_var();
         e.set_type(v.clone());
-        unify(v.to_term(), t.to_term(), subs)
-            .ok_or(format!("Type Mismatch: Expected {v:?} found {:?}", tname))
+        let subs = unify(v.clone(), t.clone(), subs.clone()).ok_or_else(|| {
+            let tname = apply_unifier(t, &subs);
+            format!("Type Mismatch: Expected {v:?} found {:?}", tname)
+        })?;
+
+        Ok((subs, vec![]))
     }
 
     fn judge_pattern_var(
@@ -480,25 +461,26 @@ impl TypeChecker {
         p: &mut Pattern,
         t: Type,
         mut subs: Theta,
-    ) -> Result<Theta, String> {
+    ) -> Result<(Theta, Vec<Constraint>), String> {
         let x = match p {
             Pattern::Var(x, _) => x,
             _ => panic!(),
         };
 
-        let x = self.apply_gamma(&x, d).unwrap();
+        let (x, cons) = self
+            .apply_gamma_all(&x, &HashMap::new(), &HashMap::new(), d)
+            .unwrap();
 
-        let tname = apply_unifier(t.to_term(), &subs).name();
-        let xname = apply_unifier(x.to_term(), &subs).name();
+        subs = unify(x.clone(), t.clone(), subs.clone()).ok_or_else(|| {
+            let tname = apply_unifier(t.clone(), &subs);
+            let xname = apply_unifier(x, &subs);
 
-        subs = unify(x.to_term(), t.to_term(), subs).ok_or(format!(
-            "Type Mismatch: Expected {:?} found {:?}",
-            xname, tname
-        ))?;
+            format!("Type Mismatch: Expected {:?} found {:?}", xname, tname)
+        })?;
 
         p.set_type(t);
 
-        Ok(subs)
+        Ok((subs, cons))
     }
 
     fn judge_pattern_tuple(
@@ -508,32 +490,35 @@ impl TypeChecker {
         p: &mut Pattern,
         t: Type,
         mut subs: Theta,
-    ) -> Result<Theta, String> {
+    ) -> Result<(Theta, Vec<Constraint>), String> {
         let mut ts = vec![];
         let ps = match p {
             Pattern::Tuple(es, _) => es,
             _ => panic!(),
         };
 
+        let mut cons = vec![];
+
         for pat in ps {
             let ty = self.gen_var();
             ts.push(ty.clone());
-            subs = self.judge_pattern_helper(c, d, pat, ty.clone(), subs)?;
+            let (sbs1, ncons) = self.judge_pattern_helper(c, d, pat, ty.clone(), subs)?;
+            subs = sbs1;
+            cons.extend(ncons);
 
             pat.set_type(ty);
         }
 
-        let tname = apply_unifier(t.to_term(), &subs).name();
-        let xname = apply_unifier(Type::Tuple(ts.clone()).to_term(), &subs).name();
+        subs = unify(Type::Tuple(ts.clone()), t.clone(), subs.clone()).ok_or_else(|| {
+            let tname = apply_unifier(t.clone(), &subs);
+            let xname = apply_unifier(Type::Tuple(ts.clone()), &subs);
 
-        subs = unify(Type::Tuple(ts).to_term(), t.to_term(), subs).ok_or(format!(
-            "Type Mismatch: Expected {:?} found {:?}",
-            xname, tname
-        ))?;
+            format!("Type Mismatch: Expected {:?} found {:?}", xname, tname)
+        })?;
 
         p.set_type(t);
 
-        Ok(subs)
+        Ok((subs, cons))
     }
 
     fn judge_pattern_cons(
@@ -543,14 +528,13 @@ impl TypeChecker {
         p: &mut Pattern,
         t: Type,
         mut subs: Theta,
-    ) -> Result<Theta, String> {
+    ) -> Result<(Theta, Vec<Constraint>), String> {
         let (m, n) = match p {
             Pattern::Cons(m, n, _) => (m, n),
             _ => panic!(),
         };
-
         let newt = self.gen_var();
-        subs = self.judge_type(
+        let (sbs, mut cons) = self.judge_type(
             &HashMap::new(),
             c,
             &HashMap::new(),
@@ -558,13 +542,16 @@ impl TypeChecker {
             Type::Arrow(Box::new(newt.clone()), Box::new(t.clone())),
             subs,
         )?;
+        subs = sbs;
 
-        subs = self.judge_pattern_helper(c, d, n, newt.clone(), subs)?;
+        let (sbs, ncons) = self.judge_pattern_helper(c, d, n, newt.clone(), subs)?;
+        subs = sbs;
+        cons.extend(ncons);
 
         n.set_type(newt);
         p.set_type(t);
 
-        Ok(subs)
+        Ok((subs, cons))
     }
 
     fn judge_pattern_helper(
@@ -574,9 +561,9 @@ impl TypeChecker {
         p: &mut Pattern,
         t: Type,
         subs: Theta,
-    ) -> Result<Theta, String> {
+    ) -> Result<(Theta, Vec<Constraint>), String> {
         match p {
-            Pattern::Any(..) => Ok(subs),
+            Pattern::Any(..) => Ok((subs, vec![])),
             Pattern::Namespace(..) => panic!(),
             Pattern::Unit(..) => self.judge_unit(t, subs),
             Pattern::Num(..) => self.judge_pattern_num(p, t, subs),
@@ -593,7 +580,7 @@ impl TypeChecker {
         p: &mut Pattern,
         t: Type,
         subs: Theta,
-    ) -> Result<Theta, String> {
+    ) -> Result<(Theta, Vec<Constraint>), String> {
         let vars = p.free_vars();
 
         // check that there are no duplicate vars

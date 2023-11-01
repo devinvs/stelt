@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::iter::Peekable;
+use std::collections::VecDeque;
 
 use lazy_static::lazy_static;
 
@@ -86,9 +86,11 @@ impl Lexeme {
     }
 }
 
-pub type TokenStream = Peekable<std::vec::IntoIter<Lexeme>>;
+pub type TokenStream = VecDeque<Lexeme>;
 
 pub trait LexemeFeed {
+    fn peek(&self) -> Option<&Lexeme>;
+    fn next(&mut self) -> Option<Lexeme>;
     fn test(&mut self, t: Token) -> bool;
     fn assert(&mut self, t: Token) -> Result<(), String>;
     fn ident(&mut self) -> Result<String, String>;
@@ -104,8 +106,16 @@ pub trait LexemeFeed {
 }
 
 impl LexemeFeed for TokenStream {
+    fn peek(&self) -> Option<&Lexeme> {
+        self.get(0)
+    }
+
+    fn next(&mut self) -> Option<Lexeme> {
+        self.pop_front()
+    }
+
     fn test(&mut self, t: Token) -> bool {
-        if let Some(l) = self.peek() {
+        if let Some(l) = self.get(0) {
             l.test(t)
         } else {
             false
@@ -113,7 +123,7 @@ impl LexemeFeed for TokenStream {
     }
 
     fn assert(&mut self, t: Token) -> Result<(), String> {
-        if let Some(l) = self.next() {
+        if let Some(l) = self.pop_front() {
             if l.test(t.clone()) {
                 Ok(())
             } else {
@@ -129,7 +139,7 @@ impl LexemeFeed for TokenStream {
     }
 
     fn ident(&mut self) -> Result<String, String> {
-        if let Some(l) = self.next() {
+        if let Some(l) = self.pop_front() {
             if let Lexeme {
                 token: Token::Ident(s),
                 ..
@@ -137,6 +147,7 @@ impl LexemeFeed for TokenStream {
             {
                 Ok(s)
             } else {
+                self.push_front(l.clone());
                 Err(format!("Expected identifier, found '{}'", l.token.name()))
             }
         } else {
@@ -301,7 +312,7 @@ pub struct Lexer {
 
 impl Lexer {
     pub fn lex(&mut self, input: &str) -> Result<TokenStream, String> {
-        let mut tokens = Vec::new();
+        let mut tokens = VecDeque::new();
         let mut chars = input.chars().peekable();
 
         let mut stack = String::new();
@@ -402,7 +413,7 @@ impl Lexer {
                         return Err("Expected closing ' for string literal".to_string());
                     }
 
-                    tokens.push(Lexeme {
+                    tokens.push_back(Lexeme {
                         token: Token::Char(c),
                     });
                     self.start += n + 1;
@@ -412,14 +423,14 @@ impl Lexer {
                 '*' if next.is_some() && *next.unwrap() == '*' => {
                     self.push_token(&mut tokens, &mut stack);
                     chars.next().unwrap();
-                    tokens.push(Lexeme { token: Token::Pow });
+                    tokens.push_back(Lexeme { token: Token::Pow });
                     self.start += 2;
                     self.end = self.start;
                 }
                 ':' if next.is_some() && *next.unwrap() == ':' => {
                     self.push_token(&mut tokens, &mut stack);
                     chars.next().unwrap();
-                    tokens.push(Lexeme {
+                    tokens.push_back(Lexeme {
                         token: Token::Concat,
                     });
                     self.start += 2;
@@ -428,7 +439,7 @@ impl Lexer {
                 '-' if next.is_some() && *next.unwrap() == '>' => {
                     self.push_token(&mut tokens, &mut stack);
                     chars.next().unwrap();
-                    tokens.push(Lexeme {
+                    tokens.push_back(Lexeme {
                         token: Token::Arrow,
                     });
                     self.start += 2;
@@ -437,21 +448,21 @@ impl Lexer {
                 '|' if next.is_some() && *next.unwrap() == '|' => {
                     self.push_token(&mut tokens, &mut stack);
                     chars.next().unwrap();
-                    tokens.push(Lexeme { token: Token::Or });
+                    tokens.push_back(Lexeme { token: Token::Or });
                     self.start += 2;
                     self.end = self.start;
                 }
                 '&' if next.is_some() && *next.unwrap() == '&' => {
                     self.push_token(&mut tokens, &mut stack);
                     chars.next().unwrap();
-                    tokens.push(Lexeme { token: Token::And });
+                    tokens.push_back(Lexeme { token: Token::And });
                     self.start += 2;
                     self.end = self.start;
                 }
                 '=' if next.is_some() && *next.unwrap() == '=' => {
                     self.push_token(&mut tokens, &mut stack);
                     chars.next().unwrap();
-                    tokens.push(Lexeme {
+                    tokens.push_back(Lexeme {
                         token: Token::Equal,
                     });
                     self.start += 2;
@@ -460,7 +471,7 @@ impl Lexer {
                 '!' if next.is_some() && *next.unwrap() == '=' => {
                     self.push_token(&mut tokens, &mut stack);
                     chars.next().unwrap();
-                    tokens.push(Lexeme {
+                    tokens.push_back(Lexeme {
                         token: Token::NotEqual,
                     });
                     self.start += 2;
@@ -469,28 +480,28 @@ impl Lexer {
                 '<' if next.is_some() && *next.unwrap() == '=' => {
                     self.push_token(&mut tokens, &mut stack);
                     chars.next().unwrap();
-                    tokens.push(Lexeme { token: Token::LTE });
+                    tokens.push_back(Lexeme { token: Token::LTE });
                     self.start += 2;
                     self.end = self.start;
                 }
                 '>' if next.is_some() && *next.unwrap() == '=' => {
                     self.push_token(&mut tokens, &mut stack);
                     chars.next().unwrap();
-                    tokens.push(Lexeme { token: Token::GTE });
+                    tokens.push_back(Lexeme { token: Token::GTE });
                     self.start += 2;
                     self.end = self.start;
                 }
                 '=' if next.is_some() && *next.unwrap() == '>' => {
                     self.push_token(&mut tokens, &mut stack);
                     chars.next().unwrap();
-                    tokens.push(Lexeme {
+                    tokens.push_back(Lexeme {
                         token: Token::FatArrow,
                     })
                 }
                 // Separators
                 ',' | '(' | ')' | '[' | ']' | '{' | '}' | ':' => {
                     self.push_token(&mut tokens, &mut stack);
-                    tokens.push(Lexeme {
+                    tokens.push_back(Lexeme {
                         token: MAP.get(c.to_string().as_str()).unwrap().clone(),
                     });
                     self.start += 1;
@@ -501,7 +512,7 @@ impl Lexer {
                 '+' | '-' | '*' | '/' | '%' | '<' | '>' | '=' | '|' | '&' | '^' | '~' | '.'
                 | '?' => {
                     self.push_token(&mut tokens, &mut stack);
-                    tokens.push(Lexeme {
+                    tokens.push_back(Lexeme {
                         token: MAP.get(c.to_string().as_str()).unwrap().clone(),
                     });
                     self.start += 1;
@@ -509,7 +520,7 @@ impl Lexer {
                 }
                 '!' if stack.is_empty() => {
                     self.push_token(&mut tokens, &mut stack);
-                    tokens.push(Lexeme {
+                    tokens.push_back(Lexeme {
                         token: MAP.get(c.to_string().as_str()).unwrap().clone(),
                     });
                     self.start += 1;
@@ -539,23 +550,23 @@ impl Lexer {
 
         self.push_token(&mut tokens, &mut stack);
 
-        Ok(tokens.into_iter().peekable())
+        Ok(tokens)
     }
 
-    fn push_token(&mut self, tokens: &mut Vec<Lexeme>, stack: &mut String) {
+    fn push_token(&mut self, tokens: &mut VecDeque<Lexeme>, stack: &mut String) {
         if !stack.is_empty() {
             if self.in_string {
-                tokens.push(Lexeme {
+                tokens.push_back(Lexeme {
                     token: Token::String(stack.clone()),
                 });
             } else if let Some(tok) = MAP.get(stack.as_str()) {
-                tokens.push(Lexeme { token: tok.clone() });
+                tokens.push_back(Lexeme { token: tok.clone() });
             } else if let Ok(i) = str::parse::<u64>(&stack) {
-                tokens.push(Lexeme {
+                tokens.push_back(Lexeme {
                     token: Token::Num(i),
                 });
             } else {
-                tokens.push(Lexeme {
+                tokens.push_back(Lexeme {
                     token: Token::Ident(stack.clone()),
                 });
             }

@@ -2,13 +2,50 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 
-use crate::parse_tree::{DataDecl, Expression, ParseTree, Pattern, Type, TypeCons};
+use crate::parse_tree::{
+    DataDecl, Expression, ParseTree, Pattern, QualType, Type, TypeCons, TypeFun,
+};
 
 use crate::unify::apply_unifier;
 use crate::unify::unify;
-use crate::unify::Term;
 
-type Theta = HashMap<Term<String>, Term<String>>;
+use crate::parse_tree;
+
+type Theta = HashMap<Type, Type>;
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct Constraint(pub String, pub Type);
+
+// Transform a parse tree constraint to a mir constraint
+// using the typefunction as a template
+pub fn trans_cons(
+    cons: parse_tree::Constraint,
+    typefns: &HashMap<String, parse_tree::TypeFun>,
+) -> Constraint {
+    let parse_tree::Constraint(name, ts) = cons;
+    let tf = &typefns[&name];
+
+    // Create substitutions for this constraint
+    let mut subs = HashMap::new();
+    for (var, arg) in tf.vars.iter().zip(ts.iter()) {
+        subs.insert(var.clone(), arg.clone());
+    }
+
+    // The real type of the expanded constraint
+    let real_type = tf.ty.clone().replace_all(&subs);
+    Constraint(name, real_type)
+}
+
+pub fn typefn_type(tf: parse_tree::TypeFun) -> Type {
+    let cons = vec![Constraint(tf.name.clone(), tf.ty.clone())];
+    match tf.ty {
+        Type::ForAll(mut vars, _, t) => {
+            vars.extend(tf.vars);
+            Type::ForAll(vars, cons, t)
+        }
+        t => Type::ForAll(tf.vars, cons, Box::new(t)),
+    }
+}
 
 #[derive(Debug)]
 pub struct MIRTree {
@@ -21,62 +58,80 @@ pub struct MIRTree {
 
     pub constructors: HashMap<String, Type>,
     pub declarations: HashMap<String, Type>,
-
-    pub imports: HashSet<String>,
-    pub import_funcs: HashMap<String, Type>,
 }
 
 impl MIRTree {
     pub fn from(mut tree: ParseTree) -> Self {
-        let mut typedecls = tree.typedecls;
+        // First things first: get the generic args out of the types
+        // and convert to forall types
+        //
+        // This includes all typedecls, typefns, and impls
+        let mut typedecls = HashMap::new();
+
+        let type_names = tree
+            .types
+            .iter()
+            .map(|dd| dd.0.clone())
+            .collect::<HashSet<_>>();
+
+        // Typedecls get their generics extracted into a forall type along with
+        // the constraints from the QualType
+        for (name, QualType(cons, t)) in tree.typedecls.into_iter() {
+            let cons = cons
+                .into_iter()
+                .map(|c| trans_cons(c, &tree.typefuns))
+                .collect();
+            let t = t.extract_vars(&type_names, cons);
+            typedecls.insert(name, t);
+        }
+
         let mut declarations = HashMap::new();
 
-        // Type functions type check as a forall type
+        // Type functions can have generic variables but not generic constraints
+        // Type functions type check as a forall type and provide themselves as their constraint
         for (name, typefn) in tree.typefuns.clone() {
-            let t = match typefn.ty {
-                Type::ForAll(mut vars, t) => {
-                    vars.extend(typefn.vars);
-                    Type::ForAll(vars, t)
-                }
-                t => Type::ForAll(typefn.vars, Box::new(t)),
-            };
+            let t = typefn_type(typefn);
             declarations.insert(name, t);
         }
 
         // Generate a new name for each typefn impl, adding its type and body to the funcs
         // Additionally create a map of each (typefn, type) to the new name
         let mut impl_map = HashMap::<String, Vec<(String, Type)>>::new();
+
+        // Make sure ther is at least an empty list for every typefunction
+        for tfun in tree.typefuns.iter() {
+            impl_map.insert(tfun.0.clone(), vec![]);
+        }
+
         for imp in tree.impls {
-            let typefn = tree.typefuns.get(&imp.fn_name).unwrap();
+            let TypeFun { name, ty, vars } = tree.typefuns.get(&imp.fn_name).unwrap();
             let new_name = crate::gen_var(&format!("{}$", imp.fn_name));
 
+            // substitutions to go from impl to real type
             let mut subs = HashMap::new();
-            for (var, arg) in typefn.vars.iter().zip(imp.args.iter()) {
+            for (var, arg) in vars.iter().zip(imp.args.iter()) {
                 subs.insert(var.clone(), arg.clone());
             }
 
-            let real_type = typefn.ty.clone().replace_all(&subs);
-            let real_type = if let Type::ForAll(mut vars, t) = real_type {
-                vars.extend(imp.gen_args);
-                Type::ForAll(vars, t)
-            } else {
-                Type::ForAll(imp.gen_args.clone(), Box::new(real_type))
-            };
+            // Get the type of the typefun
+            let ty = typefn_type(TypeFun {
+                name: name.clone(),
+                ty: ty.clone(),
+                vars: vec![],
+            });
+            let real_type = ty.replace_all(&subs);
 
-            if let Some(impls) = impl_map.get_mut(&typefn.name) {
+            if let Some(impls) = impl_map.get_mut(name) {
                 impls.push((new_name.clone(), real_type.clone()));
             } else {
-                impl_map.insert(
-                    typefn.name.clone(),
-                    vec![(new_name.clone(), real_type.clone())],
-                );
+                impl_map.insert(name.clone(), vec![(new_name.clone(), real_type.clone())]);
             }
 
             typedecls.insert(new_name.clone(), real_type);
             tree.funcs.insert(new_name, imp.body);
         }
 
-        // Add all user defined type definitions to declaratiosn
+        // Add all user defined type definitions to declarations
         for (name, t) in typedecls.iter() {
             declarations.insert(name.clone(), t.clone());
         }
@@ -101,6 +156,7 @@ impl MIRTree {
                             cons.name.clone(),
                             Type::ForAll(
                                 args.clone(),
+                                vec![],
                                 Box::new(Type::Arrow(Box::new(cons.args.clone()), outt)),
                             ),
                         );
@@ -146,6 +202,9 @@ impl MIRTree {
             );
         });
 
+        eprintln!("{:#?}\n", typedecls);
+        eprintln!("{:#?}\n", impl_map);
+
         Self {
             external: tree.external,
             types: tree.types,
@@ -155,8 +214,6 @@ impl MIRTree {
             constructors,
             declarations,
             impl_map,
-            imports: tree.imports,
-            import_funcs: tree.import_funcs,
         }
     }
 
@@ -167,11 +224,11 @@ impl MIRTree {
         // split out generic typedecls from the concrete ones
         for (name, t) in self.typedecls {
             match t {
-                Type::ForAll(args, inner) => {
+                Type::ForAll(args, cons, inner) => {
                     if args.len() == 0 {
                         concrete_decls.insert(name, *inner);
                     } else {
-                        generic_decls.insert(name, Type::ForAll(args, inner));
+                        generic_decls.insert(name, Type::ForAll(args, cons, inner));
                     }
                 }
                 a => {
@@ -322,9 +379,6 @@ pub enum MIRExpression {
     /// A tuple of expressions
     Tuple(Vec<MIRExpression>, Option<Type>),
 
-    /// A list of expressions
-    List(Vec<MIRExpression>, Option<Type>),
-
     /// Test a list of patterns against an expression, returning the expression that matches
     Match(
         Box<MIRExpression>,
@@ -360,9 +414,6 @@ impl MIRExpression {
             MIRExpression::Lambda1(x, m, _) => {
                 MIRExpression::Lambda1(x, Box::new(m.sub_types(subs)), Some(t))
             }
-            MIRExpression::List(es, _) => {
-                MIRExpression::List(es.into_iter().map(|e| e.sub_types(subs)).collect(), Some(t))
-            }
             MIRExpression::Match(m, ps, _) => MIRExpression::Match(
                 Box::new(m.sub_types(subs)),
                 ps.into_iter()
@@ -382,12 +433,6 @@ impl MIRExpression {
             Expression::Num(n) => Self::Num(n, None),
             Expression::Unit => Self::Unit(Some(Type::Unit)),
             Expression::Identifier(i) => Self::Identifier(i, None),
-            Expression::ExprList(es) => Self::List(
-                es.into_iter()
-                    .map(|e| MIRExpression::from(e, cons))
-                    .collect(),
-                None,
-            ),
             Expression::Tuple(es) => Self::Tuple(
                 es.into_iter()
                     .map(|e| MIRExpression::from(e, cons))
@@ -471,13 +516,6 @@ impl MIRExpression {
                     Self::Identifier(s, Some(t))
                 }
             }
-            Self::List(exprs, t) => Self::List(
-                exprs
-                    .into_iter()
-                    .map(|e| e.resolve_typefn(impl_map))
-                    .collect(),
-                t,
-            ),
             Self::Tuple(exprs, t) => Self::Tuple(
                 exprs
                     .into_iter()
@@ -507,7 +545,6 @@ impl MIRExpression {
             Self::Identifier(_, t) => t,
             Self::Num(_, t) => t,
             Self::Unit(t) => t,
-            Self::List(_, t) => t,
             Self::Tuple(_, t) => t,
             Self::Match(_, _, t) => t,
             Self::Call(_, _, t) => t,
@@ -522,7 +559,6 @@ impl MIRExpression {
             Self::Identifier(_, t) => *t = Some(ty),
             Self::Num(_, t) => *t = Some(ty),
             Self::Unit(t) => *t = Some(ty),
-            Self::List(_, t) => *t = Some(ty),
             Self::Tuple(_, t) => *t = Some(ty),
             Self::Match(_, _, t) => *t = Some(ty),
             Self::Call(_, _, t) => *t = Some(ty),
@@ -531,12 +567,9 @@ impl MIRExpression {
     }
 
     pub fn apply(&mut self, subs: &Theta) {
-        let term = self.ty().to_term();
-        let unterm = apply_unifier(term, subs);
-        self.set_type(Type::from_term(unterm));
+        self.set_type(apply_unifier(self.ty(), subs));
 
         match self {
-            Self::List(a, _) => a.iter_mut().for_each(|e| e.apply(subs)),
             Self::Tuple(a, _) => a.iter_mut().for_each(|e| e.apply(subs)),
             Self::Match(a, b, _) => {
                 a.apply(subs);
@@ -582,18 +615,6 @@ impl MIRExpression {
                 } else {
                     (MIRExpression::Identifier(name, t), vec![])
                 }
-            }
-            MIRExpression::List(es, t) => {
-                let mut v = vec![];
-                let mut newes = vec![];
-
-                for e in es {
-                    let (e, gens) = e.extract_calls(generics, cons);
-                    newes.push(e);
-                    v.extend(gens);
-                }
-
-                (MIRExpression::List(newes, t), v)
             }
             MIRExpression::Tuple(es, t) => {
                 let mut v = vec![];
@@ -685,9 +706,7 @@ impl Pattern {
     }
 
     fn apply(&mut self, subs: &Theta) {
-        let term = self.ty().to_term();
-        let unterm = apply_unifier(term, subs);
-        self.set_type(Type::from_term(unterm));
+        self.set_type(apply_unifier(self.ty(), subs));
 
         match self {
             Pattern::Cons(_, a, _) => {
@@ -700,11 +719,59 @@ impl Pattern {
 }
 
 impl Type {
+    fn extract_vars(self, types: &HashSet<String>, cons: Vec<Constraint>) -> Type {
+        let vars = self.type_vars(types);
+
+        match self {
+            Type::ForAll(mut vs, _, t) => {
+                vs.extend(vars);
+                Type::ForAll(vs, cons, t)
+            }
+            a => Type::ForAll(vars.into_iter().collect(), cons, Box::new(a)),
+        }
+    }
+
+    fn type_vars(&self, types: &HashSet<String>) -> HashSet<String> {
+        let mut vars = HashSet::new();
+        match self {
+            Type::ForAll(vs, _, t) => {
+                let mut ntypes = types.clone();
+                ntypes.extend(vs.clone());
+
+                vars.extend(t.type_vars(&ntypes));
+            }
+            Type::Generic(ass, b) => {
+                for a in ass {
+                    vars.extend(a.type_vars(types));
+                }
+
+                vars.extend(b.type_vars(types));
+            }
+            Type::Arrow(a, b) => {
+                vars.extend(a.type_vars(types));
+                vars.extend(b.type_vars(types));
+            }
+            Type::Tuple(ass) => {
+                for a in ass {
+                    vars.extend(a.type_vars(types));
+                }
+            }
+            Type::Ident(a) => {
+                if !types.contains(a) {
+                    vars.insert(a.clone());
+                }
+            }
+            _ => {}
+        }
+
+        vars
+    }
+
     fn fresh(self) -> Self {
         let mut i = 0;
 
         match self {
-            Type::ForAll(vars, inner) => {
+            Type::ForAll(vars, _, inner) => {
                 let mut m = HashMap::new();
                 for v in vars {
                     m.insert(v.clone(), Type::Var(i));
@@ -718,7 +785,7 @@ impl Type {
     }
 
     fn get_generic_subs(&self, other: &Type) -> HashMap<String, Type> {
-        if let Type::ForAll(vars, t) = self {
+        if let Type::ForAll(vars, _, t) = self {
             let mut name_to_id = HashMap::new();
 
             // substitute for actual var types
@@ -820,9 +887,9 @@ impl Type {
                 ts.extend(newts);
                 (Type::Arrow(Box::new(a), Box::new(b)), ts)
             }
-            Type::ForAll(a, b) => {
+            Type::ForAll(a, c, b) => {
                 let (t, ts) = b.extract_generics(generics);
-                (Type::ForAll(a, Box::new(t)), ts)
+                (Type::ForAll(a, c, Box::new(t)), ts)
             }
             Type::Tuple(ts) => {
                 let mut concs = vec![];
@@ -841,7 +908,7 @@ impl Type {
         }
     }
 
-    fn replace_all(mut self, subs: &HashMap<String, Type>) -> Self {
+    pub fn replace_all(mut self, subs: &HashMap<String, Type>) -> Self {
         for (s, t) in subs {
             self = self.replace(s, t);
         }
@@ -864,7 +931,13 @@ impl Type {
 
                 Type::Arrow(Box::new(a), Box::new(b))
             }
-            Type::ForAll(a, b) => Type::ForAll(a, Box::new(b.replace(from, to))),
+            Type::ForAll(a, c, b) => Type::ForAll(
+                a,
+                c.into_iter()
+                    .map(|Constraint(name, t)| Constraint(name, t.replace(from, to)))
+                    .collect(),
+                Box::new(b.replace(from, to)),
+            ),
             Type::Generic(a, b) => Type::Generic(
                 a.into_iter().map(|a| a.replace(from, to)).collect(),
                 Box::new(b.replace(from, to)),
@@ -920,8 +993,8 @@ pub fn resolve_typefn(impls: &Vec<(String, Type)>, t: Type) -> Option<String> {
         let subs = HashMap::new();
         let gen_ty = ty.clone().fresh();
 
-        if let Some(subs) = unify(t.to_term(), gen_ty.to_term(), subs) {
-            if apply_unifier(gen_ty.to_term(), &subs) == t.to_term() {
+        if let Some(subs) = unify(t.clone(), gen_ty.clone(), subs) {
+            if apply_unifier(gen_ty, &subs) == t {
                 return Some(name.clone());
             }
         }

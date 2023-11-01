@@ -1,53 +1,30 @@
+use crate::parse_tree::Type;
 use std::collections::HashMap;
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
-pub enum Term<T: std::cmp::Eq + std::hash::Hash + Clone> {
-    Var(usize),
-    Number(usize),
-    Const(T),
-    Composite(T, Vec<Term<T>>),
-}
+fn occurs_check(x: Type, t: Type, subs: &mut HashMap<Type, Type>) -> bool {
+    let mut stack: Vec<Type> = vec![t];
 
-impl Term<String> {
-    pub fn name(&self) -> String {
-        match self {
-            Self::Var(i) => format!("{i}?"),
-            Self::Const(s) => s.clone(),
-            Self::Composite(s, ts) => match s.as_str() {
-                "->" => format!("{} -> {}", ts[0].name(), ts[1].name()),
-                "list" => format!("[{}]", ts[0].name()),
-                "tuple" => format!(
-                    "({})",
-                    ts.iter().map(|t| t.name()).collect::<Vec<_>>().join(", ")
-                ),
-                _ => format!(
-                    "{}<{}>",
-                    ts[0].name(),
-                    ts.iter()
-                        .skip(1)
-                        .map(|t| t.name())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ),
-            },
-            Self::Number(_) => "num".to_string(),
-        }
-    }
-}
-
-fn occurs_check<'a, T>(x: &'a Term<T>, t: &'a Term<T>, subs: &mut HashMap<Term<T>, Term<T>>) -> bool
-where
-    T: std::cmp::Eq + std::hash::Hash + Clone,
-{
-    let mut stack: Vec<&Term<T>> = vec![t];
-
-    fn get_vars<'a, T: std::cmp::Eq + std::hash::Hash + Clone>(t: &'a Term<T>) -> Vec<&'a Term<T>> {
+    fn get_vars(t: Type) -> Vec<Type> {
         match t {
-            &Term::Var(_) => vec![t],
-            &Term::Composite(_, ref terms) => {
+            Type::Var(_) | Type::NumVar(_) => vec![t],
+            Type::Generic(ass, b) => {
                 let mut v = vec![];
-                for term in terms {
-                    v.append(&mut get_vars(&term));
+                for a in ass {
+                    v.append(&mut get_vars(a));
+                }
+                v.append(&mut get_vars(*b));
+                v
+            }
+            Type::Arrow(a, b) => {
+                let mut v = vec![];
+                v.append(&mut get_vars(*a));
+                v.append(&mut get_vars(*b));
+                v
+            }
+            Type::Tuple(ass) => {
+                let mut v = vec![];
+                for a in ass {
+                    v.append(&mut get_vars(a));
                 }
                 v
             }
@@ -60,8 +37,8 @@ where
         for y in get_vars(t.unwrap()) {
             if x == y {
                 return false;
-            } else if subs.contains_key(y) {
-                stack.push(&subs[y]);
+            } else if subs.contains_key(&y) {
+                stack.push(subs[&y].clone());
             }
         }
     }
@@ -69,102 +46,102 @@ where
     true
 }
 
-pub fn apply_unifier<T>(mut s: Term<T>, subs: &HashMap<Term<T>, Term<T>>) -> Term<T>
-where
-    T: std::cmp::Eq + std::hash::Hash + Clone + std::fmt::Debug,
-{
+pub fn apply_unifier(mut s: Type, subs: &HashMap<Type, Type>) -> Type {
     while subs.contains_key(&s) {
         s = subs.get(&s).unwrap().clone();
     }
 
     match s {
-        Term::Composite(t, ts) => {
-            Term::Composite(t, ts.into_iter().map(|t| apply_unifier(t, subs)).collect())
-        }
+        Type::Generic(ass, b) => Type::Generic(
+            ass.into_iter().map(|t| apply_unifier(t, subs)).collect(),
+            Box::new(apply_unifier(*b, subs)),
+        ),
+        Type::Arrow(a, b) => Type::Arrow(
+            Box::new(apply_unifier(*a, subs)),
+            Box::new(apply_unifier(*b, subs)),
+        ),
+        Type::Tuple(ass) => Type::Tuple(ass.into_iter().map(|t| apply_unifier(t, subs)).collect()),
         a => a,
     }
 }
 
-pub fn unify(
-    s: Term<String>,
-    t: Term<String>,
-    mut subs: HashMap<Term<String>, Term<String>>,
-) -> Option<HashMap<Term<String>, Term<String>>> {
-    let mut stack: Vec<(Term<String>, Term<String>)> = vec![(s, t)];
+pub fn unify(s: Type, t: Type, mut subs: HashMap<Type, Type>) -> Option<HashMap<Type, Type>> {
+    let mut stack: Vec<(Type, Type)> = vec![(s, t)];
 
     while !stack.is_empty() {
         let (mut s, mut t) = stack.pop().unwrap();
 
         while subs.contains_key(&s) {
-            s = subs.get(&s).unwrap().clone()
+            s = subs.get(&s).unwrap().clone();
         }
 
         while subs.contains_key(&t) {
-            t = subs.get(&t).unwrap().clone()
+            t = subs.get(&t).unwrap().clone();
         }
 
         if s != t {
-            match (&s, &t) {
-                (&Term::Var(_), &Term::Var(_)) => {
-                    subs.insert(s.clone(), t.clone());
+            match (s.clone(), t.clone()) {
+                (Type::Var(_), Type::Var(_)) => {
+                    subs.insert(s, t);
                 }
-                (&Term::Number(_), &Term::Number(_)) => {
-                    subs.insert(s.clone(), t.clone());
+                (Type::Var(_), Type::NumVar(_)) => {
+                    subs.insert(s, t);
                 }
-                (&Term::Var(_), &Term::Number(_)) => {
-                    subs.insert(s.clone(), t.clone());
+                (Type::NumVar(_), Type::Var(_)) => {
+                    subs.insert(t, s);
                 }
-                (&Term::Number(_), &Term::Var(_)) => {
-                    subs.insert(t.clone(), s.clone());
-                }
-                (&Term::Var(_), _) => {
-                    if occurs_check(&s, &t, &mut subs) {
-                        subs.insert(s.clone(), t.clone());
+                (Type::Var(_), _) => {
+                    if occurs_check(s.clone(), t.clone(), &mut subs) {
+                        subs.insert(s, t);
                     } else {
                         return None;
                     }
                 }
-                (_, &Term::Var(_)) => {
-                    if occurs_check(&t, &s, &mut subs) {
-                        subs.insert(t.clone(), s.clone());
+                (_, Type::Var(_)) => {
+                    if occurs_check(s.clone(), t.clone(), &mut subs) {
+                        subs.insert(t, s);
                     } else {
                         return None;
                     }
                 }
-                (&Term::Number(_), a)
-                    if a == &Term::Const("u8".to_string())
-                        || a == &Term::Const("u16".to_string())
-                        || a == &Term::Const("u32".to_string())
-                        || a == &Term::Const("u64".to_string())
-                        || a == &Term::Const("i8".to_string())
-                        || a == &Term::Const("i16".to_string())
-                        || a == &Term::Const("i32".to_string())
-                        || a == &Term::Const("i64".to_string()) =>
+                (Type::NumVar(_), a)
+                    if a == Type::U8
+                        || a == Type::U16
+                        || a == Type::U32
+                        || a == Type::U64
+                        || a == Type::I8
+                        || a == Type::I16
+                        || a == Type::I32
+                        || a == Type::I64 =>
                 {
-                    subs.insert(s.clone(), a.clone());
+                    subs.insert(s, a);
                 }
-                (a, &Term::Number(_))
-                    if a == &Term::Const("u8".to_string())
-                        || a == &Term::Const("u16".to_string())
-                        || a == &Term::Const("u32".to_string())
-                        || a == &Term::Const("u64".to_string())
-                        || a == &Term::Const("i8".to_string())
-                        || a == &Term::Const("i16".to_string())
-                        || a == &Term::Const("i32".to_string())
-                        || a == &Term::Const("i64".to_string()) =>
+                (a, Type::NumVar(_))
+                    if a == Type::U8
+                        || a == Type::U16
+                        || a == Type::U32
+                        || a == Type::U64
+                        || a == Type::I8
+                        || a == Type::I16
+                        || a == Type::I32
+                        || a == Type::I64 =>
                 {
-                    subs.insert(t.clone(), a.clone());
+                    subs.insert(t, a);
                 }
-                (
-                    &Term::Composite(ref s_name, ref s_terms),
-                    &Term::Composite(ref t_name, ref t_terms),
-                ) => {
-                    if s_name == t_name && s_terms.len() == t_terms.len() {
-                        for (s, t) in s_terms.iter().zip(t_terms) {
-                            stack.push((s.clone(), t.clone()));
-                        }
-                    } else {
-                        return None;
+                (Type::Generic(ass, b), Type::Generic(cs, d)) => {
+                    for (a, c) in ass.into_iter().zip(cs) {
+                        stack.push((a, c));
+                    }
+
+                    stack.push((*b, *d));
+                }
+                (Type::Arrow(a, b), Type::Arrow(c, d)) => {
+                    stack.push((*a, *c));
+                    stack.push((*b, *d));
+                }
+                (Type::Tuple(ass), Type::Tuple(bs)) => {
+                    for (a, b) in ass.into_iter().zip(bs) {
+                        stack.push((a, b));
                     }
                 }
                 (_, _) => return None,

@@ -88,15 +88,6 @@ impl Module {
 
         writeln!(self)?;
 
-        // Output imported function prototypes
-        for (name, t) in tree.import_funcs {
-            let (args, out) = match t {
-                LLVMType::Func(a, b) => (a, b),
-                _ => panic!(),
-            };
-            writeln!(self, "declare {out} @{name} ({args})")?;
-        }
-
         // Output all enum types
         for (name, t) in tree.enums.iter() {
             writeln!(self, "%{} = type {}", name, t)?;
@@ -492,16 +483,6 @@ impl LIRExpression {
                 body.compile(module, named_vars, out, types)
             }
             Self::Unit => Ok(None),
-            Self::List(es, _) => {
-                let last_i = es.len() - 1;
-                for i in 0..last_i {
-                    es[i]
-                        .clone()
-                        .compile(module, named_vars.clone(), None, types)?;
-                }
-
-                es[last_i].clone().compile(module, named_vars, out, types)
-            }
             Self::GetTuple(tup, i, _) => {
                 let t = tup.ty();
                 let tup = tup.compile(module, named_vars, None, types)?.unwrap();

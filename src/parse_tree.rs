@@ -7,7 +7,7 @@ pub struct ParseTree {
     pub types: Vec<(String, DataDecl)>,
 
     pub external: HashSet<String>,
-    pub typedecls: HashMap<String, Type>,
+    pub typedecls: HashMap<String, QualType>,
 
     pub typefuns: HashMap<String, TypeFun>,
     pub impls: Vec<Impl>,
@@ -17,7 +17,7 @@ pub struct ParseTree {
 
     pub namespaces: HashSet<String>,
     pub imports: HashSet<String>,
-    pub import_funcs: HashMap<String, Type>,
+    pub import_funcs: HashMap<String, QualType>,
 }
 
 #[derive(Debug, Clone)]
@@ -65,8 +65,14 @@ pub struct TypeCons {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub struct Constraint(pub String, pub Vec<Type>);
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub struct QualType(pub Vec<Constraint>, pub Type);
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum Type {
-    ForAll(Vec<String>, Box<Type>),
+    ForAll(Vec<String>, Vec<crate::mir::Constraint>, Box<Type>),
     Generic(Vec<Type>, Box<Type>),
     Arrow(Box<Type>, Box<Type>),
     Tuple(Vec<Type>),
@@ -129,11 +135,11 @@ impl Type {
                     .map(|t| t.remove_recursion(name, data))
                     .collect(),
             ),
-            Type::ForAll(vars, t) => {
+            Type::ForAll(vars, cons, t) => {
                 if vars.contains(&name.to_string()) {
-                    Type::ForAll(vars, t)
+                    Type::ForAll(vars, cons, t)
                 } else {
-                    Type::ForAll(vars, Box::new(t.remove_recursion(name, data)))
+                    Type::ForAll(vars, cons, Box::new(t.remove_recursion(name, data)))
                 }
             }
             Type::Namespace(_, _) => panic!(),
@@ -188,9 +194,6 @@ pub enum Expression {
 
     /// A tuple of expressions
     Tuple(Vec<Expression>),
-
-    /// A list of expressions
-    ExprList(Vec<Expression>),
 
     /// Assign a pattern to an expression
     Let(Pattern, Box<Expression>, Box<Expression>),

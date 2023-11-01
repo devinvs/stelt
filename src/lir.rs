@@ -85,9 +85,6 @@ impl LIRExpression {
 
 #[derive(Debug)]
 pub struct LIRTree {
-    /// Set of functions defined in other llvm modules
-    pub import_funcs: HashMap<String, LLVMType>,
-
     /// Set of external function names
     pub external: HashSet<String>,
 
@@ -113,8 +110,6 @@ impl MIRTree {
         // get list of global names
         let mut globals = HashSet::new();
         globals.insert("arg.0".to_string());
-
-        globals.extend(self.import_funcs.clone().into_keys());
 
         let mut func_types = HashMap::new();
         let mut funcs = HashMap::new();
@@ -183,8 +178,6 @@ impl MIRTree {
                 global_funcs.insert(e.clone());
             }
         }
-        global_funcs.extend(self.import_funcs.clone().into_keys());
-
         let mut externs = HashSet::new();
         externs.extend(self.external.iter().map(|s| s.clone()));
 
@@ -219,7 +212,7 @@ impl MIRTree {
         // add all types of functions that we know
         for (f, t) in self.typedecls.iter() {
             let t = match t.clone() {
-                Type::ForAll(_, a) => *a,
+                Type::ForAll(_, _, a) => *a,
                 a => a,
             };
 
@@ -254,14 +247,7 @@ impl MIRTree {
             extern_types.insert(f.clone(), (from, to));
         }
 
-        let import_funcs = self
-            .import_funcs
-            .into_iter()
-            .map(|(name, t)| (name, LLVMType::from_type(t)))
-            .collect();
-
         LIRTree {
-            import_funcs,
             external: self.external,
             extern_types,
             func_types,
@@ -298,8 +284,6 @@ pub enum LIRExpression {
         Box<LIRExpression>,
         LLVMType,
     ),
-
-    List(Vec<LIRExpression>, LLVMType),
 
     LetThunk(String, Box<LIRExpression>, Box<LIRExpression>, LLVMType),
     GotoThunk(String, LLVMType),
@@ -374,13 +358,6 @@ impl LIRExpression {
                 let mut free = vec![];
                 free.extend(f.free_non_globals(vars));
                 free.extend(args.free_non_globals(vars));
-                free
-            }
-            Self::List(es, _) => {
-                let mut free = vec![];
-                for e in es {
-                    free.extend(e.free_non_globals(vars))
-                }
                 free
             }
             Self::CastTuple(..) => vec![],
@@ -640,22 +617,6 @@ impl LIRExpression {
                 let t = subs.get(&s).unwrap_or(&t).clone();
                 (Self::Identifier(s, t), HashMap::new())
             }
-            Self::List(es, _) => {
-                let mut cs = HashMap::new();
-                let mut newes = vec![];
-
-                let mut ts = vec![];
-
-                for e in es {
-                    let id = freshen_var(id.clone(), &cs);
-                    let (e, newcs) = e.extract_funcs(&id, types, globals, subs);
-                    ts.push(e.ty());
-                    newes.push(e);
-                    cs.extend(newcs.into_iter());
-                }
-
-                (Self::List(newes, ts.last().unwrap().clone()), cs)
-            }
             Self::GetTuple(tup, i, t) => {
                 let (tup, cs) = tup.extract_funcs(id, types, globals, subs);
                 (Self::GetTuple(Box::new(tup), i, t), cs)
@@ -711,7 +672,6 @@ impl LIRExpression {
             Self::If(_, _, _, t) => t.clone(),
             Self::Num(_, t) => t.clone(),
             Self::Tuple(_, t) => t.clone(),
-            Self::List(_, t) => t.clone(),
             Self::CheckTuple(_, _, t) => t.clone(),
             Self::CastTuple(_, _, t) => t.clone(),
             Self::ExternCall(_, _, t) => t.clone(),
@@ -752,15 +712,6 @@ impl LIRExpression {
                 let x = Box::new(x.replace(id, e.clone()));
                 let body = Box::new(body.replace(id, e));
                 Self::Let1(n, x, body, t)
-            }
-            Self::List(es, t) => {
-                let mut new = vec![];
-
-                for exp in es {
-                    new.push(exp.replace(id, e.clone()))
-                }
-
-                Self::List(new, t)
             }
             Self::Box(exp, t) => Self::Box(Box::new(exp.replace(id, e)), t),
             Self::Unbox(exp, t) => Self::Unbox(Box::new(exp.replace(id, e)), t),
@@ -922,12 +873,6 @@ impl MIRExpression {
             }
             Self::Num(n, t) => LIRExpression::Num(n, LLVMType::from_type(t.unwrap())),
             Self::Tuple(es, t) => LIRExpression::Tuple(
-                es.into_iter()
-                    .map(|e| e.lower(vars, global, externs, eq_impls))
-                    .collect(),
-                LLVMType::from_type(t.unwrap()),
-            ),
-            Self::List(es, t) => LIRExpression::List(
                 es.into_iter()
                     .map(|e| e.lower(vars, global, externs, eq_impls))
                     .collect(),

@@ -60,11 +60,6 @@ impl MIRExpression {
                 inner.extend(es.iter().map(|e| e.to_sexpr()));
                 SExpr::List(inner)
             }
-            MIRExpression::List(es, _) => {
-                let mut inner = vec![SExpr::Atom("list".to_string())];
-                inner.extend(es.iter().map(|e| e.to_sexpr()));
-                SExpr::List(inner)
-            }
             MIRExpression::Match(e, ps, _) => {
                 let mut inner = vec![SExpr::Atom("match".to_string()), e.to_sexpr()];
 
