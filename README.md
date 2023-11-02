@@ -23,6 +23,20 @@ Yet Another Programming Language
   - outside of ffi of course
 + rust-like unsafe (todo)
 
+Anti-features
++ currying by default
++ macros
++ hidden control flow
++ using the M word
+
+Things I'm thinking about:
++ zig-like async
++ compile time definitions
++ no partial functions in std
+  - makes math hard (why division why?)
+    + default to 0 for special operator like pony?
+      - we will see
+
 ### performance < usability < safety
 
 The general guiding principle is to encourage developers to
