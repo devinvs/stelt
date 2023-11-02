@@ -1,6 +1,8 @@
 Things that need to be done for this to be a real language (in no particular order):
 
 Compiler:
+- imports that make sense
+- type aliases
 - self hosting compiler
 - reference counting gc
 - type constraints
