@@ -115,7 +115,6 @@ fn compile(path: &Path, outdir: &Path) {
 
     // Now compile :)
     for (name, mut mir) in modules_mir.into_iter() {
-        eprintln!("checking {name}");
         let mut checker = TypeChecker::default();
         match checker.check_program(&mut mir, &impl_map) {
             Ok(_) => {}
@@ -128,13 +127,17 @@ fn compile(path: &Path, outdir: &Path) {
         let mir = mir.with_concrete_types(&impl_map);
         let lir = mir.lower(&impl_map);
 
-        eprintln!("{lir:#?}");
-
         let out_path = outdir.join(Path::new(&format!("{}.ll", name)));
 
         let out = File::create(out_path).unwrap();
         let mut module = Module::new(Box::new(out));
 
-        module.compile(lir).unwrap();
+        let main = lir
+            .funcs
+            .keys()
+            .find(|s| s.ends_with(".main"))
+            .map(|s| s.clone());
+
+        module.compile(lir, main).unwrap();
     }
 }

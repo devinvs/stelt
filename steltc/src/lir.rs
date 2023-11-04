@@ -181,7 +181,6 @@ impl MIRTree {
         let mut externs = HashSet::new();
         externs.extend(self.external.iter().map(|s| s.clone()));
 
-        eprintln!("{impl_map:#?}");
         let eq_impls = &impl_map["main.eq"];
 
         // lower all the mir functions to lir expressions
@@ -303,7 +302,6 @@ pub enum LIRExpression {
 
     Box(Box<LIRExpression>, LLVMType),
     Unbox(Box<LIRExpression>, LLVMType),
-    Error(String),
 
     NullClosure(String, LLVMType),
 
@@ -314,7 +312,6 @@ impl LIRExpression {
     fn free_non_globals(&self, vars: &HashSet<String>) -> Vec<(String, LLVMType)> {
         match self {
             Self::True | Self::False => vec![],
-            Self::Error(..) => vec![],
             Self::Num(..) => vec![],
             Self::Str(..) => vec![],
             Self::Unit => vec![],
@@ -669,7 +666,6 @@ impl LIRExpression {
             Self::Unit => LLVMType::Void,
             Self::Call(_, _, t) => t.clone(),
             Self::GlobalCall(_, _, t) => t.clone(),
-            Self::Error(_) => LLVMType::Void,
             Self::Identifier(_, t) => t.clone(),
             Self::Lambda1(_, _, t) => t.clone(),
             Self::Str(..) => LLVMType::Str,
@@ -899,7 +895,17 @@ impl MIRExpression {
         eq_impls: &Vec<(String, Type)>,
     ) -> LIRExpression {
         if pats.is_empty() {
-            LIRExpression::Error("No patterns matched".to_string())
+            panic!("Ran out of patterns");
+        } else if pats.len() == 1 {
+            let (pat, exp) = &pats[0];
+            Self::match_pattern_last(
+                pat.clone(),
+                LIRExpression::Identifier(x, LLVMType::from_type(pat.ty())),
+                exp.clone().lower(vars, global, externs, eq_impls),
+                ty,
+                vars,
+                eq_impls,
+            )
         } else {
             let thunk_name = crate::gen_var("thunk");
             let fail = Self::match_code(
@@ -933,6 +939,66 @@ impl MIRExpression {
             );
 
             LIRExpression::LetThunk(thunk_name, Box::new(fail), Box::new(first), ty)
+        }
+    }
+
+    fn match_pattern_last(
+        pat: Pattern,
+        exp: LIRExpression,
+        yes: LIRExpression,
+        ty: LLVMType,
+        vars: &HashMap<String, Vec<(String, LLVMType)>>,
+        eq_impls: &Vec<(String, Type)>,
+    ) -> LIRExpression {
+        match pat {
+            Pattern::Unit(_) => yes,
+            Pattern::Num(..) | Pattern::Unit(_) | Pattern::True | Pattern::False => yes,
+            Pattern::Var(x, _) => {
+                LIRExpression::Let1(x, Box::new(exp), Box::new(yes.clone()), yes.ty())
+            }
+            Pattern::Tuple(ps, _) => {
+                // due to type checking this is already guaranteed to be a tuple, so instead we
+                // just verify/gen ir for the components
+                Self::match_components_last(&ps, 0, exp, yes, vars, eq_impls)
+            }
+            Pattern::Cons(n, args, t) => {
+                let t = t.unwrap();
+                let tname = t.to_string();
+
+                if let Some(var) = vars.get(&tname) {
+                    // number of enum to check against,
+                    let (enum_id, (_, enum_t)) =
+                        var.iter().enumerate().find(|s| s.1 .0 == n).unwrap();
+
+                    let ps = match *args {
+                        Pattern::Tuple(ps, _) => ps,
+                        _ => vec![*args],
+                    };
+
+                    let v = crate::gen_var("f");
+
+                    LIRExpression::Let1(
+                        v.clone(),
+                        Box::new(LIRExpression::CastTuple(
+                            Box::new(exp),
+                            format!("{}.{}", tname, n),
+                            enum_t.clone(),
+                        )),
+                        Box::new(Self::match_components_last(
+                            &ps,
+                            1,
+                            LIRExpression::Identifier(v.clone(), enum_t.clone()),
+                            yes.clone(),
+                            vars,
+                            eq_impls,
+                        )),
+                        ty.clone(),
+                    )
+                } else {
+                    Self::match_pattern_last(*args, exp, yes, ty, vars, eq_impls)
+                }
+            }
+            Pattern::Any(_) => yes,
         }
     }
 
@@ -1087,6 +1153,57 @@ impl MIRExpression {
             };
 
             Self::match_pattern(p.clone(), newe, rest, no, exp.ty(), vars, eq_impls)
+        }
+    }
+
+    fn match_components_last(
+        ps: &[Pattern],
+        n: usize,
+        exp: LIRExpression,
+        yes: LIRExpression,
+        vars: &HashMap<String, Vec<(String, LLVMType)>>,
+        eq_impls: &Vec<(String, Type)>,
+    ) -> LIRExpression {
+        if ps.is_empty() {
+            yes
+        } else {
+            let p = &ps[0];
+            let rest =
+                Self::match_components_last(&ps[1..], n + 1, exp.clone(), yes, vars, eq_impls);
+
+            let pt = LLVMType::from_type(p.ty());
+            let et = match exp.ty() {
+                LLVMType::Struct(ts) => ts.get(n).cloned().unwrap_or(LLVMType::Void),
+                a => panic!("{a:?}"),
+            };
+
+            // check for unbox
+            let et_is_ptr = if let LLVMType::Ptr(_) = et {
+                true
+            } else {
+                false
+            };
+
+            let pt_is_ptr = if let LLVMType::Ptr(_) = pt {
+                true
+            } else {
+                false
+            };
+
+            let newe = if et_is_ptr && !pt_is_ptr {
+                LIRExpression::Unbox(
+                    Box::new(LIRExpression::GetTuple(
+                        Box::new(exp.clone()),
+                        n,
+                        LLVMType::Ptr(Box::new(LLVMType::Void)), // type shouldn't matter fingers crossed
+                    )),
+                    pt,
+                )
+            } else {
+                LIRExpression::GetTuple(Box::new(exp.clone()), n, pt)
+            };
+
+            Self::match_pattern_last(p.clone(), newe, rest, exp.ty(), vars, eq_impls)
         }
     }
 }

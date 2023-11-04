@@ -61,7 +61,7 @@ impl Module {
         self.i = 1;
     }
 
-    pub fn compile(&mut self, tree: LIRTree) -> Result<(), Box<dyn Error>> {
+    pub fn compile(&mut self, tree: LIRTree, main: Option<String>) -> Result<(), Box<dyn Error>> {
         writeln!(self, "declare ptr @malloc(i64) nounwind")?;
 
         // Output extern functions
@@ -218,7 +218,6 @@ impl Module {
         let mut named_vars = HashMap::new();
         named_vars.insert("arg.0".to_string(), "%arg.0".to_string());
         for (name, expr) in tree.funcs {
-            eprintln!("compile {name}");
             // get function type
             let (from, to) = tree.func_types.get(&name).unwrap();
 
@@ -241,6 +240,14 @@ impl Module {
 
             writeln!(self, "}}\n")?;
             self.reset();
+        }
+
+        // Emit the real main function
+        if let Some(main) = main {
+            writeln!(self, "define i32 @main(i32 %argc, ptr %argv) {{")?;
+            writeln!(self, "\tcall void @{}()", main)?;
+            writeln!(self, "\tret i32 0")?;
+            writeln!(self, "}}\n")?;
         }
 
         // Emit string definitions
@@ -505,7 +512,6 @@ impl LIRExpression {
 
                 Ok(Some(out))
             }
-            Self::Error(_) => Ok(Some("poison".to_string())),
             Self::CastTuple(exp, ty, _) => {
                 let base = exp.ty();
                 let exp = exp.compile(module, named_vars, None, types)?.unwrap();
