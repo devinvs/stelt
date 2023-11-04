@@ -951,7 +951,6 @@ impl MIRExpression {
         eq_impls: &Vec<(String, Type)>,
     ) -> LIRExpression {
         match pat {
-            Pattern::Unit(_) => yes,
             Pattern::Num(..) | Pattern::Unit(_) | Pattern::True | Pattern::False => yes,
             Pattern::Var(x, _) => {
                 LIRExpression::Let1(x, Box::new(exp), Box::new(yes.clone()), yes.ty())
@@ -967,7 +966,7 @@ impl MIRExpression {
 
                 if let Some(var) = vars.get(&tname) {
                     // number of enum to check against,
-                    let (enum_id, (_, enum_t)) =
+                    let (_enum_id, (_, enum_t)) =
                         var.iter().enumerate().find(|s| s.1 .0 == n).unwrap();
 
                     let ps = match *args {

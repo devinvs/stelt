@@ -8,6 +8,7 @@ lazy_static! {
         let mut m = HashMap::new();
 
         // Keywords
+        m.insert("pub", Token::Pub);
         m.insert("def", Token::Def);
         m.insert("let", Token::Let);
         m.insert("in", Token::In);
@@ -163,6 +164,7 @@ impl LexemeFeed for TokenStream {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Token {
     // Keywords
+    Pub,
     Def,
     Type,
     Let,
@@ -242,6 +244,7 @@ pub enum Token {
 impl Token {
     pub fn name(&self) -> String {
         match self {
+            Self::Pub => "pub",
             Self::True => "True",
             Self::False => "False",
             Self::Bool => "bool",
