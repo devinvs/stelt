@@ -27,7 +27,7 @@ lazy_static! {
             defs: HashMap::new(),
             external: HashSet::new(),
             imports: HashSet::new(),
-            import_funcs: HashMap::new(),
+            import_idents: HashSet::new(),
             typefuns: HashMap::new(),
             impls: Vec::new(),
         };

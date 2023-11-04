@@ -88,6 +88,19 @@ impl Module {
 
         writeln!(self)?;
 
+        // Output all imported functions from other modules
+        for name in tree.import_idents {
+            if let Some((from, to)) = tree.func_types.get(&name) {
+                let args = if *from == LLVMType::Void {
+                    "".to_string()
+                } else {
+                    format!("{}", from)
+                };
+
+                writeln!(self, "declare fastcc {to} @{name}({})", args)?;
+            }
+        }
+
         // Output all enum types
         for (name, t) in tree.enums.iter() {
             writeln!(self, "%{} = type {}", name, t)?;
@@ -221,7 +234,7 @@ impl Module {
             // get function type
             let (from, to) = tree.func_types.get(&name).unwrap();
 
-            let vis = if name == "main" { "" } else { "private " };
+            let vis = if name == "main" { "" } else { "" };
 
             if *from == LLVMType::Void {
                 writeln!(self, "define {vis}fastcc {to} @{name}() {{")?;

@@ -16,7 +16,7 @@ pub struct ParseTree {
     pub defs: HashMap<String, Expression>,
 
     pub imports: HashSet<String>,
-    pub import_funcs: HashMap<String, QualType>,
+    pub import_idents: HashSet<String>,
 }
 
 #[derive(Debug, Clone)]

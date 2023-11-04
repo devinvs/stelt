@@ -52,6 +52,7 @@ pub struct MIRTree {
     pub typedecls: HashMap<String, Type>,
     pub funcs: HashMap<String, MIRExpression>,
     pub defs: HashMap<String, MIRExpression>,
+    pub import_idents: HashSet<String>,
 
     pub constructors: HashMap<String, Type>,
     pub declarations: HashMap<String, Type>,
@@ -170,6 +171,7 @@ impl MIRTree {
             defs,
             constructors,
             declarations,
+            import_idents: tree.import_idents,
         }
     }
 

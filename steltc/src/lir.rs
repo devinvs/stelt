@@ -103,6 +103,8 @@ pub struct LIRTree {
     pub funcs: HashMap<String, LIRExpression>,
 
     pub type_sizes: HashMap<String, usize>,
+
+    pub import_idents: HashSet<String>,
 }
 
 impl MIRTree {
@@ -178,6 +180,8 @@ impl MIRTree {
                 global_funcs.insert(e.clone());
             }
         }
+        global_funcs.extend(self.import_idents.clone());
+
         let mut externs = HashSet::new();
         externs.extend(self.external.iter().map(|s| s.clone()));
 
@@ -201,6 +205,9 @@ impl MIRTree {
         for (v, _) in variants.iter() {
             globals.insert(v.clone());
         }
+
+        // ig add imported types as globals as well
+        globals.extend(self.import_idents.clone());
 
         // extract all the functions from the lir
         let mut extracted_funcs = HashMap::new();
@@ -255,6 +262,7 @@ impl MIRTree {
             enums,
             variants,
             type_sizes,
+            import_idents: self.import_idents,
         }
     }
 }

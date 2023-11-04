@@ -257,6 +257,7 @@ impl ParseTree {
         //    a typefunction. generic functions need to be
         //    recursively resolved in a breadth first manner
         //    to account for cycles
+        self.import_idents = imported_idents.clone().into_iter().collect();
 
         for name in imported_data {
             let mod_name = name.rsplit_once(".").unwrap().0;
