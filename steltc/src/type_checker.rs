@@ -39,8 +39,15 @@ pub struct TypeChecker {
 // yeah
 
 impl TypeChecker {
-    pub fn check_program(&mut self, tree: &mut MIRTree) -> Result<(), String> {
+    pub fn check_program(
+        &mut self,
+        tree: &mut MIRTree,
+        impl_map: &HashMap<String, Vec<(String, Type)>>,
+    ) -> Result<(), String> {
         let mut builtins = HashMap::new();
+
+        // llvm! macro always has the correct output type. Only
+        // suitable when the output type is not generic.
         builtins.insert(
             "llvm!".to_string(),
             Type::ForAll(
@@ -71,7 +78,7 @@ impl TypeChecker {
                 &tree.constructors,
                 &tree.declarations,
                 def,
-                &tree.impl_map,
+                impl_map,
                 ty.clone(),
             )?;
             def.apply(&subs)
@@ -86,7 +93,7 @@ impl TypeChecker {
                 &tree.constructors,
                 &tree.declarations,
                 func,
-                &tree.impl_map,
+                impl_map,
                 ty.clone(),
             )?;
         }
@@ -116,8 +123,6 @@ impl TypeChecker {
         let (subs, cons) = self.judge_type(b, c, d, e, simple.clone(), HashMap::new())?;
         e.apply(&subs);
 
-        // eprintln!("{:#?}", e);
-
         // Check constraints against generic constraints and impls
         // Since all constraints have already been expanded via their
         // typefunctions we just do type unification on the needed type
@@ -137,7 +142,7 @@ impl TypeChecker {
 
             // Next we check the implementations of this type function
             for (_, ty) in impls[&tfname].iter() {
-                eprintln!("check {ty:?}");
+                let ty = self.gen_fresh_type(ty).0;
                 if unify(ty.clone(), t.clone(), subs.clone()).is_some() {
                     continue 'outer;
                 }
@@ -205,6 +210,14 @@ impl TypeChecker {
         Ok((subs, vec![]))
     }
 
+    fn judge_bool(&self, t: Type, subs: Theta) -> Result<(Theta, Vec<Constraint>), String> {
+        let subs = unify(Type::Bool, t.clone(), subs.clone()).ok_or_else(|| {
+            let realtype = apply_unifier(t, &subs);
+            format!("Type mismatch: Expected bool found {:?}", realtype)
+        })?;
+        Ok((subs, vec![]))
+    }
+
     fn judge_num(
         &mut self,
         e: &mut Expression,
@@ -214,7 +227,9 @@ impl TypeChecker {
         let v = self.gen_num_var();
         e.set_type(v.clone());
         let subs = unify(v.clone(), t.clone(), subs.clone()).ok_or_else(|| {
-            let realtype = apply_unifier(t, &subs);
+            let realtype = apply_unifier(t.clone(), &subs);
+            eprintln!("{subs:#?}");
+            eprintln!("{t:?} vs {v:?}");
             format!("Type Mismatch: Expected {v:?} found {:?}", realtype)
         })?;
         Ok((subs, vec![]))
@@ -430,6 +445,7 @@ impl TypeChecker {
     ) -> Result<(Theta, Vec<Constraint>), String> {
         match e {
             Expression::Unit(..) => self.judge_unit(t, subs),
+            Expression::True | Expression::False => self.judge_bool(t, subs),
             Expression::Num(..) => self.judge_num(e, t, subs),
             Expression::Identifier(..) => self.judge_var(builtins, cons, defs, e, t, subs),
             Expression::Tuple(..) => self.judge_tuple(builtins, cons, defs, e, t, subs),
@@ -564,7 +580,7 @@ impl TypeChecker {
     ) -> Result<(Theta, Vec<Constraint>), String> {
         match p {
             Pattern::Any(..) => Ok((subs, vec![])),
-            Pattern::Namespace(..) => panic!(),
+            Pattern::True | Pattern::False => self.judge_bool(t, subs),
             Pattern::Unit(..) => self.judge_unit(t, subs),
             Pattern::Num(..) => self.judge_pattern_num(p, t, subs),
             Pattern::Var(..) => self.judge_pattern_var(d, p, t, subs),

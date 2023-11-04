@@ -90,6 +90,9 @@ pub fn unify(s: Type, t: Type, mut subs: HashMap<Type, Type>) -> Option<HashMap<
                 (Type::NumVar(_), Type::Var(_)) => {
                     subs.insert(t, s);
                 }
+                (Type::NumVar(_), Type::NumVar(_)) => {
+                    subs.insert(s, t);
+                }
                 (Type::Var(_), _) => {
                     if occurs_check(s.clone(), t.clone(), &mut subs) {
                         subs.insert(s, t);

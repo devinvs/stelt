@@ -15,7 +15,7 @@ macro_rules! eq_type {
     ($i:expr) => {
         Type::Arrow(
             Box::new(Type::Tuple(vec![$i.clone(), $i.clone()])),
-            Box::new(Type::Ident("bool".to_string())),
+            Box::new(Type::Bool),
         )
     };
 }
@@ -106,7 +106,7 @@ pub struct LIRTree {
 }
 
 impl MIRTree {
-    pub fn lower(self) -> LIRTree {
+    pub fn lower(self, impl_map: &HashMap<String, Vec<(String, Type)>>) -> LIRTree {
         // get list of global names
         let mut globals = HashSet::new();
         globals.insert("arg.0".to_string());
@@ -181,7 +181,8 @@ impl MIRTree {
         let mut externs = HashSet::new();
         externs.extend(self.external.iter().map(|s| s.clone()));
 
-        let eq_impls = &self.impl_map["eq"];
+        eprintln!("{impl_map:#?}");
+        let eq_impls = &impl_map["main.eq"];
 
         // lower all the mir functions to lir expressions
         for (f, expr) in self.funcs {
@@ -293,6 +294,8 @@ pub enum LIRExpression {
     Str(String),        // A String Literal, stores index into constant string array
     Unit,
     Tuple(Vec<LIRExpression>, LLVMType),
+    True,
+    False,
 
     GetTuple(Box<LIRExpression>, usize, LLVMType),
     CheckTuple(Box<LIRExpression>, usize, LLVMType),
@@ -310,6 +313,7 @@ pub enum LIRExpression {
 impl LIRExpression {
     fn free_non_globals(&self, vars: &HashSet<String>) -> Vec<(String, LLVMType)> {
         match self {
+            Self::True | Self::False => vec![],
             Self::Error(..) => vec![],
             Self::Num(..) => vec![],
             Self::Str(..) => vec![],
@@ -658,6 +662,7 @@ impl LIRExpression {
 
     pub fn ty(&self) -> LLVMType {
         match self {
+            Self::True | Self::False => LLVMType::I1,
             Self::LetThunk(_, _, _, t) => t.clone(),
             Self::GotoThunk(_, t) => t.clone(),
             Self::GetTuple(_, _, t) => t.clone(),
@@ -729,6 +734,8 @@ impl MIRExpression {
         eq_impls: &Vec<(String, Type)>,
     ) -> LIRExpression {
         match self {
+            Self::True => LIRExpression::True,
+            Self::False => LIRExpression::False,
             Self::Call(f, args, t) => {
                 let args = args.lower(vars, global, externs, eq_impls);
 
@@ -943,24 +950,22 @@ impl MIRExpression {
                 // since this passed type checking this always evaluates to true
                 yes
             }
+            Pattern::True => LIRExpression::If(Box::new(exp), Box::new(yes), Box::new(no), ty),
+            Pattern::False => LIRExpression::If(Box::new(exp), Box::new(no), Box::new(yes), ty),
             Pattern::Num(n, t) => LIRExpression::If(
-                Box::new(LIRExpression::CheckTuple(
-                    Box::new(LIRExpression::GlobalCall(
-                        // Find the name of the function who implements eq for this num type
-                        resolve_typefn(eq_impls, eq_type!(t.as_ref().unwrap())).unwrap(),
-                        Box::new(LIRExpression::Tuple(
-                            vec![
-                                exp,
-                                LIRExpression::Num(n, LLVMType::from_type(t.clone().unwrap())),
-                            ],
-                            LLVMType::Struct(vec![
-                                LLVMType::from_type(t.clone().unwrap()),
-                                LLVMType::from_type(t.unwrap()),
-                            ]),
-                        )),
-                        LLVMType::Named("bool".to_string()),
+                Box::new(LIRExpression::GlobalCall(
+                    // Find the name of the function who implements eq for this num type
+                    resolve_typefn(eq_impls, eq_type!(t.as_ref().unwrap())).unwrap(),
+                    Box::new(LIRExpression::Tuple(
+                        vec![
+                            exp,
+                            LIRExpression::Num(n, LLVMType::from_type(t.clone().unwrap())),
+                        ],
+                        LLVMType::Struct(vec![
+                            LLVMType::from_type(t.clone().unwrap()),
+                            LLVMType::from_type(t.unwrap()),
+                        ]),
                     )),
-                    1,
                     LLVMType::I1,
                 )),
                 Box::new(yes),
@@ -1023,7 +1028,6 @@ impl MIRExpression {
                 }
             }
             Pattern::Any(_) => yes,
-            a => unimplemented!("{a:?}"),
         }
     }
 

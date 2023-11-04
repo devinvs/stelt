@@ -24,6 +24,9 @@ lazy_static! {
         m.insert("import", Token::Import);
         m.insert("where", Token::Where);
 
+        m.insert("True", Token::True);
+        m.insert("False", Token::False);
+
         // Built types
         m.insert("u8", Token::U8);
         m.insert("u16", Token::U16);
@@ -33,6 +36,7 @@ lazy_static! {
         m.insert("i16", Token::I16);
         m.insert("i32", Token::I32);
         m.insert("i64", Token::I64);
+        m.insert("bool", Token::Bool);
 
         // Operators
         m.insert("+", Token::Plus);
@@ -176,7 +180,11 @@ pub enum Token {
     Where,
     Underscore,
 
+    True,
+    False,
+
     // Builtin Types
+    Bool,
     U8,
     U16,
     U32,
@@ -234,6 +242,9 @@ pub enum Token {
 impl Token {
     pub fn name(&self) -> String {
         match self {
+            Self::True => "True",
+            Self::False => "False",
+            Self::Bool => "bool",
             Self::Where => "where",
             Self::With => "with",
             Self::Then => "then",

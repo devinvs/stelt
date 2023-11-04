@@ -1,8 +1,3 @@
-// a boolean value, either false or true
-// by specifying False first it will be equivalent to 0 and thus play nice
-// with other languages
-type bool = False | True
-
 // a character is a 32bit integer.
 // this allows for representing all unicode code points
 // it is represented as a new type since not all integers are valid chars
@@ -16,42 +11,6 @@ type maybe<a> = None | Some(a)
 // A recursive linked list, in all its glory
 type list<a> = Nil | Cons(a, list<a>)
 
-type unrolledlist<a> = ([a; 4], maybe<packedlist<a>>)
-
-
-type not: bool -> bool
-not(True) = False
-not(False) = True
-
-type and: (bool, bool) -> bool
-and(True, True) = True
-and(_, _) = False
-
-type or: (bool, bool) -> bool
-or(False, False) = False
-or(_, _) = True
-
-type xor: (bool, bool) -> bool
-xor(True, False) = True
-xor(False, True) = True
-xor(_, _) = False
-
-// an iterator is defined simply as just having being able to retreive the next element
-typefn next(iter, out) = iter -> (out, iter)
-
-type skip: (iter, u32) -> iter
-skip(iter, 0) = iter
-skip(iter, n) = let (_, iter) = next(iter) in skip(iter, n-1)
-
-type take: (iter, u32) -> (list<out>, iter)
-take(iter, 0) = ([], iter)
-take(iter, n) =
-	let (v, iter) = next(iter) in
-	let (list, iter) = take(iter, n-1) in
-	(v::list, iter)
-
-type nth: (iter, u32) -> out
-nth(iter, n) = let (out, _) = next(skip(iter, n)) in out
 
 //
 // Here lies the math spam. This is what I get for having so many int types
@@ -212,7 +171,7 @@ mod(a, b) = llvm!("%out", "%out = srem i64 %a, %b")
 
 typefn eq(a) = (a, a) -> bool
 
-type neq<a>: (a, a) -> bool
+type neq: eq(a) => (a, a) -> bool
 neq(a, b) = !eq(a, b)
 
 impl eq(u8)
@@ -274,10 +233,10 @@ eq(a, b) = llvm!(
 impl eq(char)
 eq(Char(a), Char(b)) = a==b
 
-impl eq<a>([a])
-eq([], []) = True
-eq(a::as, b::bs) = a==b && as==bs
-eq(_, _) = False
+// impl eq([a])
+// eq([], []) = True
+// eq(a::as, b::bs) = a==b && as==bs
+// eq(_, _) = False
 
 typefn geq(a) = (a, a) -> bool
 

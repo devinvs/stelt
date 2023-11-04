@@ -35,6 +35,7 @@ impl LLVMType {
             Type::I64 => Self::I64,
             Type::U64 => Self::U64,
             Type::Unit => Self::Void,
+            Type::Bool => Self::I1,
             // convert function types into closures
             Type::Arrow(a, b) => Self::Struct(vec![
                 Self::Func(

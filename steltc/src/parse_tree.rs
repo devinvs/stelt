@@ -4,7 +4,7 @@ use std::collections::LinkedList as List;
 
 #[derive(Debug, Clone)]
 pub struct ParseTree {
-    pub types: Vec<(String, DataDecl)>,
+    pub types: HashMap<String, DataDecl>,
 
     pub external: HashSet<String>,
     pub typedecls: HashMap<String, QualType>,
@@ -15,7 +15,6 @@ pub struct ParseTree {
     pub funcs: HashMap<String, Vec<FunctionDef>>,
     pub defs: HashMap<String, Expression>,
 
-    pub namespaces: HashSet<String>,
     pub imports: HashSet<String>,
     pub import_funcs: HashMap<String, QualType>,
 }
@@ -77,7 +76,6 @@ pub enum Type {
     Arrow(Box<Type>, Box<Type>),
     Tuple(Vec<Type>),
     Ident(String),
-    Namespace(String, String),
 
     // Builtins
     U8,
@@ -88,6 +86,7 @@ pub enum Type {
     I16,
     I32,
     I64,
+    Bool,
     Unit,
     Str,
 
@@ -142,7 +141,6 @@ impl Type {
                     Type::ForAll(vars, cons, Box::new(t.remove_recursion(name, data)))
                 }
             }
-            Type::Namespace(_, _) => panic!(),
             a => a,
         }
     }
@@ -211,12 +209,11 @@ pub enum Expression {
     /// A lambda expression with pattern args and an expression body
     Lambda(Pattern, Box<Expression>),
 
-    /// Get a field from a namespace
-    Namespace(String, String),
-
     // Constant Fields
     Num(u64), // A Number Literal
     Unit,
+    True,
+    False,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -224,12 +221,13 @@ pub enum Pattern {
     Unit(Option<Type>),
 
     Num(u64, Option<Type>),
+    True,
+    False,
 
     Var(String, Option<Type>),
 
     Tuple(Vec<Pattern>, Option<Type>),
     Cons(String, Box<Pattern>, Option<Type>),
-    Namespace(String, Box<Pattern>, Option<Type>),
 
     Any(Option<Type>),
 }
@@ -259,13 +257,13 @@ impl Pattern {
 
     pub fn ty(&self) -> Type {
         match self {
+            Pattern::True | Pattern::False => &Some(Type::Bool),
             Pattern::Any(t) => t,
             Pattern::Var(_, t) => t,
             Pattern::Unit(t) => t,
             Pattern::Num(_, t) => t,
             Pattern::Tuple(_, t) => t,
             Pattern::Cons(_, _, t) => t,
-            Pattern::Namespace(_, _, t) => t,
         }
         .clone()
         .unwrap()
@@ -273,13 +271,13 @@ impl Pattern {
 
     pub fn set_type(&mut self, ty: Type) {
         match self {
+            Pattern::True | Pattern::False => {}
             Pattern::Any(t) => *t = Some(ty),
             Pattern::Var(_, t) => *t = Some(ty),
             Pattern::Unit(t) => *t = Some(ty),
             Pattern::Num(_, t) => *t = Some(ty),
             Pattern::Tuple(_, t) => *t = Some(ty),
             Pattern::Cons(_, _, t) => *t = Some(ty),
-            Pattern::Namespace(_, _, t) => *t = Some(ty),
         }
     }
 }

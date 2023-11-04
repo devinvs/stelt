@@ -2,9 +2,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 
-use crate::parse_tree::{
-    DataDecl, Expression, ParseTree, Pattern, QualType, Type, TypeCons, TypeFun,
-};
+use crate::parse_tree::{DataDecl, Expression, ParseTree, Pattern, QualType, Type, TypeCons};
 
 use crate::unify::apply_unifier;
 use crate::unify::unify;
@@ -54,14 +52,13 @@ pub struct MIRTree {
     pub typedecls: HashMap<String, Type>,
     pub funcs: HashMap<String, MIRExpression>,
     pub defs: HashMap<String, MIRExpression>,
-    pub impl_map: HashMap<String, Vec<(String, Type)>>,
 
     pub constructors: HashMap<String, Type>,
     pub declarations: HashMap<String, Type>,
 }
 
 impl MIRTree {
-    pub fn from(mut tree: ParseTree) -> Self {
+    pub fn from(tree: ParseTree) -> Self {
         // First things first: get the generic args out of the types
         // and convert to forall types
         //
@@ -92,43 +89,6 @@ impl MIRTree {
         for (name, typefn) in tree.typefuns.clone() {
             let t = typefn_type(typefn);
             declarations.insert(name, t);
-        }
-
-        // Generate a new name for each typefn impl, adding its type and body to the funcs
-        // Additionally create a map of each (typefn, type) to the new name
-        let mut impl_map = HashMap::<String, Vec<(String, Type)>>::new();
-
-        // Make sure ther is at least an empty list for every typefunction
-        for tfun in tree.typefuns.iter() {
-            impl_map.insert(tfun.0.clone(), vec![]);
-        }
-
-        for imp in tree.impls {
-            let TypeFun { name, ty, vars } = tree.typefuns.get(&imp.fn_name).unwrap();
-            let new_name = crate::gen_var(&format!("{}$", imp.fn_name));
-
-            // substitutions to go from impl to real type
-            let mut subs = HashMap::new();
-            for (var, arg) in vars.iter().zip(imp.args.iter()) {
-                subs.insert(var.clone(), arg.clone());
-            }
-
-            // Get the type of the typefun
-            let ty = typefn_type(TypeFun {
-                name: name.clone(),
-                ty: ty.clone(),
-                vars: vec![],
-            });
-            let real_type = ty.replace_all(&subs);
-
-            if let Some(impls) = impl_map.get_mut(name) {
-                impls.push((new_name.clone(), real_type.clone()));
-            } else {
-                impl_map.insert(name.clone(), vec![(new_name.clone(), real_type.clone())]);
-            }
-
-            typedecls.insert(new_name.clone(), real_type);
-            tree.funcs.insert(new_name, imp.body);
         }
 
         // Add all user defined type definitions to declarations
@@ -202,22 +162,18 @@ impl MIRTree {
             );
         });
 
-        eprintln!("{:#?}\n", typedecls);
-        eprintln!("{:#?}\n", impl_map);
-
         Self {
             external: tree.external,
-            types: tree.types,
+            types: tree.types.into_iter().collect(),
             typedecls,
             funcs,
             defs,
             constructors,
             declarations,
-            impl_map,
         }
     }
 
-    pub fn with_concrete_types(mut self) -> Self {
+    pub fn with_concrete_types(mut self, impl_map: &HashMap<String, Vec<(String, Type)>>) -> Self {
         let mut generic_decls = HashMap::new();
         let mut concrete_decls = HashMap::new();
 
@@ -258,7 +214,7 @@ impl MIRTree {
 
         while let Some((name, body)) = concrete_queue.pop_front() {
             // resolve the typefn to their implementation
-            let body = body.resolve_typefn(&self.impl_map);
+            let body = body.resolve_typefn(impl_map);
             // extract generic calls, getting a new body and a list of those calls
             let (f, calls) = body.extract_calls(&generic_decls, &cons);
             // insert into our concrete functions
@@ -396,6 +352,8 @@ pub enum MIRExpression {
     // Constant Fields
     Num(u64, Option<Type>), // A Number Literal
     Unit(Option<Type>),
+    True,
+    False,
 }
 
 impl MIRExpression {
@@ -403,6 +361,8 @@ impl MIRExpression {
         let t = self.ty().replace_all(subs);
 
         match self {
+            MIRExpression::True => MIRExpression::True,
+            MIRExpression::False => MIRExpression::False,
             MIRExpression::Identifier(n, _) => MIRExpression::Identifier(n, Some(t)),
             MIRExpression::Unit(_) => MIRExpression::Unit(Some(t)),
             MIRExpression::Num(n, _) => MIRExpression::Num(n, Some(t)),
@@ -429,7 +389,8 @@ impl MIRExpression {
 
     fn from(tree: Expression, cons: &HashMap<String, Type>) -> Self {
         match tree {
-            Expression::Namespace(..) => panic!(),
+            Expression::True => Self::True,
+            Expression::False => Self::False,
             Expression::Num(n) => Self::Num(n, None),
             Expression::Unit => Self::Unit(Some(Type::Unit)),
             Expression::Identifier(i) => Self::Identifier(i, None),
@@ -480,22 +441,8 @@ impl MIRExpression {
             Expression::If(cond, then, els) => Self::Match(
                 Box::new(MIRExpression::from(*cond, cons)),
                 vec![
-                    (
-                        Pattern::Cons(
-                            "True".into(),
-                            Box::new(Pattern::Unit(Some(Type::Unit))),
-                            None,
-                        ),
-                        MIRExpression::from(*then, cons),
-                    ),
-                    (
-                        Pattern::Cons(
-                            "False".into(),
-                            Box::new(Pattern::Unit(Some(Type::Unit))),
-                            None,
-                        ),
-                        MIRExpression::from(*els, cons),
-                    ),
+                    (Pattern::True, MIRExpression::from(*then, cons)),
+                    (Pattern::False, MIRExpression::from(*els, cons)),
                 ],
                 None,
             ),
@@ -542,6 +489,8 @@ impl MIRExpression {
 
     pub fn ty(&self) -> Type {
         match self {
+            Self::True => &Some(Type::Bool),
+            Self::False => &Some(Type::Bool),
             Self::Identifier(_, t) => t,
             Self::Num(_, t) => t,
             Self::Unit(t) => t,
@@ -556,6 +505,8 @@ impl MIRExpression {
 
     pub fn set_type(&mut self, ty: Type) {
         match self {
+            Self::True => {}
+            Self::False => {}
             Self::Identifier(_, t) => *t = Some(ty),
             Self::Num(_, t) => *t = Some(ty),
             Self::Unit(t) => *t = Some(ty),
@@ -680,8 +631,9 @@ impl Pattern {
     fn sub_types(self, subs: &HashMap<String, Type>) -> Self {
         let t = self.ty().replace_all(subs);
         match self {
+            Pattern::True => Pattern::True,
+            Pattern::False => Pattern::False,
             Pattern::Any(..) => Pattern::Any(Some(t)),
-            Pattern::Namespace(..) => panic!(),
             Pattern::Var(x, _) => Pattern::Var(x, Some(t)),
             Pattern::Unit(_) => Pattern::Unit(Some(t)),
             Pattern::Num(n, _) => Pattern::Num(n, Some(t)),
@@ -1001,4 +953,43 @@ pub fn resolve_typefn(impls: &Vec<(String, Type)>, t: Type) -> Option<String> {
     }
 
     None
+}
+
+pub fn gen_impl_map(
+    mods: &HashMap<String, crate::resolve::Module>,
+    trees: &HashMap<String, ParseTree>,
+) -> HashMap<String, Vec<(String, Type)>> {
+    // Generate a new name for each typefn impl, adding its type and body to the funcs
+    // Additionally create a map of each (typefn, type) to the new name
+    let mut impl_map = HashMap::<String, Vec<(String, Type)>>::new();
+
+    for (_, module) in mods {
+        // Make sure there is at least an empty list for every typefunction
+        for tfun in module.pub_typefn.iter() {
+            if !impl_map.contains_key(tfun.0) {
+                impl_map.insert(tfun.0.clone(), vec![]);
+            }
+        }
+
+        for (new_name, _) in module.pub_impls.iter() {
+            let ns = new_name.rsplit_once(".").unwrap().0;
+            let name = new_name.rsplit_once("$").unwrap().0;
+
+            let QualType(_, real_type) = &trees[ns].typedecls[new_name];
+
+            if let Some(impls) = impl_map.get_mut(name) {
+                impls.push((new_name.clone(), real_type.clone()));
+            } else {
+                impl_map.insert(
+                    name.to_string(),
+                    vec![(new_name.clone(), real_type.clone())],
+                );
+            }
+
+            // typedecls.insert(new_name.clone(), real_type);
+            // tree.funcs.insert(new_name, imp.body);
+        }
+    }
+
+    impl_map
 }

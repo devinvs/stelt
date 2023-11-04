@@ -218,6 +218,7 @@ impl Module {
         let mut named_vars = HashMap::new();
         named_vars.insert("arg.0".to_string(), "%arg.0".to_string());
         for (name, expr) in tree.funcs {
+            eprintln!("compile {name}");
             // get function type
             let (from, to) = tree.func_types.get(&name).unwrap();
 
@@ -660,6 +661,8 @@ impl LIRExpression {
 
                 Ok(Some(out))
             }
+            Self::True => Ok(Some("true".to_string())),
+            Self::False => Ok(Some("false".to_string())),
             a => unimplemented!("{a:?}"),
         }
     }

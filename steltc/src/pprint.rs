@@ -54,6 +54,8 @@ impl SExpr {
 impl MIRExpression {
     pub fn to_sexpr(&self) -> SExpr {
         match self {
+            MIRExpression::True => SExpr::Atom("True".to_string()),
+            MIRExpression::False => SExpr::Atom("False".to_string()),
             MIRExpression::Identifier(s, _) => SExpr::Atom(s.clone()),
             MIRExpression::Tuple(es, _) => {
                 let mut inner = vec![SExpr::Atom("quote".to_string())];
@@ -123,6 +125,8 @@ impl MIRExpression {
 impl Pattern {
     pub fn to_sexpr(&self) -> SExpr {
         match self {
+            Self::True => SExpr::Atom("True".to_string()),
+            Self::False => SExpr::Atom("False".to_string()),
             Self::Unit(_) => SExpr::List(vec![]),
             Self::Num(n, _) => SExpr::Atom(n.to_string()),
             Self::Var(x, _) => SExpr::Atom(x.clone()),
@@ -136,7 +140,6 @@ impl Pattern {
             }
             Self::Cons(f, args, _) => SExpr::List(vec![SExpr::Atom(f.clone()), args.to_sexpr()]),
             Self::Any(_) => SExpr::Atom("_".to_string()),
-            _ => panic!(),
         }
     }
 }

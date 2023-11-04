@@ -1,12 +1,12 @@
 use std::fs::File;
 use std::io::Read;
 
+use stelt::gen_impl_map;
 use stelt::Lexer;
 use stelt::MIRTree;
+use stelt::Module;
 use stelt::Program;
 use stelt::TypeChecker;
-
-use stelt::Module;
 
 use std::collections::{HashMap, VecDeque};
 use std::path::Path;
@@ -63,40 +63,61 @@ fn compile(path: &Path, outdir: &Path) {
     let mod_name = path.file_stem().unwrap().to_str().unwrap().to_string();
 
     // map of module names to their parse trees
+    let mut trees = HashMap::new();
+
+    // map of module name to module interface
     let mut modules = HashMap::new();
 
     // queue of modules to be parsed
     let mut mod_queue = VecDeque::new();
     mod_queue.push_back(mod_name.clone());
 
+    // also build the order that we resolve, should
+    // be the opposite of parsing
+    let mut resolve_queue = VecDeque::new();
+
     // Parse each file using a breadth first search technique, using imported
     // namespace names to locate the source file corresponding to the namespace
     while !mod_queue.is_empty() {
         let name = mod_queue.pop_front().unwrap();
+        resolve_queue.push_front(name.clone());
+
         let path = parent.join(Path::new(&format!("{}.st", name.replace(".", "/"))));
-        let tree = parse(&path);
+        let mut tree = parse(&path);
 
         // queue up other modules to be compiled
-        for ns in tree.namespaces.iter() {
-            if !modules.contains_key(ns) {
+        for ns in tree.imports.iter() {
+            if !trees.contains_key(ns) && !mod_queue.contains(ns) {
                 mod_queue.push_back(ns.to_string());
             }
         }
 
-        modules.insert(name, tree);
+        modules.insert(name.clone(), tree.canonicalize(&name));
+        trees.insert(name, tree);
     }
+
+    // Actually Handle imports
+    while let Some(name) = resolve_queue.pop_front() {
+        // Find the tree, resolve it, add to resolved
+        let tree = trees.get_mut(&name).unwrap();
+        tree.resolve(&name, &modules);
+    }
+
+    // Aggregate the impls
+    let impl_map = gen_impl_map(&modules, &trees);
 
     // Resolve namespace references and convert to mir
     let mut modules_mir = HashMap::new();
-    for (name, tree) in modules.into_iter() {
+    for (name, tree) in trees {
         let tree = MIRTree::from(tree);
         modules_mir.insert(name, tree);
     }
 
     // Now compile :)
     for (name, mut mir) in modules_mir.into_iter() {
+        eprintln!("checking {name}");
         let mut checker = TypeChecker::default();
-        match checker.check_program(&mut mir) {
+        match checker.check_program(&mut mir, &impl_map) {
             Ok(_) => {}
             Err(e) => {
                 eprintln!("{e}");
@@ -104,8 +125,10 @@ fn compile(path: &Path, outdir: &Path) {
             }
         }
 
-        let mir = mir.with_concrete_types();
-        let lir = mir.lower();
+        let mir = mir.with_concrete_types(&impl_map);
+        let lir = mir.lower(&impl_map);
+
+        eprintln!("{lir:#?}");
 
         let out_path = outdir.join(Path::new(&format!("{}.ll", name)));
 

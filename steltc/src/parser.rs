@@ -21,12 +21,11 @@ lazy_static! {
         let mut tokens = l.lex(s).unwrap();
 
         let me = ParseTree {
-            types: Vec::new(),
+            types: HashMap::new(),
             typedecls: HashMap::new(),
             funcs: HashMap::new(),
             defs: HashMap::new(),
             external: HashSet::new(),
-            namespaces: HashSet::new(),
             imports: HashSet::new(),
             import_funcs: HashMap::new(),
             typefuns: HashMap::new(),
@@ -67,7 +66,7 @@ impl ParseTree {
                         })
                     {
                         let name = t.ident()?;
-                        let func = FunctionDef::parse(t, name, &me.namespaces)?;
+                        let func = FunctionDef::parse(t, name, &me.imports)?;
                         funcs.push(func);
                     }
 
@@ -117,7 +116,7 @@ impl ParseTree {
                         namespace.push_str(&t.ident()?);
                     }
 
-                    me.namespaces.insert(namespace);
+                    me.imports.insert(namespace);
                 }
                 Some(Lexeme {
                     token: Token::Extern,
@@ -150,7 +149,7 @@ impl ParseTree {
                             ..
                         }) => {
                             let ty = DataDecl::parse(t, name.clone(), args)?;
-                            me.types.push((name, ty));
+                            me.types.insert(name, ty);
                         }
                         Some(Lexeme {
                             token: Token::Colon,
@@ -173,7 +172,7 @@ impl ParseTree {
                 }) => {
                     let name = t.ident()?;
 
-                    let expr = Expression::parse(t)?.extract_ns(&me.namespaces);
+                    let expr = Expression::parse(t)?.extract_ns(&me.imports);
                     me.defs.insert(name, expr);
                 }
                 Some(Lexeme {
@@ -181,7 +180,7 @@ impl ParseTree {
                     ..
                 }) => {
                     let name = t.ident()?;
-                    let func = FunctionDef::parse(t, name, &me.namespaces)?;
+                    let func = FunctionDef::parse(t, name, &me.imports)?;
                     if let Some(f) = me.funcs.get_mut(&func.name) {
                         f.push(func);
                     } else {
@@ -436,12 +435,9 @@ impl Type {
                     i.push_str(&t.ident()?);
                 }
 
-                if let Some((ns, t)) = i.rsplit_once(".") {
-                    Type::Namespace(ns.to_string(), t.to_string())
-                } else {
-                    Type::Ident(i)
-                }
+                Type::Ident(i)
             }
+            Some(Lexeme { token: Token::Bool }) => Self::Bool,
             Some(Lexeme {
                 token: Token::U8, ..
             }) => Self::U8,
@@ -835,6 +831,10 @@ impl Expression {
         };
 
         match next {
+            Lexeme { token: Token::True } => Ok(Expression::True),
+            Lexeme {
+                token: Token::False,
+            } => Ok(Expression::False),
             // Let statement
             Lexeme { token: Token::Let } => {
                 let pat = Pattern::parse(t)?;
@@ -898,15 +898,27 @@ impl Expression {
             } => Ok(Self::Num(n)),
             // Identifier
             Lexeme {
-                token: Token::Ident(i),
+                token: Token::Ident(mut i),
                 ..
             } => {
+                // if the ident is capitalized then this must be a constructor...
+                // we might change this later to be part of the naming/resolution step,
+                // but for now this is a good approximate
                 if i.chars().next().unwrap().is_uppercase() && !t.test(Token::LParen) {
                     Ok(Self::Call(
                         Box::new(Self::Identifier(i)),
                         Box::new(Self::Unit),
                     ))
                 } else {
+                    // This is where we handle the dot operator on identifiers. By default we assume
+                    // namespacing, then during the import step the namespaces
+                    // that were never imported get converted into the pipe operator
+
+                    while t.consume(Token::Dot).is_some() {
+                        i.push_str(".");
+                        i.push_str(&t.ident()?);
+                    }
+
                     Ok(Self::Identifier(i))
                 }
             }
@@ -1101,6 +1113,10 @@ impl Pattern {
                 token: Token::String(s),
                 ..
             }) => Ok(Pattern::cons_from_str(&s)),
+            Some(Lexeme { token: Token::True }) => Ok(Self::True),
+            Some(Lexeme {
+                token: Token::False,
+            }) => Ok(Self::False),
             Some(Lexeme {
                 token: Token::Ident(mut i),
                 ..
@@ -1110,7 +1126,7 @@ impl Pattern {
                     i.push_str(&t.ident()?);
                 }
 
-                if let Some((ns, f)) = i.rsplit_once(".") {
+                if i.contains(".") {
                     // This is a namespaced constructor
                     let args = if t.test(Token::LParen) {
                         Pattern::parse_tuple(t)?
@@ -1118,11 +1134,7 @@ impl Pattern {
                         Pattern::Unit(Some(Type::Unit))
                     };
 
-                    Ok(Pattern::Namespace(
-                        ns.to_string(),
-                        Box::new(Pattern::Cons(f.to_string(), Box::new(args), None)),
-                        None,
-                    ))
+                    Ok(Pattern::Cons(i, Box::new(args), None))
                 } else {
                     // either a variable or a constructor
                     // lets enforce that constructors *must* start with a capital
