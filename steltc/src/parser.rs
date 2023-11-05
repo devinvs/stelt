@@ -22,6 +22,8 @@ lazy_static! {
 
         let me = ParseTree {
             types: HashMap::new(),
+            type_aliases: HashMap::new(),
+            aliases: HashMap::new(),
             typedecls: HashMap::new(),
             funcs: HashMap::new(),
             defs: HashMap::new(),
@@ -44,6 +46,21 @@ impl ParseTree {
     pub fn parse_with(t: &mut TokenStream, mut me: Self) -> Result<Self, String> {
         loop {
             match t.peek() {
+                Some(Lexeme {
+                    token: Token::Alias,
+                }) => {
+                    t.assert(Token::Alias)?;
+                    t.assert(Token::Type)?;
+
+                    let name = t.ident()?;
+                    let args = parse_genargs(t)?;
+
+                    t.assert(Token::Assign)?;
+
+                    let ty = Type::parse(t)?;
+
+                    me.type_aliases.insert(name, (args, ty));
+                }
                 Some(Lexeme { token: Token::Impl }) => {
                     t.assert(Token::Impl)?;
                     let name = t.ident()?;
@@ -117,6 +134,32 @@ impl ParseTree {
                     }
 
                     me.imports.insert(namespace);
+                }
+                Some(Lexeme { token: Token::From }) => {
+                    t.assert(Token::From)?;
+                    let mut ns = t.ident()?;
+                    while t.consume(Token::Dot).is_some() {
+                        ns.push_str(".");
+                        ns.push_str(&t.ident()?);
+                    }
+
+                    me.imports.insert(ns.clone());
+                    t.assert(Token::Import)?;
+
+                    loop {
+                        let item = t.ident()?;
+
+                        if t.consume(Token::As).is_some() {
+                            let alias = t.ident()?;
+                            me.aliases.insert(alias.clone(), format!("{ns}.{item}"));
+                        } else {
+                            me.aliases.insert(item.clone(), format!("{ns}.{item}"));
+                        }
+
+                        if !t.consume(Token::Comma).is_some() {
+                            break;
+                        }
+                    }
                 }
                 Some(Lexeme {
                     token: Token::Extern,

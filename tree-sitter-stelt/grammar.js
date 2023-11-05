@@ -16,6 +16,7 @@ module.exports = grammar({
       $.definition,
       $.type_definition,
       $.type_declaration,
+      $.from_import,
       $.import,
       $.typefn,
       $.impl,
@@ -39,6 +40,16 @@ module.exports = grammar({
       "(",
       csv($.type),
       ")"
+    ),
+
+    from_import: $ => seq(
+      "from",
+      $.ident,
+      "import",
+      csv(seq(
+        $.ident,
+        optional(seq("as", $.ident))
+      ))
     ),
 
     import: $ => seq(
@@ -234,6 +245,7 @@ module.exports = grammar({
       "i32",
       "i64",
       "char",
+      "bool",
       "()",
       seq("(", csv($.type), ")"),
       seq("[", $.type, "]"),

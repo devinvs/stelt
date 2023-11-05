@@ -12,6 +12,8 @@ pub struct Module {
     /// map from local name to type
     pub pub_data: HashMap<String, DataDecl>,
     pub pub_cons: HashMap<String, Type>,
+    /// type name to tuple of generic args and actual type
+    pub type_alias: HashMap<String, (Vec<String>, Type)>,
 
     pub pub_decls: HashMap<String, QualType>,
     pub pub_gens: HashMap<String, (QualType, Vec<FunctionDef>)>,
@@ -48,13 +50,24 @@ impl ParseTree {
 
         let local_decls = self.typedecls.keys().cloned().collect();
 
+        // canonicalize type aliases
+        self.type_aliases = self
+            .type_aliases
+            .clone()
+            .into_iter()
+            .map(|(name, (args, mut t))| {
+                t.canonicalize(prefix, &local_datadecls, &self.imports, &self.type_aliases);
+                (format!("{prefix}.{name}"), (args, t))
+            })
+            .collect();
+
         // canonicalize data declarations
         self.types = self
             .types
             .clone()
             .into_iter()
             .map(|(_, mut dd)| {
-                dd.canonicalize(prefix, &local_datadecls, &self.imports);
+                dd.canonicalize(prefix, &local_datadecls, &self.imports, &self.type_aliases);
                 (dd.0.clone(), dd)
             })
             .collect();
@@ -65,7 +78,13 @@ impl ParseTree {
             .clone()
             .into_iter()
             .map(|(name, mut td)| {
-                td.canonicalize(prefix, &local_datadecls, &local_typefuns, &self.imports);
+                td.canonicalize(
+                    prefix,
+                    &local_datadecls,
+                    &local_typefuns,
+                    &self.imports,
+                    &self.type_aliases,
+                );
                 (format!("{prefix}.{name}"), td)
             })
             .collect();
@@ -83,6 +102,7 @@ impl ParseTree {
                         &local_cons,
                         &local_typefuns,
                         &self.imports,
+                        &self.aliases,
                     )
                 });
                 (format!("{prefix}.{name}"), funcs)
@@ -99,8 +119,9 @@ impl ParseTree {
                     &local_decls,
                     &local_cons,
                     &local_typefuns,
-                    &HashSet::new(),
                     &self.imports,
+                    &self.aliases,
+                    &HashSet::new(),
                 );
                 (format!("{prefix}.{name}"), def)
             })
@@ -113,7 +134,8 @@ impl ParseTree {
             .into_iter()
             .map(|(name, mut tf)| {
                 tf.name = format!("{prefix}.{name}");
-                tf.ty.canonicalize(prefix, &local_datadecls, &self.imports);
+                tf.ty
+                    .canonicalize(prefix, &local_datadecls, &self.imports, &self.type_aliases);
                 (format!("{prefix}.{name}"), tf)
             })
             .collect();
@@ -127,6 +149,8 @@ impl ParseTree {
                 &local_decls,
                 &local_cons,
                 &self.imports,
+                &self.type_aliases,
+                &self.aliases,
             );
         }
 
@@ -158,6 +182,7 @@ impl ParseTree {
                 .into_iter()
                 .map(|i| (i.fn_name, i.args))
                 .collect(),
+            type_alias: self.type_aliases.clone(),
         }
     }
 
@@ -175,7 +200,7 @@ impl ParseTree {
     //    (I'm sure this won't come back to haunt me)
     pub fn resolve(&mut self, me: &str, mods: &HashMap<String, Module>) {
         // Get the names of types from other modules used in our types
-        let mut imported_data = HashSet::new();
+        let mut imported_data = VecDeque::new();
         let mut imported_idents = VecDeque::new();
 
         // Basically two steps:
@@ -251,7 +276,9 @@ impl ParseTree {
 
         // Now step two:
         // imported_data is pretty simple, it will always be
-        //     a declared type in its module.
+        //    an alias or a declared type in its module.
+        //    An alias can point to another alias, so this needs
+        //    to be resolved recursively.
         // imported_idents is a littler harder, it can either
         //    be a regular function, a generic function, or
         //    a typefunction. generic functions need to be
@@ -259,7 +286,7 @@ impl ParseTree {
         //    to account for cycles
         self.import_idents = imported_idents.clone().into_iter().collect();
 
-        for name in imported_data {
+        while let Some(name) = imported_data.pop_front() {
             let mod_name = name.rsplit_once(".").unwrap().0;
             let modu = &mods[mod_name];
 
@@ -298,13 +325,14 @@ impl DataDecl {
         me: &str,
         types: &HashSet<String>,   // set of local data decl names
         imports: &HashSet<String>, // set of imported module names
+        aliases: &HashMap<String, (Vec<String>, Type)>,
     ) {
         // the name just gets hit with the prefix of this module
         self.0 = format!("{me}.{}", self.0);
 
         self.2
             .iter_mut()
-            .for_each(|tc| tc.canonicalize(me, types, &imports));
+            .for_each(|tc| tc.canonicalize(me, types, imports, aliases));
     }
 
     // find all the imported types
@@ -314,9 +342,15 @@ impl DataDecl {
 }
 
 impl TypeCons {
-    fn canonicalize(&mut self, me: &str, types: &HashSet<String>, imports: &HashSet<String>) {
+    fn canonicalize(
+        &mut self,
+        me: &str,
+        types: &HashSet<String>,
+        imports: &HashSet<String>,
+        aliases: &HashMap<String, (Vec<String>, Type)>,
+    ) {
         self.name = format!("{me}.{}", self.name);
-        self.args.canonicalize(me, types, imports);
+        self.args.canonicalize(me, types, imports, aliases);
     }
 
     fn imported(&self, me: &str) -> Vec<String> {
@@ -325,7 +359,45 @@ impl TypeCons {
 }
 
 impl Type {
-    fn canonicalize(&mut self, me: &str, types: &HashSet<String>, imports: &HashSet<String>) {
+    fn canonicalize(
+        &mut self,
+        me: &str,
+        types: &HashSet<String>,
+        imports: &HashSet<String>,
+        aliases: &HashMap<String, (Vec<String>, Type)>,
+    ) {
+        // because of ownership we need to do some matching on a clone of ourself
+        // only in the case of an alias
+        if let Type::Generic(ts, t) = self.clone() {
+            if let Type::Ident(i) = *t.clone() {
+                if let Some((args, t)) = aliases.get(&i) {
+                    // We found a generic alias
+
+                    // Check that we have the same number of gen args as params
+                    if args.len() != ts.len() {
+                        panic!()
+                    }
+
+                    // substitute!
+                    let mut subs = HashMap::new();
+                    subs.extend(args.clone().into_iter().zip(ts.clone()));
+                    *self = t.map(&subs);
+
+                    // This will canonicalize what we substituted and our subs
+                    self.canonicalize(me, types, imports, aliases);
+
+                    return;
+                }
+            }
+        } else if let Type::Ident(i) = self.clone() {
+            if let Some((args, t)) = aliases.get(&i) {
+                assert_eq!(args.len(), 0);
+
+                *self = t.clone();
+                self.canonicalize(me, types, imports, aliases);
+            }
+        }
+
         match self {
             Type::Ident(i) => {
                 if types.contains(i) {
@@ -338,17 +410,17 @@ impl Type {
             }
             Type::ForAll(_, _, _) => panic!(),
             Type::Generic(ts, t) => {
-                t.canonicalize(me, types, imports);
+                t.canonicalize(me, types, imports, aliases);
                 ts.iter_mut()
-                    .for_each(|t| t.canonicalize(me, types, imports));
+                    .for_each(|t| t.canonicalize(me, types, imports, aliases));
             }
             Type::Arrow(a, b) => {
-                a.canonicalize(me, types, imports);
-                b.canonicalize(me, types, imports);
+                a.canonicalize(me, types, imports, aliases);
+                b.canonicalize(me, types, imports, aliases);
             }
             Type::Tuple(ts) => {
                 ts.iter_mut()
-                    .for_each(|t| t.canonicalize(me, types, imports));
+                    .for_each(|t| t.canonicalize(me, types, imports, aliases));
             }
             _ => {}
         }
@@ -397,12 +469,13 @@ impl QualType {
         types: &HashSet<String>,
         typefuns: &HashSet<String>,
         imports: &HashSet<String>,
+        aliases: &HashMap<String, (Vec<String>, Type)>,
     ) {
         let QualType(cons, t) = self;
 
         cons.iter_mut()
-            .for_each(|c| c.canonicalize(me, types, typefuns, imports));
-        t.canonicalize(me, types, imports);
+            .for_each(|c| c.canonicalize(me, types, typefuns, imports, aliases));
+        t.canonicalize(me, types, imports, aliases);
     }
 
     // Check if a canonicalized QualType has generic params
@@ -425,6 +498,7 @@ impl Constraint {
         types: &HashSet<String>,
         typefuns: &HashSet<String>,
         imports: &HashSet<String>,
+        aliases: &HashMap<String, (Vec<String>, Type)>,
     ) {
         let Constraint(name, ts) = self;
 
@@ -439,7 +513,7 @@ impl Constraint {
         }
 
         ts.iter_mut()
-            .for_each(|t| t.canonicalize(me, types, imports));
+            .for_each(|t| t.canonicalize(me, types, imports, aliases));
     }
 
     fn imported(&self, me: &str) -> Vec<String> {
@@ -456,6 +530,8 @@ impl Impl {
         decls: &HashSet<String>,
         cons: &HashSet<String>,
         imports: &HashSet<String>,
+        type_aliases: &HashMap<String, (Vec<String>, Type)>,
+        aliases: &HashMap<String, String>,
     ) {
         // Every impl gets a unique global name based on their typefunction name
         self.fn_name = crate::gen_var(&if typefuns.contains(&self.fn_name) {
@@ -466,11 +542,11 @@ impl Impl {
 
         self.args
             .iter_mut()
-            .for_each(|t| t.canonicalize(me, types, imports));
+            .for_each(|t| t.canonicalize(me, types, imports, type_aliases));
 
         self.body
             .iter_mut()
-            .for_each(|fd| fd.canonicalize(me, decls, cons, typefuns, imports));
+            .for_each(|fd| fd.canonicalize(me, decls, cons, typefuns, imports, aliases));
     }
 }
 
@@ -482,6 +558,7 @@ impl FunctionDef {
         cons: &HashSet<String>,
         typefuns: &HashSet<String>,
         imports: &HashSet<String>,
+        aliases: &HashMap<String, String>,
     ) {
         self.name = format!("{me}.{}", self.name);
 
@@ -490,7 +567,7 @@ impl FunctionDef {
         locals.extend(self.args.free_vars());
 
         self.body
-            .canonicalize(me, decls, cons, typefuns, imports, &locals);
+            .canonicalize(me, decls, cons, typefuns, imports, aliases, &locals);
     }
 
     fn imported(&self, me: &str) -> Vec<String> {
@@ -551,11 +628,14 @@ impl Expression {
         cons: &HashSet<String>,
         typefuns: &HashSet<String>,
         imports: &HashSet<String>,
+        aliases: &HashMap<String, String>,
         locals: &HashSet<String>,
     ) {
         match self {
             Expression::Identifier(i) => {
-                if decls.contains(i) || cons.contains(i) || typefuns.contains(i) {
+                if let Some(v) = aliases.get(i) {
+                    *i = v.clone();
+                } else if decls.contains(i) || cons.contains(i) || typefuns.contains(i) {
                     *i = format!("{me}.{i}");
                 } else if let Some((ns, _)) = i.rsplit_once(".") {
                     if !imports.contains(ns) {
@@ -567,42 +647,43 @@ impl Expression {
             }
             Expression::Let(p, e, body) => {
                 p.canonicalize(me, cons, imports);
-                e.canonicalize(me, decls, cons, typefuns, imports, locals);
+                e.canonicalize(me, decls, cons, typefuns, imports, aliases, locals);
 
                 let mut locals = locals.clone();
                 locals.extend(p.free_vars());
-                body.canonicalize(me, decls, cons, typefuns, imports, &locals);
+                body.canonicalize(me, decls, cons, typefuns, imports, aliases, &locals);
             }
             Expression::Tuple(es) => {
-                es.iter_mut()
-                    .for_each(|e| e.canonicalize(me, decls, cons, typefuns, imports, locals));
+                es.iter_mut().for_each(|e| {
+                    e.canonicalize(me, decls, cons, typefuns, imports, aliases, locals)
+                });
             }
             Expression::If(cond, a, b) => {
-                cond.canonicalize(me, decls, cons, typefuns, imports, locals);
-                a.canonicalize(me, decls, cons, typefuns, imports, locals);
-                b.canonicalize(me, decls, cons, typefuns, imports, locals);
+                cond.canonicalize(me, decls, cons, typefuns, imports, aliases, locals);
+                a.canonicalize(me, decls, cons, typefuns, imports, aliases, locals);
+                b.canonicalize(me, decls, cons, typefuns, imports, aliases, locals);
             }
             Expression::Match(e, eps) => {
-                e.canonicalize(me, decls, cons, typefuns, imports, locals);
+                e.canonicalize(me, decls, cons, typefuns, imports, aliases, locals);
 
                 for (p, e) in eps {
                     p.canonicalize(me, cons, imports);
 
                     let mut locals = locals.clone();
                     locals.extend(p.free_vars());
-                    e.canonicalize(me, decls, cons, typefuns, imports, &locals);
+                    e.canonicalize(me, decls, cons, typefuns, imports, aliases, &locals);
                 }
             }
             Expression::Call(a, b) => {
-                a.canonicalize(me, decls, cons, typefuns, imports, locals);
-                b.canonicalize(me, decls, cons, typefuns, imports, locals);
+                a.canonicalize(me, decls, cons, typefuns, imports, aliases, locals);
+                b.canonicalize(me, decls, cons, typefuns, imports, aliases, locals);
             }
             Expression::Lambda(p, e) => {
                 p.canonicalize(me, cons, imports);
 
                 let mut locals = locals.clone();
                 locals.extend(p.free_vars());
-                e.canonicalize(me, decls, cons, typefuns, imports, &locals);
+                e.canonicalize(me, decls, cons, typefuns, imports, aliases, &locals);
             }
             _ => {}
         }

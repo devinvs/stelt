@@ -25,6 +25,8 @@ lazy_static! {
         m.insert("import", Token::Import);
         m.insert("where", Token::Where);
         m.insert("alias", Token::Alias);
+        m.insert("from", Token::From);
+        m.insert("as", Token::As);
 
         m.insert("True", Token::True);
         m.insert("False", Token::False);
@@ -165,6 +167,8 @@ impl LexemeFeed for TokenStream {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Token {
     // Keywords
+    From,
+    As,
     Alias,
     Pub,
     Def,
@@ -246,6 +250,8 @@ pub enum Token {
 impl Token {
     pub fn name(&self) -> String {
         match self {
+            Self::From => "from",
+            Self::As => "as",
             Self::Alias => "alias",
             Self::Pub => "pub",
             Self::True => "True",
