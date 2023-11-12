@@ -53,13 +53,12 @@ impl ParseTree {
                     t.assert(Token::Type)?;
 
                     let name = t.ident()?;
-                    let args = parse_genargs(t)?;
 
                     t.assert(Token::Assign)?;
 
                     let ty = Type::parse(t)?;
 
-                    me.type_aliases.insert(name, (args, ty));
+                    me.type_aliases.insert(name, ty);
                 }
                 Some(Lexeme { token: Token::Impl }) => {
                     t.assert(Token::Impl)?;

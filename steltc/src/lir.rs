@@ -986,11 +986,7 @@ impl MIRExpression {
 
                     LIRExpression::Let1(
                         v.clone(),
-                        Box::new(LIRExpression::CastTuple(
-                            Box::new(exp),
-                            format!("{}.{}", tname, n),
-                            enum_t.clone(),
-                        )),
+                        Box::new(LIRExpression::CastTuple(Box::new(exp), n, enum_t.clone())),
                         Box::new(Self::match_components_last(
                             &ps,
                             1,
@@ -1077,11 +1073,7 @@ impl MIRExpression {
                         )),
                         Box::new(LIRExpression::Let1(
                             v.clone(),
-                            Box::new(LIRExpression::CastTuple(
-                                Box::new(exp),
-                                format!("{}.{}", tname, n),
-                                enum_t.clone(),
-                            )),
+                            Box::new(LIRExpression::CastTuple(Box::new(exp), n, enum_t.clone())),
                             Box::new(Self::match_components(
                                 &ps,
                                 1,

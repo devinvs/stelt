@@ -1,5 +1,10 @@
-type list<a> = Nil | Cons(a, list<a>)
+from a import b, test
 
-type pop<a>: [a] -> [a]
-pop([]) = []
-pop(x::xs) = xs
+typefn eq(a) = (a, a) -> a
+
+type freul: test -> bool
+freul(test.P) = True
+freul(test.Q) = False
+
+type main: () -> bool
+main() = b()

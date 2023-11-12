@@ -107,7 +107,7 @@ impl Module {
 
             // ... and their variants
             for (vname, t) in tree.variants[name].iter() {
-                writeln!(self, "%{}.{} = type {}", name, vname, t)?;
+                writeln!(self, "%{} = type {}", vname, t)?;
             }
 
             writeln!(self)?;

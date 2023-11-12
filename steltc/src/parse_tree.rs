@@ -15,7 +15,7 @@ pub struct ParseTree {
     pub funcs: HashMap<String, Vec<FunctionDef>>,
     pub defs: HashMap<String, Expression>,
 
-    pub type_aliases: HashMap<String, (Vec<String>, Type)>,
+    pub type_aliases: HashMap<String, Type>,
     pub aliases: HashMap<String, String>,
 
     pub imports: HashSet<String>,
