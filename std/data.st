@@ -1,33 +1,26 @@
 typefn map(outer) = (outer<a>, a->b) -> outer<b>
-typefn flatten(outer) = outer<outer<a>> -> outer<a>
 typefn flatmap(outer) = (outer<a>, a->outer<b>) -> outer<a>
-
-// Iterator operations
-typefn next(iter, a) = iter -> maybe<(a, iter)>
+typefn fold(outer) = (outer<a>, (a, b) -> b, b) -> b
 
 type list<a> = Nil | Cons(a, list<a>)
-
-impl next(list<a>, a)
-next([]) = None
-next(x::xs) = Some((x, xs))
-
-impl filter(list)
-filter([], _) = []
-filter(x::xs, f) = if f(x) then x::rest else rest
-	where rest = filter(xs, f)
 
 impl map(list)
 map([], _) = []
 map(x::xs, f) = f(x)::map(xs, f)
 
-impl flatten(list)
+type flatten: [[a]] -> [a]
 flatten([]) = []
 flatten(x::xs) = x ++ flatten(xs)
 
 impl flatmap(list)
 flatmap(xs, f) = xs.map(f).flatten()
 
+impl fold(list)
+fold([], _, agg) = agg
+fold(x::xs, f, agg) = fold(xs, f, f(x, agg))
 
+
+// A maybe type represents 
 type maybe<a> = None | Some(a)
 
 impl map(maybe)
@@ -41,3 +34,4 @@ flatten(Some(x)) = x
 impl flatmap(maybe)
 flatmap(None, _) = None
 flatmap(Some(x), f) = f(x)
+

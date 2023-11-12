@@ -1,18 +1,40 @@
-import maybe from std.data
-import Ord from std.cmp
+from std.data import maybe
+from std.cmp import Ord
 
+// A non_zero number.
+//
+// Used to ensure that division operators are total.
+// Also allows for layout optimization of maybe types
+// where a implements zero()
+type non_zero<a> = NonZero(a)
+
+non_zero: zero(a) => a -> non_zero<a>
+non_zero(x) = if x == 0 then None else Some(NonZero(x))
+
+impl add(add(a) => non_zero<a>)
+add(NonZero(x), NonZero(y)) = NonZero(x+y)
+
+impl mul(mul(a) => non_zero<a>)
+mul(NonZero(x), NonZero(y)) = NonZero(x*y)
+
+
+// typefunctions for basic mathematical operations
 typefn zero(a) = a
 typefn add(a) = (a, a) -> a
 typefn sub(a) = (a, a) -> a
 typefn mul(a) = (a, a) -> a
-typefn div(a) = (a, a) -> maybe<a>
-typefn mod(a) = (a, a) -> maybe<a>
 typefn neg(a) = a -> a
- 
-// the natural numbers
-class Nat(a) = zero(a) + add(a) + sub(a) + mul(a) + div(a) + mod(a) + Ord(a)
 
-// the integers
+// In order to keep these functions total they
+// take a non_zero for their second parameter.
+typefn div(a) = (a, non_zero<a>) -> a
+typefn mod(a) = (a, non_zero<a>) -> a
+typefn rem(a) = (a, non_zero<a>) -> a
+ 
+// Useful typeclasses for dealing with numbers
+
+class Ring(a) = add(a) + mul(a)
+class Nat(a) = Ring(a) + zero(a) + sub(a) + div(a) + mod(a) + Ord(a)
 class Int(a) = Nat(a) + neg(a)
 
 // And then the bit operations...
@@ -25,6 +47,7 @@ class Bits(a) = bit_not(a) + bit_and(a) + bit_or(a) + bit_xor(a)
 
 // Lets implement all the relevant typefn for all the numbers.
 // I'm so glad my language doesn't have macros!!!
+
 
 // u8
 impl zero(u8)
@@ -40,12 +63,10 @@ impl mul(u8)
 mul(a, b) = llvm!("%out", "%out = mul i8 %a, %b")
 
 impl div(u8)
-div(_, 0) = None
-div(x, y) = Some(llvm!("%out", "%out = div i8 %x, %y"))
+div(x, y) = llvm!("%out", "%out = div i8 %x, %y")
 
 impl mod(u8)
-mod(_, 0) = None
-mod(x, y) = Some(llvm!("%out", "%out = mod i8 %x, %y"))
+mod(x, y) = llvm!("%out", "%out = mod i8 %x, %y")
 
 impl eq(u8)
 eq(x, y) = llvm!("%out", "%out = icmp eq i8 %x, %y")
@@ -92,12 +113,10 @@ impl mul(i8)
 mul(a, b) = llvm!("%out", "%out = mul i8 %a, %b")
 
 impl div(i8)
-div(_, 0) = None
-div(x, y) = Some(llvm!("%out", "%out = div i8 %x, %y"))
+div(x, y) = llvm!("%out", "%out = div i8 %x, %y")
 
 impl mod(i8)
-mod(_, 0) = None
-mod(x, y) = Some(llvm!("%out", "%out = mod i8 %x, %y"))
+mod(x, y) = llvm!("%out", "%out = mod i8 %x, %y")
 
 impl eq(i8)
 eq(x, y) = llvm!("%out", "%out = icmp eq i8 %x, %y")
@@ -140,12 +159,10 @@ impl mul(u16)
 mul(a, b) = llvm!("%out", "%out = mul i16 %a, %b")
 
 impl div(u16)
-div(_, 0) = None
-div(x, y) = Some(llvm!("%out", "%out = div i16 %x, %y"))
+div(x, y) = llvm!("%out", "%out = div i16 %x, %y")
 
 impl mod(u16)
-mod(_, 0) = None
-mod(x, y) = Some(llvm!("%out", "%out = mod i16 %x, %y"))
+mod(x, y) = llvm!("%out", "%out = mod i16 %x, %y")
 
 impl eq(u16)
 eq(x, y) = llvm!("%out", "%out = icmp eq i16 %x, %y")
@@ -192,12 +209,10 @@ impl mul(i16)
 mul(a, b) = llvm!("%out", "%out = mul i16 %a, %b")
 
 impl div(i16)
-div(_, 0) = None
-div(x, y) = Some(llvm!("%out", "%out = div i16 %x, %y"))
+div(x, y) = llvm!("%out", "%out = div i16 %x, %y")
 
 impl mod(i16)
-mod(_, 0) = None
-mod(x, y) = Some(llvm!("%out", "%out = mod i16 %x, %y"))
+mod(x, y) = llvm!("%out", "%out = mod i16 %x, %y")
 
 impl eq(i16)
 eq(x, y) = llvm!("%out", "%out = icmp eq i16 %x, %y")
@@ -240,12 +255,10 @@ impl mul(u32)
 mul(a, b) = llvm!("%out", "%out = mul i32 %a, %b")
 
 impl div(u32)
-div(_, 0) = None
-div(x, y) = Some(llvm!("%out", "%out = div i32 %x, %y"))
+div(x, y) = llvm!("%out", "%out = div i32 %x, %y")
 
 impl mod(u32)
-mod(_, 0) = None
-mod(x, y) = Some(llvm!("%out", "%out = mod i32 %x, %y"))
+mod(x, y) = llvm!("%out", "%out = mod i32 %x, %y")
 
 impl eq(u32)
 eq(x, y) = llvm!("%out", "%out = icmp eq i32 %x, %y")
@@ -292,12 +305,10 @@ impl mul(i32)
 mul(a, b) = llvm!("%out", "%out = mul i32 %a, %b")
 
 impl div(i32)
-div(_, 0) = None
-div(x, y) = Some(llvm!("%out", "%out = div i32 %x, %y"))
+div(x, y) = llvm!("%out", "%out = div i32 %x, %y")
 
 impl mod(i32)
-mod(_, 0) = None
-mod(x, y) = Some(llvm!("%out", "%out = mod i32 %x, %y"))
+mod(x, y) = llvm!("%out", "%out = mod i32 %x, %y")
 
 impl eq(i32)
 eq(x, y) = llvm!("%out", "%out = icmp eq i32 %x, %y")
@@ -340,12 +351,10 @@ impl mul(u64)
 mul(a, b) = llvm!("%out", "%out = mul i64 %a, %b")
 
 impl div(u64)
-div(_, 0) = None
-div(x, y) = Some(llvm!("%out", "%out = div i64 %x, %y"))
+div(x, y) = llvm!("%out", "%out = div i64 %x, %y")
 
 impl mod(u64)
-mod(_, 0) = None
-mod(x, y) = Some(llvm!("%out", "%out = mod i64 %x, %y"))
+mod(x, y) = llvm!("%out", "%out = mod i64 %x, %y")
 
 impl eq(u64)
 eq(x, y) = llvm!("%out", "%out = icmp eq i64 %x, %y")
@@ -392,12 +401,10 @@ impl mul(i64)
 mul(a, b) = llvm!("%out", "%out = mul i64 %a, %b")
 
 impl div(i64)
-div(_, 0) = None
-div(x, y) = Some(llvm!("%out", "%out = div i64 %x, %y"))
+div(x, y) = llvm!("%out", "%out = div i64 %x, %y")
 
 impl mod(i64)
-mod(_, 0) = None
-mod(x, y) = Some(llvm!("%out", "%out = mod i64 %x, %y"))
+mod(x, y) = llvm!("%out", "%out = mod i64 %x, %y")
 
 impl eq(i64)
 eq(x, y) = llvm!("%out", "%out = icmp eq i64 %x, %y")
