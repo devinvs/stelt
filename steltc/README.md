@@ -2,19 +2,19 @@
 
 The Stelt Compiler
 
-- Design
-  + Error Handling
-  + Parallelism
-  + Incrementalism
-  + Tokens
-  + Parse Tree
-  + AST
-    - Modules
-  + MIR
-  + Type Checking / Type Inference / Constraint Checking
-  + Monomorphization
-  + LIR
-  + Codegen
+- [Design](#design)
+  + [Error Handling](#error-handling)
+  + [Parallelism](#parallelism)
+  + [Incrementalism](#incrementalism)
+  + [Tokens](#tokens)
+  + [Parse Tree](#parse-tree)
+  + [AST](#ast)
+    - [Modules](#modules)
+  + [MIR](#mir)
+  + [Type Checking / Type Inference / Constraint Checking](#type-checking--type-inference--constraint-checking)
+  + [Monomorphization](#monomorphization)
+  + [LIR](#lir)
+  + [Codegen](#codegen)
 
 ## Design
 
