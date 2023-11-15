@@ -175,6 +175,9 @@ hardware actually does and a well-typed lambda calculus. It is prudent for
 higher level analysis such as type-checking, generic constraints, owned types,
 and some optimizations.
 
+This is likely the best place to include beta/eta reduction style optimizations.
+(also maybe I'll make this ir CPS??? Idk maybe)
+
 ## Type Checking / Type Inference / Constraint Checking
 
 These three steps all happen in tandem so we will consider them together.
