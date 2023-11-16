@@ -15,11 +15,20 @@ module.exports = grammar({
       $.function_definition,
       $.definition,
       $.type_definition,
+      $.type_alias,
       $.type_declaration,
       $.from_import,
       $.import,
       $.typefn,
       $.impl,
+    ),
+
+    type_alias: $ => seq(
+      "alias",
+      "type",
+      $.ident,
+      "=",
+      $.type
     ),
 
     typefn: $ => seq(
@@ -55,7 +64,7 @@ module.exports = grammar({
     import: $ => seq(
       "import",
       $.ident,
-      repeat(seq(".", $.ident))
+      repeat(seq(".", $.ident)),
     ),
 
     type_definition: $ => seq(
@@ -206,6 +215,7 @@ module.exports = grammar({
       $.num,
       $.str,
       seq("[", optional(csv($.expr)), "]"),
+      seq("&", $.expr)
     ),
 
     call_expr: $ => prec.right(13, seq(field("func", $.expr), "(", optional(csv($.expr)), ")")),
@@ -249,6 +259,7 @@ module.exports = grammar({
       "()",
       seq("(", csv($.type), ")"),
       seq("[", $.type, "]"),
+      field("genvar", seq("'", $.ident)),
       seq($.ident, repeat(seq(".", $.ident)), optional(seq("<", csv($.type), ">"))),
       prec.right(seq($.type, "->", $.type)),
       seq($.type, "?")
