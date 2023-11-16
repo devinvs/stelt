@@ -191,6 +191,11 @@ call to a typefunction which are checked at the end of typechecking
 the function against "provided" constraints (which are in the declared
 type) and typefunction impls (provided globally).
 
+When a type check fails in any of the check functions, the function
+should record the error and then continue unifying the expression,
+returning a list of errors. This will allow for much better error
+messages.
+
 Typechecking should produce a new mir tree with filled in type information,
 but depends on unchanging type definitions and declarations. Thus, if
 this immutable data is shared typechecking could be parallelized on a
