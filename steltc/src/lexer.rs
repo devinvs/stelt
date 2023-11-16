@@ -76,6 +76,7 @@ lazy_static! {
         m.insert(">", Token::RArrow);
         m.insert(",", Token::Comma);
         m.insert(":", Token::Colon);
+        m.insert("'", Token::Quote);
 
         m.insert("_", Token::Underscore);
 
@@ -222,6 +223,7 @@ pub enum Token {
     GTE,
     Dot,
     Question,
+    Quote,
 
     // Fancy stuff maybe?
     Arrow,
@@ -250,6 +252,7 @@ pub enum Token {
 impl Token {
     pub fn name(&self) -> String {
         match self {
+            Self::Quote => "'",
             Self::From => "from",
             Self::As => "as",
             Self::Alias => "alias",
@@ -401,7 +404,7 @@ impl Lexer {
                     self.in_string = true;
                     self.end += 1;
                 }
-                // Char Literal
+                // Char Literal or type var...
                 '\'' if stack.is_empty() => {
                     self.push_token(&mut tokens, &mut stack);
 
@@ -431,16 +434,22 @@ impl Lexer {
                         (val, 2)
                     };
 
-                    if let Some('\'') = chars.next() {
+                    if let Some('\'') = chars.peek() {
+                        chars.next();
+                        tokens.push_back(Lexeme {
+                            token: Token::Char(c),
+                        });
+                        self.start += n + 1;
+                        self.end = self.start;
+                    } else if n == 3 {
+                        return Err("ahhh".to_string());
                     } else {
-                        return Err("Expected closing ' for string literal".to_string());
+                        // not a char literal, parse as type var
+                        tokens.push_back(Lexeme {
+                            token: Token::Quote,
+                        });
+                        stack.push(c);
                     }
-
-                    tokens.push_back(Lexeme {
-                        token: Token::Char(c),
-                    });
-                    self.start += n + 1;
-                    self.end = self.start;
                 }
                 // Some fancy double char operators???
                 '*' if next.is_some() && *next.unwrap() == '*' => {

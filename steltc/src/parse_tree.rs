@@ -80,6 +80,7 @@ pub enum Type {
     Tuple(Vec<Type>),
 
     Ident(String),
+    GenVar(String),
 
     // Builtins
     U8,

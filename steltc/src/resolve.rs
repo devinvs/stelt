@@ -453,7 +453,7 @@ impl Type {
     // check if a canonicalized type is generic
     fn is_generic(&self) -> bool {
         match self {
-            Type::Ident(i) => !i.contains("."),
+            Type::GenVar(_) => true,
             Type::ForAll(_, _, _) => panic!(),
             Type::Generic(ts, t) => ts.iter().any(|t| t.is_generic()) || t.is_generic(),
             Type::Arrow(a, b) => a.is_generic() || b.is_generic(),

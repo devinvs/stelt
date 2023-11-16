@@ -469,6 +469,9 @@ impl Type {
     fn parse_base(t: &mut TokenStream) -> Result<Self, String> {
         Ok(match t.next() {
             Some(Lexeme {
+                token: Token::Quote,
+            }) => Type::GenVar(t.ident()?),
+            Some(Lexeme {
                 token: Token::Ident(mut i),
                 ..
             }) => {

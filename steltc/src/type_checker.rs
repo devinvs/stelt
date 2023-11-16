@@ -16,7 +16,7 @@ type MutGamma<'a> = &'a mut HashMap<String, Type>;
 impl Type {
     pub fn map(&self, m: &HashMap<String, Type>) -> Self {
         match self {
-            Self::Ident(s) => m.get(s).unwrap_or(&self).clone(),
+            Self::GenVar(s) => m.get(s).unwrap_or(&self).clone(),
             Self::Tuple(ts) => Self::Tuple(ts.into_iter().map(|t| t.map(m)).collect()),
             Self::Arrow(a, b) => Self::Arrow(Box::new(a.map(m)), Box::new(b.map(m))),
             Self::Generic(vars, a) => Self::Generic(

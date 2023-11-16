@@ -710,10 +710,8 @@ impl Type {
                     vars.extend(a.type_vars(types));
                 }
             }
-            Type::Ident(a) => {
-                if !types.contains(a) {
-                    vars.insert(a.clone());
-                }
+            Type::GenVar(s) => {
+                vars.insert(s.clone());
             }
             _ => {}
         }
