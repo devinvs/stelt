@@ -54,6 +54,9 @@ impl SExpr {
 impl MIRExpression {
     pub fn to_sexpr(&self) -> SExpr {
         match self {
+            MIRExpression::Ref(t, _) => {
+                SExpr::List(vec![SExpr::Atom("&".to_string()), t.to_sexpr()])
+            }
             MIRExpression::True => SExpr::Atom("True".to_string()),
             MIRExpression::False => SExpr::Atom("False".to_string()),
             MIRExpression::Identifier(s, _) => SExpr::Atom(s.clone()),

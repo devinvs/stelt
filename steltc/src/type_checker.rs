@@ -24,6 +24,7 @@ impl Type {
                 Box::new(a.map(m)),
             ),
             Self::Box(t) => Self::Box(Box::new(t.map(m))),
+            Self::Ref(t) => Self::Ref(Box::new(t.map(m))),
             _ => self.clone(),
         }
     }
@@ -86,6 +87,7 @@ impl TypeChecker {
 
         // Check all functions
         for (name, func) in tree.funcs.iter_mut() {
+            eprintln!("check {name}");
             let ty = tree.declarations.get(name).unwrap().clone();
 
             self.check_expression(
@@ -396,6 +398,29 @@ impl TypeChecker {
         Ok((sbs2, cons))
     }
 
+    fn judge_ref(
+        &mut self,
+        b: Gamma,
+        c: Gamma,
+        d: Gamma,
+        e: &mut Expression,
+        ty: Type,
+        subs: Theta,
+    ) -> Result<(Theta, Vec<Constraint>), String> {
+        e.set_type(ty.clone());
+        let inner = match e {
+            Expression::Ref(e, _) => e,
+            _ => panic!(),
+        };
+
+        let inner_t = match ty {
+            Type::Ref(t) => *t,
+            _ => panic!("failed to match ref"),
+        };
+
+        self.judge_type(b, c, d, inner, inner_t, subs)
+    }
+
     fn judge_match(
         &mut self,
         b: Gamma,
@@ -452,6 +477,7 @@ impl TypeChecker {
             Expression::Lambda1(..) => self.judge_lambda(builtins, cons, defs, e, t, subs),
             Expression::Call(..) => self.judge_call(builtins, cons, defs, e, t, subs),
             Expression::Match(..) => self.judge_match(builtins, cons, defs, e, t, subs),
+            Expression::Ref(..) => self.judge_ref(builtins, cons, defs, e, t, subs),
         }
     }
 

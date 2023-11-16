@@ -242,6 +242,7 @@ fn parse_genargs(t: &mut TokenStream) -> Result<Vec<String>, String> {
     if t.consume(Token::LArrow).is_some() {
         let mut args = vec![];
         while !t.test(Token::RArrow) {
+            t.assert(Token::Quote)?;
             args.push(t.ident()?);
 
             if t.consume(Token::Comma).is_none() {
@@ -339,7 +340,7 @@ impl QualType {
 
                 // finish parsing the first constraint
                 while !t.test(Token::RParen) {
-                    c.push(Type::Ident(t.ident()?));
+                    c.push(Type::parse(t)?);
                     if t.consume(Token::Comma).is_none() {
                         break;
                     }
@@ -354,7 +355,7 @@ impl QualType {
                     t.assert(Token::LParen)?;
 
                     while !t.test(Token::RParen) {
-                        c.push(Type::Ident(t.ident()?));
+                        c.push(Type::parse(t)?);
                         if t.consume(Token::Comma).is_none() {
                             break;
                         }
@@ -482,6 +483,7 @@ impl Type {
 
                 Type::Ident(i)
             }
+            Some(Lexeme { token: Token::Ref }) => Self::Ref(Box::new(Type::parse(t)?)),
             Some(Lexeme { token: Token::Bool }) => Self::Bool,
             Some(Lexeme {
                 token: Token::U8, ..
@@ -575,7 +577,7 @@ impl Expression {
     }
 
     fn andexpr(t: &mut TokenStream) -> Result<Self, String> {
-        let bitor = Self::bitorexpr(t)?;
+        let bitor = Self::eqexpr(t)?;
 
         if let Some(()) = t.consume(Token::And) {
             let end = Self::andexpr(t)?;
@@ -585,49 +587,6 @@ impl Expression {
             ))
         } else {
             Ok(bitor)
-        }
-    }
-
-    fn bitorexpr(t: &mut TokenStream) -> Result<Self, String> {
-        let xor = Self::bitxorexpr(t)?;
-        Ok(xor)
-
-        // if let Some(()) = t.consume(Token::Bar) {
-        //     let end = Self::bitorexpr(t)?;
-        //     Ok(Self::Call(
-        //         Box::new(Self::Identifier("bitor".into())),
-        //         Box::new(Self::Tuple(vec![xor, end])),
-        //     ))
-        // } else {
-        //     Ok(xor)
-        // }
-    }
-
-    fn bitxorexpr(t: &mut TokenStream) -> Result<Self, String> {
-        let and = Self::bitandexpr(t)?;
-
-        if let Some(()) = t.consume(Token::BitXor) {
-            let end = Self::bitxorexpr(t)?;
-            Ok(Self::Call(
-                Box::new(Self::Identifier("bitxor".into())),
-                Box::new(Self::Tuple(vec![and, end])),
-            ))
-        } else {
-            Ok(and)
-        }
-    }
-
-    fn bitandexpr(t: &mut TokenStream) -> Result<Self, String> {
-        let eq = Self::eqexpr(t)?;
-
-        if let Some(()) = t.consume(Token::BitAnd) {
-            let end = Self::bitandexpr(t)?;
-            Ok(Self::Call(
-                Box::new(Self::Identifier("bitand".into())),
-                Box::new(Self::Tuple(vec![eq, end])),
-            ))
-        } else {
-            Ok(eq)
         }
     }
 
@@ -750,12 +709,8 @@ impl Expression {
                 Box::new(Self::Identifier("not".into())),
                 Box::new(un),
             ))
-        } else if let Some(()) = t.consume(Token::BitNot) {
-            let un = Self::unary(t)?;
-            Ok(Self::Call(
-                Box::new(Self::Identifier("bitnot".into())),
-                Box::new(un),
-            ))
+        } else if t.consume(Token::Ref).is_some() {
+            Ok(Self::Ref(Box::new(Self::postfix(t)?)))
         } else if let Some(()) = t.consume(Token::Sub) {
             let un = Self::unary(t)?;
             Ok(Self::Call(
@@ -800,7 +755,7 @@ impl Expression {
             // parse a concat expression
             let end = Self::parse(t)?;
             Self::Call(
-                Box::new(Self::Identifier("Cons".into())),
+                Box::new(Self::Identifier("list.Cons".into())),
                 Box::new(Self::Tuple(vec![primary, end])),
             )
         } else if t.consume(Token::Dot).is_some() {
@@ -1030,13 +985,13 @@ impl Expression {
     pub fn cons_from_es(es: &[Self]) -> Self {
         if es.is_empty() {
             return Self::Call(
-                Box::new(Self::Identifier("Nil".to_string())),
+                Box::new(Self::Identifier("list.Nil".to_string())),
                 Box::new(Self::Unit),
             );
         }
 
         Self::Call(
-            Box::new(Self::Identifier("Cons".to_string())),
+            Box::new(Self::Identifier("list.Cons".to_string())),
             Box::new(Self::Tuple(vec![
                 es[0].clone(),
                 Self::cons_from_es(&es[1..]),
@@ -1076,11 +1031,11 @@ impl Pattern {
 
     pub fn cons_from_es(es: &[Self]) -> Self {
         if es.is_empty() {
-            return Self::Cons("Nil".to_string(), Box::new(Self::Unit(None)), None);
+            return Self::Cons("list.Nil".to_string(), Box::new(Self::Unit(None)), None);
         }
 
         Self::Cons(
-            "Cons".to_string(),
+            "list.Cons".to_string(),
             Box::new(Self::Tuple(
                 vec![es[0].clone(), Self::cons_from_es(&es[1..])],
                 None,
@@ -1095,7 +1050,7 @@ impl Pattern {
         if t.consume(Token::Concat).is_some() {
             let xs = Self::parse(t)?;
             return Ok(Self::Cons(
-                "Cons".into(),
+                "list.Cons".into(),
                 Box::new(Pattern::Tuple(vec![x, xs], None)),
                 None,
             ));
@@ -1142,7 +1097,7 @@ impl Pattern {
             }) => {
                 t.assert(Token::RBrace)?;
                 Ok(Pattern::Cons(
-                    "Nil".to_string(),
+                    "list.Nil".to_string(),
                     Box::new(Self::Unit(Some(Type::Unit))),
                     None,
                 ))

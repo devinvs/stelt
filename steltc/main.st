@@ -1,10 +1,10 @@
-from a import b, test
+typefn add(a) = (a, a) -> a
+typefn zero(a) = () -> a
+typefn eq(a) = (a, a) -> bool
 
-typefn eq(a) = (a, a) -> a
 
-type freul: test -> bool
-freul(test.P) = True
-freul(test.Q) = False
+type list<'a> = Nil | Cons('a, list<'a>)
 
-type main: () -> bool
-main() = b()
+type sum: add('a) + zero('a) => list<'a> -> 'a
+sum(list.Nil) = zero()
+sum(list.Cons(x, xs)) = x + sum(xs)

@@ -35,14 +35,16 @@ pub fn trans_cons(
 }
 
 pub fn typefn_type(tf: parse_tree::TypeFun) -> Type {
-    let cons = vec![Constraint(tf.name.clone(), tf.ty.clone())];
-    match tf.ty {
-        Type::ForAll(mut vars, _, t) => {
-            vars.extend(tf.vars);
-            Type::ForAll(vars, cons, t)
-        }
-        t => Type::ForAll(tf.vars, cons, Box::new(t)),
+    // Need to sub each tf.var for genvar
+    let mut subs = HashMap::new();
+    for var in tf.vars.clone() {
+        subs.insert(var.clone(), Type::GenVar(var));
     }
+
+    let t = tf.ty.replace_all(&subs);
+    let cons = vec![Constraint(tf.name.clone(), t.clone())];
+
+    Type::ForAll(tf.vars, cons, Box::new(t))
 }
 
 #[derive(Debug)]
@@ -108,7 +110,7 @@ impl MIRTree {
                             Box::new(Type::Ident(name.clone()))
                         } else {
                             Box::new(Type::Generic(
-                                args.clone().into_iter().map(|s| Type::Ident(s)).collect(),
+                                args.clone().into_iter().map(|s| Type::GenVar(s)).collect(),
                                 Box::new(Type::Ident(name.clone())),
                             ))
                         };
@@ -351,6 +353,9 @@ pub enum MIRExpression {
     /// A lambda expression with pattern args and an expression body
     Lambda1(Option<String>, Box<MIRExpression>, Option<Type>),
 
+    /// Borrow
+    Ref(Box<MIRExpression>, Option<Type>),
+
     // Constant Fields
     Num(u64, Option<Type>), // A Number Literal
     Unit(Option<Type>),
@@ -386,6 +391,7 @@ impl MIRExpression {
             MIRExpression::Tuple(es, _) => {
                 MIRExpression::Tuple(es.into_iter().map(|e| e.sub_types(subs)).collect(), Some(t))
             }
+            MIRExpression::Ref(e, _) => MIRExpression::Ref(Box::new(e.sub_types(subs)), Some(t)),
         }
     }
 
@@ -396,6 +402,7 @@ impl MIRExpression {
             Expression::Num(n) => Self::Num(n, None),
             Expression::Unit => Self::Unit(Some(Type::Unit)),
             Expression::Identifier(i) => Self::Identifier(i, None),
+            Expression::Ref(exp) => Self::Ref(Box::new(Self::from(*exp, cons)), None),
             Expression::Tuple(es) => Self::Tuple(
                 es.into_iter()
                     .map(|e| MIRExpression::from(e, cons))
@@ -491,6 +498,7 @@ impl MIRExpression {
 
     pub fn ty(&self) -> Type {
         match self {
+            Self::Ref(_, t) => t,
             Self::True => &Some(Type::Bool),
             Self::False => &Some(Type::Bool),
             Self::Identifier(_, t) => t,
@@ -507,6 +515,7 @@ impl MIRExpression {
 
     pub fn set_type(&mut self, ty: Type) {
         match self {
+            Self::Ref(_, t) => *t = Some(ty),
             Self::True => {}
             Self::False => {}
             Self::Identifier(_, t) => *t = Some(ty),
@@ -713,6 +722,9 @@ impl Type {
             Type::GenVar(s) => {
                 vars.insert(s.clone());
             }
+            Type::Ref(t) => {
+                vars.extend(t.type_vars(types));
+            }
             _ => {}
         }
 
@@ -794,6 +806,7 @@ impl Type {
                 subs
             }
             (Type::Box(t), Type::Box(t2)) => t.get_var_subs(t2),
+            (Type::Ref(t), Type::Ref(t2)) => t.get_var_subs(t2),
             _ => panic!("{self:?}  {other:?}"),
         }
     }
@@ -856,6 +869,7 @@ impl Type {
                 (Type::Tuple(newts), concs)
             }
             Type::Box(t) => t.extract_generics(generics),
+            Type::Ref(t) => t.extract_generics(generics),
             a => (a, vec![]),
         }
     }
@@ -896,6 +910,7 @@ impl Type {
             ),
             Type::Tuple(ts) => Type::Tuple(ts.into_iter().map(|t| t.replace(from, to)).collect()),
             Type::Box(t) => Type::Box(Box::new(t.replace(from, to))),
+            Type::Ref(t) => Type::Ref(Box::new(t.replace(from, to))),
             a => a,
         }
     }

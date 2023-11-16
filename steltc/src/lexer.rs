@@ -58,10 +58,8 @@ lazy_static! {
         m.insert("|", Token::Bar);
         m.insert("||", Token::Or);
         m.insert("&&", Token::And);
-        m.insert("&", Token::BitAnd);
+        m.insert("&", Token::Ref);
         m.insert("!", Token::Not);
-        m.insert("~", Token::BitNot);
-        m.insert("^", Token::BitXor);
         m.insert(".", Token::Dot);
         m.insert("?", Token::Question);
 
@@ -215,15 +213,13 @@ pub enum Token {
     NotEqual,
     Or,
     And,
-    BitAnd,
     Not,
-    BitNot,
-    BitXor,
     LTE,
     GTE,
     Dot,
     Question,
     Quote,
+    Ref,
 
     // Fancy stuff maybe?
     Arrow,
@@ -252,6 +248,7 @@ pub enum Token {
 impl Token {
     pub fn name(&self) -> String {
         match self {
+            Self::Ref => "&",
             Self::Quote => "'",
             Self::From => "from",
             Self::As => "as",
@@ -296,10 +293,7 @@ impl Token {
             Self::NotEqual => "!=",
             Self::Or => "||",
             Self::And => "&&",
-            Self::BitAnd => "&",
             Self::Not => "!",
-            Self::BitNot => "~",
-            Self::BitXor => "^",
             Self::LTE => "<=",
             Self::GTE => ">=",
             Self::Dot => ".",

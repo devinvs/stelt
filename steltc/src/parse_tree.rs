@@ -82,6 +82,8 @@ pub enum Type {
     Ident(String),
     GenVar(String),
 
+    Ref(Box<Type>),
+
     // Builtins
     U8,
     U16,
@@ -213,6 +215,9 @@ pub enum Expression {
 
     /// A lambda expression with pattern args and an expression body
     Lambda(Pattern, Box<Expression>),
+
+    /// A reference
+    Ref(Box<Expression>),
 
     // Constant Fields
     Num(u64), // A Number Literal

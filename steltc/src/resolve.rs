@@ -570,7 +570,7 @@ impl Constraint {
                 panic!()
             }
         } else {
-            panic!()
+            panic!("can't find constraint")
         }
 
         ts.iter_mut()

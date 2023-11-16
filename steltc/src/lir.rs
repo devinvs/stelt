@@ -738,6 +738,7 @@ impl MIRExpression {
         eq_impls: &Vec<(String, Type)>,
     ) -> LIRExpression {
         match self {
+            Self::Ref(e, _) => e.lower(vars, global, externs, eq_impls),
             Self::True => LIRExpression::True,
             Self::False => LIRExpression::False,
             Self::Call(f, args, t) => {
