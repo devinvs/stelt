@@ -78,6 +78,7 @@ pub enum Type {
     Generic(Vec<Type>, Box<Type>),
     Arrow(Box<Type>, Box<Type>),
     Tuple(Vec<Type>),
+
     Ident(String),
 
     // Builtins
