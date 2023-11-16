@@ -2,13 +2,13 @@ typefn map(outer) = (outer<a>, a->b) -> outer<b>
 typefn flatmap(outer) = (outer<a>, a->outer<b>) -> outer<a>
 typefn fold(outer) = (outer<a>, (a, b) -> b, b) -> b
 
-type list<a> = Nil | Cons(a, list<a>)
+type linked_list<a> = Nil | Cons(a, list<a>)
 
-impl map(list)
+impl map(linked_list)
 map([], _) = []
 map(x::xs, f) = f(x)::map(xs, f)
 
-type flatten: [[a]] -> [a]
+impl flatten(linked_list)
 flatten([]) = []
 flatten(x::xs) = x ++ flatten(xs)
 
