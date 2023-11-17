@@ -32,6 +32,7 @@ module.exports = grammar({
     ),
 
     typefn: $ => seq(
+      optional("pub"),
       "typefn",
       $.ident,
       optional($.gen_args),
@@ -55,7 +56,7 @@ module.exports = grammar({
       "from",
       $.ident,
       "import",
-      csv(seq(
+      csv_notrail(seq(
         $.ident,
         optional(seq("as", $.ident))
       ))
@@ -68,6 +69,8 @@ module.exports = grammar({
     ),
 
     type_definition: $ => seq(
+      optional("pub"),
+      optional("owned"),
       "type",
       field("name", $.ident),
       optional($.gen_args),
@@ -87,6 +90,8 @@ module.exports = grammar({
     ),
 
     type_cons: $ => seq(
+      optional("pub"),
+      optional("unsafe"),
       $.cons_ident,
       optional(seq(
         "(",
@@ -126,7 +131,7 @@ module.exports = grammar({
       seq("(", optional(csv($.pattern))  ,")"),
       seq("[", optional(csv($.pattern)), "]"),
       prec.right(seq($.pattern, "::", $.pattern)),
-      seq($.cons_ident, optional(seq(
+      seq(optional("unsafe"), $.cons_ident, optional(seq(
         "(",
         optional(csv($.pattern)),
         ")"
@@ -215,14 +220,20 @@ module.exports = grammar({
       $.num,
       $.str,
       seq("[", optional(csv($.expr)), "]"),
-      seq("&", $.expr)
+      seq("&", $.expr),
+      seq("unsafe", $.expr),
     ),
 
     call_expr: $ => prec.right(13, seq(field("func", $.expr), "(", optional(csv($.expr)), ")")),
 
     type_declaration: $ => seq(
-      optional("extern"),
-      "type",
+      choice(
+        optional("extern"),
+        seq(
+          optional("pub"),
+          optional("unsafe"),
+        ),
+      ),
       field("name", $.ident),
       optional($.gen_args),
       ":",
@@ -272,6 +283,10 @@ module.exports = grammar({
     str: $ => /"[^"]*"/,
   }
 });
+
+function csv_notrail(expr) {
+  return seq(expr, repeat(seq(",", expr)));
+}
 
 function csv(expr) {
   return seq(expr, repeat(seq(",", expr)), optional(","));
