@@ -23,21 +23,13 @@ flatmap(None, _) = None
 flatmap(Some(x), f) = f(x)
 
 //
-// Slice
+// List
 //
-// similar to vec in rust, represents a contiguous
-// section in memory. Represented by a pointer,
-// a length, and a capacity.
+// Linked Lists are fun to work with in functional langauges.
+// But they are slow. We can get most of the ergonomics back
+// with an owned stack at much better performance
 //
-// Holding the capacity has some tradeoffs. It increases
-// the size of the slice structure, but it allows for
-// much more efficient memory allocation when adding
-// single items to the slice.
-//
-// Same deal with storing an offset. Doing so allows
-// for easy fast iteration, but it adds another field
-
-owned type slice<a> = Slice(ptr<a>, u64, u64, u64)
+owned type slice<a> = Slice(ptr<a>, u64, u64)
 
 // In order to make creating an empty slice efficient we don't
 // allocate here, and instead wait until realloc to get a real
@@ -46,35 +38,35 @@ owned type slice<a> = Slice(ptr<a>, u64, u64, u64)
 // Since we always bounds check this should work since our
 // length/capacity are 0
 impl new(slice)
-new() = Slice(unsafe ptr(0), 0, 0, 0)
+new() = Slice(unsafe Ptr(0), 0, 0)
 
 type with_capacity : u64 -> slice<a>
-with_capacity(n) = Slice(malloc(n), 0, n, 0)
+with_capacity(n) = Slice(malloc(n), 0, n)
 
 // Add a single item to the slice.
 // Corresponds to the :: operator
 type push : (slice<a>, a) -> slice<a>
-push(Slice(ptr, len, cap, off), item) =
-	if len+off >= cap then
+push(Slice(ptr, len, cap), item) =
+	if len >= cap then
 		let new_size =
 			if cap == 0 then 10
 			else cap * 2 + 1
 		in
 			let ptr = realloc(ptr, new_size) in
-			let ptr = unsafe memset(ptr, off+len, item) in
-			Slice(ptr, len+1, new_size, off)
+			let ptr = unsafe memset(ptr, len, item) in
+			Slice(ptr, len+1, new_size)
 	else
-		let ptr = unsafe memset(ptr, off+len, item) in
-		Slice(ptr, len+1, cap, off)
+		let ptr = unsafe memset(ptr, len, item) in
+		Slice(ptr, len+1, cap)
 
-// Return the head and tail of the slice, or None if no items left
+// Return the head and tail of the stack, or None if no items left
 type pop : slice<a> -> maybe<(a, slice<a>)>
-pop(Slice(ptr, len, cap, off)) =
-	if off == len then
+pop(Slice(ptr, len, cap)) =
+	if len == 0 then
 		None
 	else
-		let head = unsafe memread(ptr, off) in
-		(head, Slice(ptr, len-1, cap, off+1))
+		let head = unsafe memread(ptr, len-1) in
+		(head, Slice(ptr, len-1, cap))
 
 
 // We can't return references, so it is unsafe to
@@ -87,7 +79,7 @@ map_index(Slice(ptr, len, cap), i, f) =
 	if i >= len then
 		None
 	else
-		Some(f(unsafe memread(ptr, i)))
+		Some(f(&unsafe memread(ptr, len-1-i)))
 
 // We can however do a regular index operation
 // if our item type implements copy
