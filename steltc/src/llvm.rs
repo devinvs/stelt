@@ -36,8 +36,8 @@ impl LLVMType {
             Type::U64 => Self::U64,
             Type::Unit => Self::Void,
             Type::Bool => Self::I1,
-            // Ref is just a language construct
-            Type::Ref(t) => LLVMType::from_type(*t),
+            // Unsafe is just a language construct
+            Type::Unsafe(t) => LLVMType::from_type(*t),
             // convert function types into closures
             Type::Arrow(a, b) => Self::Struct(vec![
                 Self::Func(

@@ -115,6 +115,8 @@ fn compile(path: &Path, outdir: &Path) {
 
     // Now compile :)
     for (name, mut mir) in modules_mir.into_iter() {
+        eprintln!("{:#?}", mir.typedecls);
+
         let mut checker = TypeChecker::default();
         match checker.check_program(&mut mir, &impl_map) {
             Ok(_) => {}

@@ -28,6 +28,7 @@ fn occurs_check(x: Type, t: Type, subs: &mut HashMap<Type, Type>) -> bool {
                 }
                 v
             }
+            Type::Unsafe(t) => get_vars(*t),
             _ => vec![],
         }
     }
@@ -61,6 +62,7 @@ pub fn apply_unifier(mut s: Type, subs: &HashMap<Type, Type>) -> Type {
             Box::new(apply_unifier(*b, subs)),
         ),
         Type::Tuple(ass) => Type::Tuple(ass.into_iter().map(|t| apply_unifier(t, subs)).collect()),
+        Type::Unsafe(t) => Type::Unsafe(Box::new(apply_unifier(*t, subs))),
         a => a,
     }
 }
@@ -146,6 +148,9 @@ pub fn unify(s: Type, t: Type, mut subs: HashMap<Type, Type>) -> Option<HashMap<
                     for (a, b) in ass.into_iter().zip(bs) {
                         stack.push((a, b));
                     }
+                }
+                (Type::Unsafe(s), Type::Unsafe(t)) => {
+                    stack.push((*s, *t));
                 }
                 (_, _) => return None,
             }

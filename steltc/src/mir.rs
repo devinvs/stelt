@@ -353,8 +353,7 @@ pub enum MIRExpression {
     /// A lambda expression with pattern args and an expression body
     Lambda1(Option<String>, Box<MIRExpression>, Option<Type>),
 
-    /// Borrow
-    Ref(Box<MIRExpression>, Option<Type>),
+    Unsafe(Box<MIRExpression>, Option<Type>),
 
     // Constant Fields
     Num(u64, Option<Type>), // A Number Literal
@@ -391,18 +390,20 @@ impl MIRExpression {
             MIRExpression::Tuple(es, _) => {
                 MIRExpression::Tuple(es.into_iter().map(|e| e.sub_types(subs)).collect(), Some(t))
             }
-            MIRExpression::Ref(e, _) => MIRExpression::Ref(Box::new(e.sub_types(subs)), Some(t)),
+            MIRExpression::Unsafe(e, _) => {
+                MIRExpression::Unsafe(Box::new(e.sub_types(subs)), Some(t))
+            }
         }
     }
 
     fn from(tree: Expression, cons: &HashMap<String, Type>) -> Self {
         match tree {
+            Expression::Unsafe(e) => Self::Unsafe(Box::new(MIRExpression::from(*e, cons)), None),
             Expression::True => Self::True,
             Expression::False => Self::False,
             Expression::Num(n) => Self::Num(n, None),
             Expression::Unit => Self::Unit(Some(Type::Unit)),
             Expression::Identifier(i) => Self::Identifier(i, None),
-            Expression::Ref(exp) => Self::Ref(Box::new(Self::from(*exp, cons)), None),
             Expression::Tuple(es) => Self::Tuple(
                 es.into_iter()
                     .map(|e| MIRExpression::from(e, cons))
@@ -498,7 +499,7 @@ impl MIRExpression {
 
     pub fn ty(&self) -> Type {
         match self {
-            Self::Ref(_, t) => t,
+            Self::Unsafe(_, t) => t,
             Self::True => &Some(Type::Bool),
             Self::False => &Some(Type::Bool),
             Self::Identifier(_, t) => t,
@@ -515,7 +516,7 @@ impl MIRExpression {
 
     pub fn set_type(&mut self, ty: Type) {
         match self {
-            Self::Ref(_, t) => *t = Some(ty),
+            Self::Unsafe(_, t) => *t = Some(ty),
             Self::True => {}
             Self::False => {}
             Self::Identifier(_, t) => *t = Some(ty),
@@ -642,6 +643,7 @@ impl Pattern {
     fn sub_types(self, subs: &HashMap<String, Type>) -> Self {
         let t = self.ty().replace_all(subs);
         match self {
+            Pattern::Unsafe(p, _) => Pattern::Unsafe(Box::new(p.sub_types(subs)), Some(t)),
             Pattern::True => Pattern::True,
             Pattern::False => Pattern::False,
             Pattern::Any(..) => Pattern::Any(Some(t)),
@@ -722,7 +724,7 @@ impl Type {
             Type::GenVar(s) => {
                 vars.insert(s.clone());
             }
-            Type::Ref(t) => {
+            Type::Unsafe(t) => {
                 vars.extend(t.type_vars(types));
             }
             _ => {}
@@ -806,7 +808,7 @@ impl Type {
                 subs
             }
             (Type::Box(t), Type::Box(t2)) => t.get_var_subs(t2),
-            (Type::Ref(t), Type::Ref(t2)) => t.get_var_subs(t2),
+            (Type::Unsafe(t), Type::Unsafe(t2)) => t.get_var_subs(t2),
             _ => panic!("{self:?}  {other:?}"),
         }
     }
@@ -869,7 +871,7 @@ impl Type {
                 (Type::Tuple(newts), concs)
             }
             Type::Box(t) => t.extract_generics(generics),
-            Type::Ref(t) => t.extract_generics(generics),
+            Type::Unsafe(t) => t.extract_generics(generics),
             a => (a, vec![]),
         }
     }
@@ -910,7 +912,7 @@ impl Type {
             ),
             Type::Tuple(ts) => Type::Tuple(ts.into_iter().map(|t| t.replace(from, to)).collect()),
             Type::Box(t) => Type::Box(Box::new(t.replace(from, to))),
-            Type::Ref(t) => Type::Ref(Box::new(t.replace(from, to))),
+            Type::Unsafe(t) => Type::Unsafe(Box::new(t.replace(from, to))),
             a => a,
         }
     }

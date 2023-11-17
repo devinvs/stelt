@@ -27,6 +27,7 @@ lazy_static! {
         m.insert("alias", Token::Alias);
         m.insert("from", Token::From);
         m.insert("as", Token::As);
+        m.insert("unsafe", Token::Unsafe);
 
         m.insert("True", Token::True);
         m.insert("False", Token::False);
@@ -58,7 +59,6 @@ lazy_static! {
         m.insert("|", Token::Bar);
         m.insert("||", Token::Or);
         m.insert("&&", Token::And);
-        m.insert("&", Token::Ref);
         m.insert("!", Token::Not);
         m.insert(".", Token::Dot);
         m.insert("?", Token::Question);
@@ -185,6 +185,7 @@ pub enum Token {
     Extern,
     Import,
     Where,
+    Unsafe,
     Underscore,
 
     True,
@@ -219,7 +220,6 @@ pub enum Token {
     Dot,
     Question,
     Quote,
-    Ref,
 
     // Fancy stuff maybe?
     Arrow,
@@ -248,7 +248,7 @@ pub enum Token {
 impl Token {
     pub fn name(&self) -> String {
         match self {
-            Self::Ref => "&",
+            Self::Unsafe => "unsafe",
             Self::Quote => "'",
             Self::From => "from",
             Self::As => "as",

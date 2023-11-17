@@ -82,7 +82,7 @@ pub enum Type {
     Ident(String),
     GenVar(String),
 
-    Ref(Box<Type>),
+    Unsafe(Box<Type>),
 
     // Builtins
     U8,
@@ -216,8 +216,8 @@ pub enum Expression {
     /// A lambda expression with pattern args and an expression body
     Lambda(Pattern, Box<Expression>),
 
-    /// A reference
-    Ref(Box<Expression>),
+    /// An unsafe expression call
+    Unsafe(Box<Expression>),
 
     // Constant Fields
     Num(u64), // A Number Literal
@@ -238,6 +238,7 @@ pub enum Pattern {
 
     Tuple(Vec<Pattern>, Option<Type>),
     Cons(String, Box<Pattern>, Option<Type>),
+    Unsafe(Box<Pattern>, Option<Type>),
 
     Any(Option<Type>),
 }
@@ -261,6 +262,7 @@ impl Pattern {
                 l
             }
             Pattern::Cons(_, p, _) => p.free_vars(),
+            Pattern::Unsafe(p, _) => p.free_vars(),
             _ => List::new(),
         }
     }
@@ -274,6 +276,7 @@ impl Pattern {
             Pattern::Num(_, t) => t,
             Pattern::Tuple(_, t) => t,
             Pattern::Cons(_, _, t) => t,
+            Pattern::Unsafe(_, t) => t,
         }
         .clone()
         .unwrap()
@@ -288,6 +291,7 @@ impl Pattern {
             Pattern::Num(_, t) => *t = Some(ty),
             Pattern::Tuple(_, t) => *t = Some(ty),
             Pattern::Cons(_, _, t) => *t = Some(ty),
+            Pattern::Unsafe(_, t) => *t = Some(ty),
         }
     }
 }

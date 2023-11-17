@@ -5,7 +5,6 @@ mod llvm;
 mod mir;
 mod parse_tree;
 mod parser;
-mod pprint;
 mod resolve;
 mod type_checker;
 mod unify;

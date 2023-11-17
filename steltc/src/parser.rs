@@ -187,6 +187,18 @@ impl ParseTree {
                     me.types.insert(name, ty);
                 }
                 Some(Lexeme {
+                    token: Token::Unsafe,
+                }) => {
+                    t.assert(Token::Unsafe)?;
+                    let name = t.ident()?;
+                    t.assert(Token::Colon)?;
+
+                    let QualType(cons, t) = QualType::parse(t)?;
+
+                    me.typedecls
+                        .insert(name, QualType(cons, Type::Unsafe(Box::new(t))));
+                }
+                Some(Lexeme {
                     token: Token::Ident(_),
                     ..
                 }) => {
@@ -384,7 +396,7 @@ impl Type {
         let cont = Self::parse_tuple(t)?;
 
         if t.consume(Token::Arrow).is_some() {
-            let end = Self::parse_tuple(t)?;
+            let end = Self::parse(t)?;
 
             Ok(Self::Arrow(Box::new(cont), Box::new(end)))
         } else {
@@ -473,7 +485,6 @@ impl Type {
 
                 Type::Ident(i)
             }
-            Some(Lexeme { token: Token::Ref }) => Self::Ref(Box::new(Type::parse(t)?)),
             Some(Lexeme { token: Token::Bool }) => Self::Bool,
             Some(Lexeme {
                 token: Token::U8, ..
@@ -699,14 +710,14 @@ impl Expression {
                 Box::new(Self::Identifier("not".into())),
                 Box::new(un),
             ))
-        } else if t.consume(Token::Ref).is_some() {
-            Ok(Self::Ref(Box::new(Self::postfix(t)?)))
         } else if let Some(()) = t.consume(Token::Sub) {
             let un = Self::unary(t)?;
             Ok(Self::Call(
                 Box::new(Self::Identifier("neg".into())),
                 Box::new(un),
             ))
+        } else if t.consume(Token::Unsafe).is_some() {
+            Ok(Self::Unsafe(Box::new(Self::postfix(t)?)))
         } else {
             Ok(Self::postfix(t)?)
         }
@@ -1084,6 +1095,9 @@ impl Pattern {
         }
 
         match t.next() {
+            Some(Lexeme {
+                token: Token::Unsafe,
+            }) => Ok(Pattern::Unsafe(Box::new(Self::parse(t)?), None)),
             Some(Lexeme {
                 token: Token::LBrace,
                 ..

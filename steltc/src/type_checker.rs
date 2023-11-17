@@ -24,7 +24,7 @@ impl Type {
                 Box::new(a.map(m)),
             ),
             Self::Box(t) => Self::Box(Box::new(t.map(m))),
-            Self::Ref(t) => Self::Ref(Box::new(t.map(m))),
+            Self::Unsafe(t) => Self::Unsafe(Box::new(t.map(m))),
             _ => self.clone(),
         }
     }
@@ -54,7 +54,7 @@ impl TypeChecker {
             Type::ForAll(
                 vec!["a".to_string()],
                 vec![],
-                Box::new(Type::Arrow(
+                Box::new(Type::Unsafe(Box::new(Type::Arrow(
                     Box::new(Type::Tuple(vec![
                         Type::Generic(
                             vec![Type::Ident("char".to_string())],
@@ -65,8 +65,8 @@ impl TypeChecker {
                             Box::new(Type::Ident("list".to_string())),
                         ),
                     ])),
-                    Box::new(Type::Ident("a".to_string())),
-                )),
+                    Box::new(Type::GenVar("a".to_string())),
+                )))),
             ),
         );
 
@@ -397,7 +397,7 @@ impl TypeChecker {
         Ok((sbs2, cons))
     }
 
-    fn judge_ref(
+    fn judge_unsafe_call(
         &mut self,
         b: Gamma,
         c: Gamma,
@@ -406,18 +406,33 @@ impl TypeChecker {
         ty: Type,
         subs: Theta,
     ) -> Result<(Theta, Vec<Constraint>), String> {
-        e.set_type(ty.clone());
-        let inner = match e {
-            Expression::Ref(e, _) => e,
+        let e = match e {
+            Expression::Unsafe(e, _) => e,
             _ => panic!(),
         };
 
-        let inner_t = match ty {
-            Type::Ref(t) => *t,
-            _ => panic!("failed to match ref"),
+        let (m, n) = match &mut **e {
+            Expression::Call(m, n, _) => (m, n),
+            _ => panic!(),
         };
+        let t = self.gen_var();
+        let call_t = Type::Unsafe(Box::new(Type::Arrow(
+            Box::new(t.clone()),
+            Box::new(ty.clone()),
+        )));
+        let mut cons = vec![];
 
-        self.judge_type(b, c, d, inner, inner_t, subs)
+        let (sbs, a) = self.judge_type(b, c, d, n, t.clone(), subs)?;
+        let (sbs2, b) = self.judge_type(b, c, d, m, call_t.clone(), sbs)?;
+
+        cons.extend(a);
+        cons.extend(b);
+
+        m.set_type(call_t);
+        n.set_type(t.clone());
+        e.set_type(ty);
+
+        Ok((sbs2, cons))
     }
 
     fn judge_match(
@@ -476,7 +491,7 @@ impl TypeChecker {
             Expression::Lambda1(..) => self.judge_lambda(builtins, cons, defs, e, t, subs),
             Expression::Call(..) => self.judge_call(builtins, cons, defs, e, t, subs),
             Expression::Match(..) => self.judge_match(builtins, cons, defs, e, t, subs),
-            Expression::Ref(..) => self.judge_ref(builtins, cons, defs, e, t, subs),
+            Expression::Unsafe(..) => self.judge_unsafe_call(builtins, cons, defs, e, t, subs),
         }
     }
 
@@ -595,6 +610,22 @@ impl TypeChecker {
         Ok((subs, cons))
     }
 
+    fn judge_pattern_unsafe(
+        &mut self,
+        c: Gamma,
+        d: Gamma,
+        p: &mut Pattern,
+        t: Type,
+        subs: Theta,
+    ) -> Result<(Theta, Vec<Constraint>), String> {
+        match (p, t) {
+            (Pattern::Unsafe(p, _), Type::Unsafe(t)) => {
+                self.judge_pattern_helper(c, d, p, *t, subs)
+            }
+            _ => panic!(),
+        }
+    }
+
     fn judge_pattern_helper(
         &mut self,
         c: Gamma,
@@ -611,6 +642,7 @@ impl TypeChecker {
             Pattern::Var(..) => self.judge_pattern_var(d, p, t, subs),
             Pattern::Tuple(..) => self.judge_pattern_tuple(c, d, p, t, subs),
             Pattern::Cons(..) => self.judge_pattern_cons(c, d, p, t, subs),
+            Pattern::Unsafe(..) => self.judge_pattern_unsafe(c, d, p, t, subs),
         }
     }
 
