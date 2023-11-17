@@ -1,34 +1,45 @@
-- Type Inference
-    + Is this even necessary? idk.
-        - rn (6/15) this feels necessary
-    + Maybe for numeric types (i8, u8, etc)
-
-- Function annotations? (pure, impure)
-    + probably no
-
-- memory model ideas
-    + Check out Carp
-    + Check out rust
-    + essentially implement the borrow checker...
-    + every variable declared in a lexical scope is dropped at the end of
-        the scope.
-        - Basically functions, let statements, and match cases
-    + Everything is pass by reference unless used in a constructor.
-        + constructors always take ownership
-    + current plan: clone when necessary
-
-- macros! These probably aren't a terrible idea!
-
-- must be as simple as C but expressive as rust
-    + lol, i'm sure this is possible
-    + let's take a deep, long look at lisp
-
-- modules.
-    + need to create a module type
-    + collection of types, functions, traits, and macros
-
-- start with OSGC
-- trait resolution...
-
-- unify types instead of terms?
-    + will need to do this later, but not now
+ - constraints in impl args
+    + its not great, but its the most logical to me right now
+    + constraints should be aggregated when real type constructed
+ - unsafe
+    + allow types and constructors to be annotated with unsasfe
+    + all expression that use them must be prefixed with unsafe
+ - export visibility
+    + allow declared types, new types, type functions to be marked as "pub"
+    + module struct should only include public items
+    + llvm function visibility should default to private
+        + need to decide whether main is pub or never pub... One of the two ig
+ - ownership
+    + new types can be marked as "owned"
+        - types that contain owned types must also be owned
+    + every non-owned type implements copy (by compiler, not manual)
+    + before typechecking but after closure conversion copy calls inserted at every second use of a name
+        - This will catch ownership issues since they do not implement copy.
+        - Also since this is done after closure conversion we handle closure ownership!
+    + Remember which names are unused and cache for later use
+        - later use this list to call drop on
+ - Second class references
+    + Check that references are never in the return type of a function.
+    + This includes constructors, so it also eliminates storage of references.
+ - simple string format
+    + "hello $a world" should transform into "hello " ++ a ++ " world"
+    + format specifiers later, this will just make stuff a lot easier
+ - match syntax that doesn't conflict with where and itself
+        match a with [
+            maybe.None -> 0,
+            maybe.Some(x) -> x
+        ]
+        where a=b
+            | b=c
+            | d=f
+ - sizeof, alignof, ptrsizeof
+ - usize, isize
+ - llvm type optimization, remove use of names
+    + everything becomes an unnamed tuple
+    + maybe<non_zero<a>> -> a
+ - implement biased reference counting
+    + thread local thread id on program start
+    + rc is not owned, and therefore copied, but when copied
+      increases the reference count
+    + when an rc is dropped the reference count is decremented
+      and the pointer maybe freed
