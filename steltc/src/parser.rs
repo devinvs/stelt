@@ -165,8 +165,6 @@ impl ParseTree {
                     ..
                 }) => {
                     t.assert(Token::Extern)?;
-                    // must be a typedecl
-                    t.assert(Token::Type)?;
 
                     let name = t.ident()?;
                     t.assert(Token::Colon)?;
@@ -182,51 +180,43 @@ impl ParseTree {
                     t.assert(Token::Type)?;
 
                     let name = t.ident()?;
-
                     let args = parse_genargs(t)?;
 
-                    match t.next() {
-                        Some(Lexeme {
-                            token: Token::Assign,
-                            ..
-                        }) => {
-                            let ty = DataDecl::parse(t, name.clone(), args)?;
-                            me.types.insert(name, ty);
-                        }
-                        Some(Lexeme {
-                            token: Token::Colon,
-                            ..
-                        }) => {
-                            let ty = QualType::parse(t)?;
-                            me.typedecls.insert(name, ty);
-                        }
-                        Some(a) => {
-                            return Err(format!(
-                                "Expected colon or equals, found '{}'",
-                                a.token.name()
-                            ))
-                        }
-                        None => return Err(format!("Expected colon or equals, found EOF")),
-                    }
-                }
-                Some(Lexeme {
-                    token: Token::Def, ..
-                }) => {
-                    let name = t.ident()?;
-
-                    let expr = Expression::parse(t)?.extract_ns(&me.imports);
-                    me.defs.insert(name, expr);
+                    t.assert(Token::Assign)?;
+                    let ty = DataDecl::parse(t, name.clone(), args)?;
+                    me.types.insert(name, ty);
                 }
                 Some(Lexeme {
                     token: Token::Ident(_),
                     ..
                 }) => {
                     let name = t.ident()?;
-                    let func = FunctionDef::parse(t, name, &me.imports)?;
-                    if let Some(f) = me.funcs.get_mut(&func.name) {
-                        f.push(func);
-                    } else {
-                        me.funcs.insert(func.name.clone(), vec![func]);
+
+                    match t.peek() {
+                        Some(Lexeme {
+                            token: Token::LParen,
+                        }) => {
+                            let func = FunctionDef::parse(t, name, &me.imports)?;
+                            if let Some(f) = me.funcs.get_mut(&func.name) {
+                                f.push(func);
+                            } else {
+                                me.funcs.insert(func.name.clone(), vec![func]);
+                            }
+                        }
+                        Some(Lexeme {
+                            token: Token::Colon,
+                        }) => {
+                            t.assert(Token::Colon)?;
+                            let ty = QualType::parse(t)?;
+                            me.typedecls.insert(name, ty);
+                        }
+                        Some(Lexeme {
+                            token: Token::Assign,
+                        }) => {
+                            let expr = Expression::parse(t)?.extract_ns(&me.imports);
+                            me.defs.insert(name, expr);
+                        }
+                        _ => panic!("ahh"),
                     }
                 }
                 Some(a) => return Err(format!("Unexpected token in declaration: '{:?}'", a.token)),

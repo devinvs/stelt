@@ -12,11 +12,11 @@ module.exports = grammar({
     comment: $ => seq('//', /(\\+(.|\r?\n)|[^\\\n])*/),
 
     _definition: $ => choice(
+      $.type_declaration,
       $.function_definition,
       $.definition,
       $.type_definition,
       $.type_alias,
-      $.type_declaration,
       $.from_import,
       $.import,
       $.typefn,
@@ -227,27 +227,22 @@ module.exports = grammar({
     call_expr: $ => prec.right(13, seq(field("func", $.expr), "(", optional(csv($.expr)), ")")),
 
     type_declaration: $ => seq(
-      choice(
-        optional("extern"),
-        seq(
-          optional("pub"),
-          optional("unsafe"),
-        ),
-      ),
-      field("name", $.ident),
-      optional($.gen_args),
+      optional("pub"),
+      optional("unsafe"),
+      optional("extern"),
+      field("name", $.expr_ident),
       ":",
       optional(
         seq(
           $.ident,
           "(",
-          repeat1($.type),
+          csv($.type),
           ")",
           repeat(seq(
             "+",
             $.ident,
             "(",
-            repeat1($.type),
+            csv($.type),
             ")",
           )),
           "=>"
