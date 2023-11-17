@@ -24,14 +24,6 @@
  - simple string format
     + "hello $a world" should transform into "hello " ++ a ++ " world"
     + format specifiers later, this will just make stuff a lot easier
- - match syntax that doesn't conflict with where and itself
-        match a with [
-            maybe.None -> 0,
-            maybe.Some(x) -> x
-        ]
-        where a=b
-            | b=c
-            | d=f
  - sizeof, alignof, ptrsizeof
  - usize, isize
  - llvm type optimization, remove use of names

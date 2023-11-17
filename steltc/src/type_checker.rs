@@ -87,7 +87,6 @@ impl TypeChecker {
 
         // Check all functions
         for (name, func) in tree.funcs.iter_mut() {
-            eprintln!("check {name}");
             let ty = tree.declarations.get(name).unwrap().clone();
 
             self.check_expression(

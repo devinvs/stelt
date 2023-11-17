@@ -870,19 +870,22 @@ impl Expression {
                 let match_ = Self::parse(t)?;
 
                 t.assert(Token::With)?;
+                t.assert(Token::LBrace)?;
 
                 let pat = Pattern::parse(t)?;
-                t.assert(Token::Colon)?;
+                t.assert(Token::Arrow)?;
                 let e = Self::parse(t)?;
 
                 let mut cases = vec![(pat, e)];
 
                 while t.consume(Token::Comma).is_some() {
                     let pat = Pattern::parse(t)?;
-                    t.assert(Token::Colon)?;
+                    t.assert(Token::Arrow)?;
                     let e = Self::parse(t)?;
                     cases.push((pat, e));
                 }
+
+                t.assert(Token::RBrace)?;
 
                 Ok(Self::Match(Box::new(match_), cases))
             }
