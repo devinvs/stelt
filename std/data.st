@@ -1,14 +1,14 @@
 // The typefunctions that allow us to operate on container types
-typefn new(outer) = () -> outer<a>
-typefn map(outer) = (outer<a>, a->b) -> outer<b>
-typefn flatten(outer) = outer<outer<a>> -> outer<a>
-typefn flatmap(outer) = (outer<a>, a->outer<b>) -> outer<a>
+pub typefn new(outer) = () -> outer<a>
+pub typefn map(outer) = (outer<a>, a->b) -> outer<b>
+pub typefn flatten(outer) = outer<outer<a>> -> outer<a>
+pub typefn flatmap(outer) = (outer<a>, a->outer<b>) -> outer<a>
 
 //
 // Maybe
 //
 
-type maybe<a> = None | Some(a)
+pub type maybe<a> = pub None | pub Some(a)
 
 impl map(maybe)
 map(None, _) = None
@@ -29,7 +29,7 @@ flatmap(Some(x), f) = f(x)
 // But they are slow. We can get most of the ergonomics back
 // with an owned stack at much better performance
 //
-owned type slice<a> = Slice(ptr<a>, u64, u64)
+pub owned type slice<a> = Slice(ptr<a>, u64, u64)
 
 // In order to make creating an empty slice efficient we don't
 // allocate here, and instead wait until realloc to get a real
@@ -45,7 +45,7 @@ with_capacity(n) = Slice(malloc(n), 0, n)
 
 // Add a single item to the slice.
 // Corresponds to the :: operator
-type push : (slice<a>, a) -> slice<a>
+pub push : (slice<a>, a) -> slice<a>
 push(Slice(ptr, len, cap), item) =
 	if len >= cap then
 		let new_size =
@@ -60,7 +60,7 @@ push(Slice(ptr, len, cap), item) =
 		Slice(ptr, len+1, cap)
 
 // Return the head and tail of the stack, or None if no items left
-type pop : slice<a> -> maybe<(a, slice<a>)>
+pub pop : slice<a> -> maybe<(a, slice<a>)>
 pop(Slice(ptr, len, cap)) =
 	if len == 0 then
 		None
@@ -74,7 +74,7 @@ pop(Slice(ptr, len, cap)) =
 // map on an index and return the result of map
 // provided the mapping value takes the value
 // in as a reference
-type map_index : (&slice<a>, u64, &a -> b) -> maybe<b>
+pub map_index : (&slice<a>, u64, &a -> b) -> maybe<b>
 map_index(Slice(ptr, len, cap), i, f) =
 	if i >= len then
 		None
@@ -83,7 +83,7 @@ map_index(Slice(ptr, len, cap), i, f) =
 
 // We can however do a regular index operation
 // if our item type implements copy
-type get : copy(a) => (&slice<a>, u64) -> maybe<a>
+pub get : copy(a) => (&slice<a>, u64) -> maybe<a>
 get(slice, i) = map_index(slice, i, copy)
 
 
@@ -112,11 +112,11 @@ map(Slice(ptr, len, cap), f) =
 		let ptr = transmute(new_ptr) in
 		copy_map(Slice(ptr, len, cap))
 
-type copy_map : (slice<a>, a->b) -> slice<b>
+pub copy_map : (slice<a>, a->b) -> slice<b>
 copy_map([], _) = []
 copy_map(x::xs, f) = f(x)::copy_map(xs, f)
 
-unsafe type mutate_map : (ptr<b>, a->b, u64) -> ptr<b>
+pub unsafe mutate_map : (ptr<b>, a->b, u64) -> ptr<b>
 mutate_map(ptr, _, 0) = ptr
 mutate_map(ptr, f, n) =
 	let aptr = transmute(rest) in
@@ -145,9 +145,9 @@ flatmap(s, f) = s.map(f).flatten()
 // Linked List
 //
 
-type linked_list<a> = Nil | Cons(a, list<a>)
+pub type linked_list<a> = pub Nil | pub Cons(a, list<a>)
 
-// :: is only for slices so this is becomes painful
+// :: is only for default list so this is becomes painful
 // without the alias
 alias type ll = linked_list
 

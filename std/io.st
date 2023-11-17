@@ -1,10 +1,10 @@
 // an io action
-type io<'a> = IO(() -> 'a)
+pub type io<'a> = IO(() -> 'a)
 
 // construct a new empty io instance
 // useful for telling the compiler about side effects
 // that may occur from an external ffi function
-type empty_io : 'a -> io<() -> 'a>
+pub empty_io : 'a -> io<() -> 'a>
 empty_io() = IO(() -> ())
 
 // Mapping a function to an IO action is conceptually
@@ -23,17 +23,17 @@ flatmap(me, f) = me.map(f).flatten()
 
 // At the core of every read/write operation is reading
 // and writing slices of bytes.
-typefn read_bytes(a) = (a, u32) -> io<result<[u8], io_error>>
-typefn write_bytes(a) = (a, [u8]) -> io<result<(), io_error>>
+pub typefn read_bytes(a) = (a, u32) -> io<result<[u8], io_error>>
+pub typefn write_bytes(a) = (a, [u8]) -> io<result<(), io_error>>
 
 // Utility methods for reading/writing any data that implements
 // to/from bytes
-type read: read_bytes(a) + from_bytes(b) => a -> io<result<maybe<b>, io_error>>
+pub read: read_bytes(a) + from_bytes(b) => a -> io<result<maybe<b>, io_error>>
 read(f) = read_bytes(f, size)
 	.map(res -> res.map(from_bytes))
 where size = sizeof(f)
 
-type write: write_bytes(a) + to_bytes(b) => (a, b) -> io<result<(), io_error>>
+pub write: write_bytes(a) + to_bytes(b) => (a, b) -> io<result<(), io_error>>
 write(f, out) = write_bytes(f, out.to_bytes())
 
 

@@ -1,4 +1,3 @@
-
 // A raw owned ptr.
 //    Dropping is a no-op, this could be a ptr to the stack, heap,
 //    or any valid address.

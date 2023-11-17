@@ -6,9 +6,9 @@ from std.cmp import Ord
 // Used to ensure that division operators are total.
 // Also allows for layout optimization of maybe types
 // where a implements zero()
-type non_zero<a> = NonZero(a)
+pub type non_zero<a> = NonZero(a)
 
-non_zero: zero(a) => a -> non_zero<a>
+pub non_zero: zero(a) => a -> non_zero<a>
 non_zero(x) = if x == 0 then None else Some(NonZero(x))
 
 impl add(add(a) => non_zero<a>)
@@ -19,17 +19,17 @@ mul(NonZero(x), NonZero(y)) = NonZero(x*y)
 
 
 // typefunctions for basic mathematical operations
-typefn zero(a) = a
-typefn add(a) = (a, a) -> a
-typefn sub(a) = (a, a) -> a
-typefn mul(a) = (a, a) -> a
-typefn neg(a) = a -> a
+pub typefn zero(a) = a
+pub typefn add(a) = (a, a) -> a
+pub typefn sub(a) = (a, a) -> a
+pub typefn mul(a) = (a, a) -> a
+pub typefn neg(a) = a -> a
 
 // In order to keep these functions total they
 // take a non_zero for their second parameter.
-typefn div(a) = (a, non_zero<a>) -> a
-typefn mod(a) = (a, non_zero<a>) -> a
-typefn rem(a) = (a, non_zero<a>) -> a
+pub typefn div(a) = (a, non_zero<a>) -> a
+pub typefn mod(a) = (a, non_zero<a>) -> a
+pub typefn rem(a) = (a, non_zero<a>) -> a
  
 // Useful typeclasses for dealing with numbers
 
@@ -38,10 +38,10 @@ class Nat(a) = Ring(a) + zero(a) + sub(a) + div(a) + mod(a) + Ord(a)
 class Int(a) = Nat(a) + neg(a)
 
 // And then the bit operations...
-typefn bit_not(a) = a -> a	// b~
-typefn bit_and(a) = a -> a	// b&
-typefn bit_or(a) = a -> a	// b|
-typefn bit_xor(a) = a -> a	// b^
+pub typefn bit_not(a) = a -> a	// b~
+pub typefn bit_and(a) = a -> a	// b&
+pub typefn bit_or(a) = a -> a	// b|
+pub typefn bit_xor(a) = a -> a	// b^
 
 class Bits(a) = bit_not(a) + bit_and(a) + bit_or(a) + bit_xor(a)
 
