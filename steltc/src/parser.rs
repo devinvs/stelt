@@ -67,7 +67,7 @@ impl ParseTree {
                     let gen_args = parse_genargs(t)?;
                     let mut args = vec![];
                     t.assert(Token::LParen)?;
-                    while let Ok(ty) = Type::parse(t) {
+                    while let Ok(ty) = QualType::parse(t) {
                         args.push(ty);
                         if t.consume(Token::Comma).is_none() {
                             break;

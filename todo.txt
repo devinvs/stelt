@@ -1,6 +1,3 @@
- - constraints in impl args
-    + its not great, but its the most logical to me right now
-    + constraints should be aggregated when real type constructed
  - unsafe
     + allow types and constructors to be annotated with unsasfe
     + all expression that use them must be prefixed with unsafe

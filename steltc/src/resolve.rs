@@ -19,7 +19,7 @@ pub struct Module {
     pub pub_gens: HashMap<String, (QualType, Vec<FunctionDef>)>,
 
     pub pub_typefn: HashMap<String, TypeFun>,
-    pub pub_impls: HashMap<String, Vec<Type>>,
+    pub pub_impls: HashMap<String, Vec<QualType>>,
 }
 
 impl ParseTree {
@@ -261,7 +261,9 @@ impl ParseTree {
         for Impl { args, body, .. } in self.impls.iter_mut() {
             for arg in args.iter_mut() {
                 arg.resolve(mods);
-                imported_data.extend(arg.imported(me));
+                let (ts, ns) = arg.imported(me);
+                imported_data.extend(ts);
+                imported_idents.extend(ns);
             }
 
             for func in body {
@@ -287,7 +289,9 @@ impl ParseTree {
 
             // substitutions to go from impl to real type
             let mut subs = HashMap::new();
-            for (var, arg) in vars.iter().zip(args.iter()) {
+            let mut cons = vec![];
+            for (var, QualType(cs, arg)) in vars.iter().zip(args.iter()) {
+                cons.extend(cs.clone());
                 subs.insert(var.clone(), arg.clone());
             }
 
@@ -297,10 +301,11 @@ impl ParseTree {
                 ty: ty.clone(),
                 vars: vec![],
             });
+
             let real_type = ty.replace_all(&subs);
 
             self.typedecls
-                .insert(new_name.clone(), QualType(vec![], real_type));
+                .insert(new_name.clone(), QualType(cons, real_type));
             self.funcs.insert(new_name, body);
         }
 
@@ -610,7 +615,7 @@ impl Impl {
 
         self.args
             .iter_mut()
-            .for_each(|t| t.canonicalize(me, types, imports, type_aliases, aliases));
+            .for_each(|t| t.canonicalize(me, types, typefuns, imports, type_aliases, aliases));
 
         self.body
             .iter_mut()

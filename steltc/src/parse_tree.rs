@@ -33,7 +33,7 @@ pub struct TypeFun {
 pub struct Impl {
     pub fn_name: String,
     pub gen_args: Vec<String>,
-    pub args: Vec<Type>,
+    pub args: Vec<QualType>,
     pub body: Vec<FunctionDef>,
 }
 
