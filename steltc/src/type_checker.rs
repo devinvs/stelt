@@ -80,6 +80,7 @@ impl TypeChecker {
                 &tree.declarations,
                 def,
                 impl_map,
+                &tree.private_impl_map,
                 ty.clone(),
             )?;
             def.apply(&subs)
@@ -95,6 +96,7 @@ impl TypeChecker {
                 &tree.declarations,
                 func,
                 impl_map,
+                &tree.private_impl_map,
                 ty.clone(),
             )?;
         }
@@ -113,11 +115,17 @@ impl TypeChecker {
         d: Gamma,
         e: &mut Expression,
         impls: &HashMap<String, Vec<(String, Type)>>,
+        private_impls: &HashMap<String, Vec<(String, Type)>>,
         t: Type,
     ) -> Result<Theta, String> {
         let (simple, gen_cons) = match t {
             Type::ForAll(_, cs, t) => (*t, cs),
             _ => (t, vec![]),
+        };
+
+        let simple = match simple {
+            Type::Unsafe(t) => *t,
+            t => t,
         };
 
         // Generate subs and constraints for expression, and apply them to the tree
@@ -141,8 +149,12 @@ impl TypeChecker {
                 }
             }
 
-            // Next we check the implementations of this type function
-            for (_, ty) in impls[&tfname].iter() {
+            let imp = private_impls
+                .get(&tfname)
+                .unwrap_or_else(|| impls.get(&tfname).expect("tfun not in scope"));
+
+            // next we check the private impls of this type function
+            for (_, ty) in imp.iter() {
                 let ty = self.gen_fresh_type(ty).0;
                 if unify(ty.clone(), t.clone(), subs.clone()).is_some() {
                     continue 'outer;
@@ -229,8 +241,6 @@ impl TypeChecker {
         e.set_type(v.clone());
         let subs = unify(v.clone(), t.clone(), subs.clone()).ok_or_else(|| {
             let realtype = apply_unifier(t.clone(), &subs);
-            eprintln!("{subs:#?}");
-            eprintln!("{t:?} vs {v:?}");
             format!("Type Mismatch: Expected {v:?} found {:?}", realtype)
         })?;
         Ok((subs, vec![]))
@@ -325,21 +335,6 @@ impl TypeChecker {
             d.insert(x.clone(), t1.clone());
         }
 
-        // unify t1 with lambda arg type first so that struct resolution can work
-        subs = match ty.clone() {
-            Type::Arrow(a, _) => {
-                unify(*a, t1.clone(), subs).ok_or(format!("Type check failed here"))?
-            }
-            _ => subs,
-            /*
-            a => {
-                return Err(String {
-                    range: Some(r),
-                    msg: format!("Expected lambda found {:?}", a)
-                })
-            }*/
-        };
-
         let (sbs, cons) = self.judge_type(b, c, &d, m, t2.clone(), subs)?;
         subs = sbs;
 
@@ -356,8 +351,8 @@ impl TypeChecker {
             );
 
             format!(
-                "Type Mismatch: Expected {:?} found {:?}\n{:?}",
-                tname, xname, m
+                "judge_lambda: Type Mismatch: Expected {:?} found {:?}",
+                tname, xname
             )
         })?;
 
@@ -397,7 +392,7 @@ impl TypeChecker {
         Ok((sbs2, cons))
     }
 
-    fn judge_unsafe_call(
+    fn judge_unsafe(
         &mut self,
         b: Gamma,
         c: Gamma,
@@ -406,33 +401,14 @@ impl TypeChecker {
         ty: Type,
         subs: Theta,
     ) -> Result<(Theta, Vec<Constraint>), String> {
+        e.set_type(ty.clone());
+
         let e = match e {
             Expression::Unsafe(e, _) => e,
             _ => panic!(),
         };
 
-        let (m, n) = match &mut **e {
-            Expression::Call(m, n, _) => (m, n),
-            _ => panic!(),
-        };
-        let t = self.gen_var();
-        let call_t = Type::Unsafe(Box::new(Type::Arrow(
-            Box::new(t.clone()),
-            Box::new(ty.clone()),
-        )));
-        let mut cons = vec![];
-
-        let (sbs, a) = self.judge_type(b, c, d, n, t.clone(), subs)?;
-        let (sbs2, b) = self.judge_type(b, c, d, m, call_t.clone(), sbs)?;
-
-        cons.extend(a);
-        cons.extend(b);
-
-        m.set_type(call_t);
-        n.set_type(t.clone());
-        e.set_type(ty);
-
-        Ok((sbs2, cons))
+        self.judge_type(b, c, d, e, Type::Unsafe(Box::new(ty)), subs)
     }
 
     fn judge_match(
@@ -491,7 +467,7 @@ impl TypeChecker {
             Expression::Lambda1(..) => self.judge_lambda(builtins, cons, defs, e, t, subs),
             Expression::Call(..) => self.judge_call(builtins, cons, defs, e, t, subs),
             Expression::Match(..) => self.judge_match(builtins, cons, defs, e, t, subs),
-            Expression::Unsafe(..) => self.judge_unsafe_call(builtins, cons, defs, e, t, subs),
+            Expression::Unsafe(..) => self.judge_unsafe(builtins, cons, defs, e, t, subs),
         }
     }
 

@@ -28,7 +28,7 @@ fn occurs_check(x: Type, t: Type, subs: &mut HashMap<Type, Type>) -> bool {
                 }
                 v
             }
-            Type::Unsafe(t) => get_vars(*t),
+            Type::Unsafe(a) => get_vars(*a),
             _ => vec![],
         }
     }
@@ -119,7 +119,11 @@ pub fn unify(s: Type, t: Type, mut subs: HashMap<Type, Type>) -> Option<HashMap<
                         || a == Type::I32
                         || a == Type::I64 =>
                 {
-                    subs.insert(s, a);
+                    if occurs_check(s.clone(), a.clone(), &mut subs) {
+                        subs.insert(s, a);
+                    } else {
+                        return None;
+                    }
                 }
                 (a, Type::NumVar(_))
                     if a == Type::U8
@@ -131,7 +135,11 @@ pub fn unify(s: Type, t: Type, mut subs: HashMap<Type, Type>) -> Option<HashMap<
                         || a == Type::I32
                         || a == Type::I64 =>
                 {
-                    subs.insert(t, a);
+                    if occurs_check(s.clone(), a.clone(), &mut subs) {
+                        subs.insert(t, a);
+                    } else {
+                        return None;
+                    }
                 }
                 (Type::Generic(ass, b), Type::Generic(cs, d)) => {
                     for (a, c) in ass.into_iter().zip(cs) {
@@ -149,8 +157,8 @@ pub fn unify(s: Type, t: Type, mut subs: HashMap<Type, Type>) -> Option<HashMap<
                         stack.push((a, b));
                     }
                 }
-                (Type::Unsafe(s), Type::Unsafe(t)) => {
-                    stack.push((*s, *t));
+                (Type::Unsafe(a), Type::Unsafe(b)) => {
+                    stack.push((*a, *b));
                 }
                 (_, _) => return None,
             }

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 
-use crate::parse_tree::{DataDecl, Expression, ParseTree, Pattern, QualType, Type, TypeCons};
+use crate::parse_tree::{DataDecl, Expression, ParseTree, Pattern, QualType, Type, TypeCons, Vis};
 
 use crate::unify::apply_unifier;
 use crate::unify::unify;
@@ -18,10 +18,10 @@ pub struct Constraint(pub String, pub Type);
 // using the typefunction as a template
 pub fn trans_cons(
     cons: parse_tree::Constraint,
-    typefns: &HashMap<String, parse_tree::TypeFun>,
+    typefns: &HashMap<String, (Vis, parse_tree::TypeFun)>,
 ) -> Constraint {
     let parse_tree::Constraint(name, ts) = cons;
-    let tf = &typefns[&name];
+    let (_, tf) = &typefns[&name];
 
     // Create substitutions for this constraint
     let mut subs = HashMap::new();
@@ -50,11 +50,11 @@ pub fn typefn_type(tf: parse_tree::TypeFun) -> Type {
 #[derive(Debug)]
 pub struct MIRTree {
     pub external: HashSet<String>,
-    pub types: Vec<(String, DataDecl)>,
-    pub typedecls: HashMap<String, Type>,
+    pub types: Vec<(String, (Vis, DataDecl))>,
+    pub typedecls: HashMap<String, (Vis, Type)>,
     pub funcs: HashMap<String, MIRExpression>,
     pub defs: HashMap<String, MIRExpression>,
-    pub import_idents: HashSet<String>,
+    pub private_impl_map: HashMap<String, Vec<(String, Type)>>,
 
     pub constructors: HashMap<String, Type>,
     pub declarations: HashMap<String, Type>,
@@ -76,33 +76,33 @@ impl MIRTree {
 
         // Typedecls get their generics extracted into a forall type along with
         // the constraints from the QualType
-        for (name, QualType(cons, t)) in tree.typedecls.into_iter() {
+        for (name, (vis, QualType(cons, t))) in tree.typedecls.into_iter() {
             let cons = cons
                 .into_iter()
                 .map(|c| trans_cons(c, &tree.typefuns))
                 .collect();
             let t = t.extract_vars(&type_names, cons);
-            typedecls.insert(name, t);
+            typedecls.insert(name, (vis, t));
         }
 
         let mut declarations = HashMap::new();
 
         // Type functions can have generic variables but not generic constraints
         // Type functions type check as a forall type and provide themselves as their constraint
-        for (name, typefn) in tree.typefuns.clone() {
+        for (name, (_, typefn)) in tree.typefuns.clone() {
             let t = typefn_type(typefn);
             declarations.insert(name, t);
         }
 
         // Add all user defined type definitions to declarations
-        for (name, t) in typedecls.iter() {
+        for (name, (_, t)) in typedecls.iter() {
             declarations.insert(name.clone(), t.clone());
         }
 
         // Add all type constructors to conss
         let mut constructors = HashMap::new();
 
-        for (name, decl) in tree.types.iter() {
+        for (name, (_, decl)) in tree.types.iter() {
             match decl {
                 DataDecl(_, args, cons) => {
                     for cons in cons {
@@ -173,7 +173,7 @@ impl MIRTree {
             defs,
             constructors,
             declarations,
-            import_idents: tree.import_idents,
+            private_impl_map: tree.private_impl_map,
         }
     }
 
@@ -182,17 +182,17 @@ impl MIRTree {
         let mut concrete_decls = HashMap::new();
 
         // split out generic typedecls from the concrete ones
-        for (name, t) in self.typedecls {
+        for (name, (vis, t)) in self.typedecls {
             match t {
                 Type::ForAll(args, cons, inner) => {
                     if args.len() == 0 {
-                        concrete_decls.insert(name, *inner);
+                        concrete_decls.insert(name, (vis, *inner));
                     } else {
                         generic_decls.insert(name, Type::ForAll(args, cons, inner));
                     }
                 }
                 a => {
-                    concrete_decls.insert(name, a);
+                    concrete_decls.insert(name, (vis, a));
                 }
             }
         }
@@ -202,7 +202,7 @@ impl MIRTree {
         let cons = self
             .types
             .iter()
-            .filter_map(|t| match &t.1 {
+            .filter_map(|(_, (_, t))| match &t {
                 DataDecl(_, _, cons) => {
                     Some(cons.iter().map(|tc| tc.name.clone()).collect::<Vec<_>>())
                 }
@@ -235,7 +235,7 @@ impl MIRTree {
             for (n, n_prime, t) in calls {
                 if !concrete_funcs.contains_key(&n_prime) {
                     // add to concrete_decls ig, ughh
-                    concrete_decls.insert(n_prime.clone(), t.clone());
+                    concrete_decls.insert(n_prime.clone(), (Vis::Private, t.clone()));
 
                     let oldty = generic_decls[&n].clone();
                     let subs = oldty.get_generic_subs(&t);
@@ -250,30 +250,30 @@ impl MIRTree {
         let mut concrete_types = HashMap::new();
 
         // split out the generic type prototypes and the concrete types
-        for (name, t) in self.types {
+        for (name, (vis, t)) in self.types {
             let argc = match t.clone() {
                 DataDecl(_, args, _) => args.len(),
             };
 
             if argc == 0 {
-                concrete_types.insert(name, t);
+                concrete_types.insert(name, (vis, t));
             } else {
                 generic_types.insert(name, t);
             }
         }
 
         // For each typedecl replace generics with concrete instances
-        for (_, t) in concrete_decls.iter_mut() {
+        for (_, (_, t)) in concrete_decls.iter_mut() {
             let (newt, concs) = t.clone().extract_generics(&generic_types);
             for conc in concs {
-                concrete_types.insert(conc.name(), conc);
+                concrete_types.insert(conc.name(), (Vis::Private, conc));
             }
             *t = newt;
         }
 
         // finally, for every concrete type extract the generics from their members and constructors
         let mut other_concretes = HashMap::new();
-        for (_, t) in concrete_types.iter_mut() {
+        for (_, (_, t)) in concrete_types.iter_mut() {
             *t = match t {
                 DataDecl(n, v, cons) => {
                     let cons = cons
@@ -281,7 +281,7 @@ impl MIRTree {
                         .map(|TypeCons { name, args }| {
                             let (newt, concs) = args.clone().extract_generics(&generic_types);
                             for conc in concs {
-                                other_concretes.insert(conc.name(), conc);
+                                other_concretes.insert(conc.name(), (Vis::Private, conc));
                             }
                             TypeCons {
                                 name: name.clone(),
@@ -298,7 +298,7 @@ impl MIRTree {
         concrete_types.extend(other_concretes);
         // change type constructor names to have their type as a prefix
 
-        for (_, data) in concrete_types.iter_mut() {
+        for (_, (_, data)) in concrete_types.iter_mut() {
             let name = data.name();
             match data {
                 DataDecl(_, _, cons) => {
@@ -316,13 +316,13 @@ impl MIRTree {
 
         // remove recursion from recursive types with boxing
         let data = self.types.clone();
-        for (name, d) in data.into_iter() {
+        for (name, (_, d)) in data.into_iter() {
             let d = d.remove_recursion(&name, &mut self.types);
             *self
                 .types
                 .iter_mut()
                 .find(|(n, _)| *n == name)
-                .map(|(_, a)| a)
+                .map(|(_, (_, a))| a)
                 .unwrap() = d;
         }
 
@@ -992,7 +992,7 @@ pub fn gen_impl_map(
             let ns = new_name.rsplit_once(".").unwrap().0;
             let name = new_name.rsplit_once("$").unwrap().0;
 
-            let QualType(_, real_type) = &trees[ns].typedecls[new_name];
+            let (_, QualType(_, real_type)) = &trees[ns].typedecls[new_name];
 
             if let Some(impls) = impl_map.get_mut(name) {
                 impls.push((new_name.clone(), real_type.clone()));

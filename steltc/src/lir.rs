@@ -10,6 +10,7 @@ use crate::mir::MIRTree;
 use crate::parse_tree::DataDecl;
 use crate::parse_tree::Pattern;
 use crate::parse_tree::Type;
+use crate::parse_tree::Vis;
 
 macro_rules! eq_type {
     ($i:expr) => {
@@ -95,7 +96,7 @@ pub struct LIRTree {
     pub variants: HashMap<String, Vec<(String, LLVMType)>>,
 
     /// Map of function names to their llvm types
-    pub func_types: HashMap<String, (LLVMType, LLVMType)>,
+    pub func_types: HashMap<String, (Vis, LLVMType, LLVMType)>,
 
     pub extern_types: HashMap<String, (Vec<LLVMType>, LLVMType)>,
 
@@ -103,8 +104,6 @@ pub struct LIRTree {
     pub funcs: HashMap<String, LIRExpression>,
 
     pub type_sizes: HashMap<String, usize>,
-
-    pub import_idents: HashSet<String>,
 }
 
 impl MIRTree {
@@ -120,7 +119,7 @@ impl MIRTree {
         let mut variants = HashMap::new();
         let mut enums = HashMap::new();
 
-        for (name, t) in self.types {
+        for (name, (_, t)) in self.types {
             match t {
                 DataDecl(_, _, cons) => {
                     let vars = LLVMType::from_enum(cons);
@@ -169,7 +168,7 @@ impl MIRTree {
 
         // get list of global function and constructor names
         let mut global_funcs = HashSet::new();
-        for (f, _) in self.funcs.iter() {
+        for (f, _) in self.typedecls.iter() {
             global_funcs.insert(f.clone());
         }
         for n in self.external.iter() {
@@ -180,7 +179,6 @@ impl MIRTree {
                 global_funcs.insert(e.clone());
             }
         }
-        global_funcs.extend(self.import_idents.clone());
 
         let mut externs = HashSet::new();
         externs.extend(self.external.iter().map(|s| s.clone()));
@@ -189,9 +187,12 @@ impl MIRTree {
 
         // lower all the mir functions to lir expressions
         for (f, expr) in self.funcs {
-            globals.insert(f.clone());
             let e = expr.lower(&variants, &global_funcs, &externs, eq_impls);
             funcs.insert(f, e);
+        }
+
+        for (n, _) in self.typedecls.iter() {
+            globals.insert(n.clone());
         }
 
         for n in self.external.iter() {
@@ -206,9 +207,6 @@ impl MIRTree {
             globals.insert(v.clone());
         }
 
-        // ig add imported types as globals as well
-        globals.extend(self.import_idents.clone());
-
         // extract all the functions from the lir
         let mut extracted_funcs = HashMap::new();
         for (name, expr) in funcs {
@@ -217,7 +215,7 @@ impl MIRTree {
         }
 
         // add all types of functions that we know
-        for (f, t) in self.typedecls.iter() {
+        for (f, (vis, t)) in self.typedecls.iter() {
             let t = match t.clone() {
                 Type::ForAll(_, _, a) => *a,
                 a => a,
@@ -226,14 +224,18 @@ impl MIRTree {
             if let Type::Arrow(from, to) = t {
                 func_types.insert(
                     f.clone(),
-                    (LLVMType::from_type(*from), LLVMType::from_type(*to)),
+                    (
+                        vis.clone(),
+                        LLVMType::from_type(*from),
+                        LLVMType::from_type(*to),
+                    ),
                 );
             }
         }
 
         let mut extern_types = HashMap::new();
         for f in self.external.iter() {
-            let t = &self.typedecls[f];
+            let (_, t) = &self.typedecls[f];
 
             let (from, to) = match t.clone() {
                 Type::Arrow(from, to) => {
@@ -262,7 +264,6 @@ impl MIRTree {
             enums,
             variants,
             type_sizes,
-            import_idents: self.import_idents,
         }
     }
 }
@@ -397,7 +398,7 @@ impl LIRExpression {
     fn extract_funcs(
         self,
         id: &String,
-        types: &mut HashMap<String, (LLVMType, LLVMType)>,
+        types: &mut HashMap<String, (Vis, LLVMType, LLVMType)>,
         globals: &HashSet<String>,
         subs: &HashMap<String, LLVMType>,
     ) -> (LIRExpression, HashMap<String, LIRExpression>) {
@@ -529,7 +530,7 @@ impl LIRExpression {
                 // insert into our list of closures
                 funcs.insert(id.clone(), e);
                 // insert into list of function types
-                types.insert(id.clone(), (from.clone(), *to.clone()));
+                types.insert(id.clone(), (Vis::Private, from.clone(), *to.clone()));
 
                 // get the type of our closure
                 let lambda_t = LLVMType::Func(Box::new(from.clone()), to.clone());

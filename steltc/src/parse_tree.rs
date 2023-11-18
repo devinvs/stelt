@@ -2,14 +2,21 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::LinkedList as List;
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum Vis {
+    Public,
+    Private,
+    Import,
+}
+
 #[derive(Debug, Clone)]
 pub struct ParseTree {
-    pub types: HashMap<String, DataDecl>,
+    pub types: HashMap<String, (Vis, DataDecl)>,
 
     pub external: HashSet<String>,
-    pub typedecls: HashMap<String, QualType>,
+    pub typedecls: HashMap<String, (Vis, QualType)>,
 
-    pub typefuns: HashMap<String, TypeFun>,
+    pub typefuns: HashMap<String, (Vis, TypeFun)>,
     pub impls: Vec<Impl>,
 
     pub funcs: HashMap<String, Vec<FunctionDef>>,
@@ -17,6 +24,8 @@ pub struct ParseTree {
 
     pub type_aliases: HashMap<String, Type>,
     pub aliases: HashMap<String, String>,
+
+    pub private_impl_map: HashMap<String, Vec<(String, Type)>>,
 
     pub imports: HashSet<String>,
     pub import_idents: HashSet<String>,
@@ -44,7 +53,7 @@ pub struct Impl {
 pub struct DataDecl(pub String, pub Vec<String>, pub Vec<TypeCons>);
 
 impl DataDecl {
-    pub fn remove_recursion(self, name: &str, data: &mut Vec<(String, DataDecl)>) -> Self {
+    pub fn remove_recursion(self, name: &str, data: &mut Vec<(String, (Vis, DataDecl))>) -> Self {
         let DataDecl(tname, args, cons) = self;
         DataDecl(
             tname,
@@ -105,7 +114,7 @@ pub enum Type {
 }
 
 impl Type {
-    fn remove_recursion(self, name: &str, data: &mut Vec<(String, DataDecl)>) -> Self {
+    fn remove_recursion(self, name: &str, data: &mut Vec<(String, (Vis, DataDecl))>) -> Self {
         match self {
             Type::Ident(i) => {
                 if name == i {
@@ -113,12 +122,12 @@ impl Type {
                 } else if let Some(d) = data
                     .iter_mut()
                     .find(|(a, _)| *a == i)
-                    .map(|(_, a)| a.clone())
+                    .map(|(_, (_, a))| a.clone())
                 {
                     *data
                         .iter_mut()
                         .find(|(a, _)| *a == i)
-                        .map(|(_, a)| a)
+                        .map(|(_, (_, a))| a)
                         .unwrap() = d.clone().remove_recursion(name, data);
                     Type::Ident(i)
                 } else {

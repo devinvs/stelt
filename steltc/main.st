@@ -5,9 +5,12 @@ typefn eq(a) = (a, a) -> bool
 
 type list<'a> = Nil | Cons('a, list<'a>)
 
-// sum: add('a) + zero('a) => list<'a> -> 'a
-sum : a -> b
+unsafe sum: list<u32> -> u32
 sum(l) = match l with [
-	list.Nil -> zero(),
-	list.Cons(x, xs) -> x+sum(xs)
+	list.Nil -> test(l),
+	list.Cons(x, xs) -> x + unsafe sum(xs)
 ]
+
+test : list<u32> -> u32
+test(_) = 0
+

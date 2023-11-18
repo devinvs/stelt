@@ -10,6 +10,7 @@ use crate::Token;
 use crate::parse_tree::Constraint;
 use crate::parse_tree::{
     DataDecl, Expression, FunctionDef, Impl, ParseTree, Pattern, QualType, Type, TypeCons, TypeFun,
+    Vis,
 };
 
 use lazy_static::lazy_static;
@@ -32,6 +33,7 @@ lazy_static! {
             import_idents: HashSet::new(),
             typefuns: HashMap::new(),
             impls: Vec::new(),
+            private_impl_map: HashMap::new()
         };
         // ParseTree::parse_with(&mut tokens, me).unwrap()
         me
@@ -45,6 +47,13 @@ impl ParseTree {
 
     pub fn parse_with(t: &mut TokenStream, mut me: Self) -> Result<Self, String> {
         loop {
+            // This is wrong but we are going to roll with it for now
+            let is_pub = if t.consume(Token::Pub).is_some() {
+                Vis::Public
+            } else {
+                Vis::Private
+            };
+
             match t.peek() {
                 Some(Lexeme {
                     token: Token::Alias,
@@ -115,11 +124,14 @@ impl ParseTree {
 
                     me.typefuns.insert(
                         name.clone(),
-                        TypeFun {
-                            name,
-                            vars: args,
-                            ty,
-                        },
+                        (
+                            is_pub,
+                            TypeFun {
+                                name,
+                                vars: args,
+                                ty,
+                            },
+                        ),
                     );
                 }
                 Some(Lexeme {
@@ -170,7 +182,8 @@ impl ParseTree {
                     t.assert(Token::Colon)?;
 
                     let ty = Type::parse(t)?;
-                    me.typedecls.insert(name.clone(), QualType(vec![], ty));
+                    me.typedecls
+                        .insert(name.clone(), (is_pub, QualType(vec![], ty)));
                     me.external.insert(name);
                 }
                 Some(Lexeme {
@@ -184,7 +197,7 @@ impl ParseTree {
 
                     t.assert(Token::Assign)?;
                     let ty = DataDecl::parse(t, name.clone(), args)?;
-                    me.types.insert(name, ty);
+                    me.types.insert(name, (is_pub, ty));
                 }
                 Some(Lexeme {
                     token: Token::Unsafe,
@@ -196,7 +209,7 @@ impl ParseTree {
                     let QualType(cons, t) = QualType::parse(t)?;
 
                     me.typedecls
-                        .insert(name, QualType(cons, Type::Unsafe(Box::new(t))));
+                        .insert(name, (is_pub, QualType(cons, Type::Unsafe(Box::new(t)))));
                 }
                 Some(Lexeme {
                     token: Token::Ident(_),
@@ -220,7 +233,7 @@ impl ParseTree {
                         }) => {
                             t.assert(Token::Colon)?;
                             let ty = QualType::parse(t)?;
-                            me.typedecls.insert(name, ty);
+                            me.typedecls.insert(name, (is_pub, ty));
                         }
                         Some(Lexeme {
                             token: Token::Assign,
@@ -716,16 +729,22 @@ impl Expression {
                 Box::new(Self::Identifier("neg".into())),
                 Box::new(un),
             ))
-        } else if t.consume(Token::Unsafe).is_some() {
-            Ok(Self::Unsafe(Box::new(Self::postfix(t)?)))
         } else {
             Ok(Self::postfix(t)?)
         }
     }
 
     fn postfix(t: &mut TokenStream) -> Result<Self, String> {
-        let primary = Self::primary(t)?;
+        let primary = Self::eunsafe(t)?;
         Self::postfix_post(t, primary)
+    }
+
+    fn eunsafe(t: &mut TokenStream) -> Result<Self, String> {
+        if t.consume(Token::Unsafe).is_some() {
+            Ok(Self::Unsafe(Box::new(Self::primary(t)?)))
+        } else {
+            Self::primary(t)
+        }
     }
 
     fn postfix_post(t: &mut TokenStream, primary: Expression) -> Result<Self, String> {

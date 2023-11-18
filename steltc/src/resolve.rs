@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::parse_tree::{
     Constraint, DataDecl, Expression, FunctionDef, Impl, ParseTree, Pattern, QualType, Type,
-    TypeCons, TypeFun,
+    TypeCons, TypeFun, Vis,
 };
 
 /// A package of all public information about a module.
@@ -44,7 +44,7 @@ impl ParseTree {
         let local_cons: HashSet<String> = self
             .types
             .iter()
-            .map(|(_, dd)| dd.2.iter().map(|c| c.name.clone()))
+            .map(|(_, (_, dd))| dd.2.iter().map(|c| c.name.clone()))
             .flatten()
             .collect();
 
@@ -72,7 +72,7 @@ impl ParseTree {
             .types
             .clone()
             .into_iter()
-            .map(|(_, mut dd)| {
+            .map(|(_, (is_pub, mut dd))| {
                 dd.canonicalize(
                     prefix,
                     &local_datadecls,
@@ -80,7 +80,7 @@ impl ParseTree {
                     &self.type_aliases,
                     &self.aliases,
                 );
-                (dd.0.clone(), dd)
+                (dd.0.clone(), (is_pub, dd))
             })
             .collect();
 
@@ -89,7 +89,7 @@ impl ParseTree {
             .typedecls
             .clone()
             .into_iter()
-            .map(|(name, mut td)| {
+            .map(|(name, (is_pub, mut td))| {
                 td.canonicalize(
                     prefix,
                     &local_datadecls,
@@ -98,7 +98,7 @@ impl ParseTree {
                     &self.type_aliases,
                     &self.aliases,
                 );
-                (format!("{prefix}.{name}"), td)
+                (format!("{prefix}.{name}"), (is_pub, td))
             })
             .collect();
 
@@ -147,7 +147,7 @@ impl ParseTree {
             .typefuns
             .clone()
             .into_iter()
-            .map(|(name, mut tf)| {
+            .map(|(name, (is_pub, mut tf))| {
                 tf.name = format!("{prefix}.{name}");
                 tf.ty.canonicalize(
                     prefix,
@@ -156,7 +156,7 @@ impl ParseTree {
                     &self.type_aliases,
                     &self.aliases,
                 );
-                (format!("{prefix}.{name}"), tf)
+                (format!("{prefix}.{name}"), (is_pub, tf))
             })
             .collect();
 
@@ -175,27 +175,61 @@ impl ParseTree {
         }
 
         Module {
-            pub_data: self.types.clone().into_iter().collect(),
+            pub_data: self
+                .types
+                .clone()
+                .into_iter()
+                .filter_map(|(name, (vis, ty))| {
+                    if vis == Vis::Public {
+                        Some((name, ty))
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
             pub_cons: self
                 .types
                 .iter()
-                .map(|(_, dd)| dd.2.iter().map(|c| (c.name.clone(), c.args.clone())))
+                .filter_map(|(_, (vis, dd))| {
+                    if *vis == Vis::Public {
+                        Some(dd.2.iter().map(|c| (c.name.clone(), c.args.clone())))
+                    } else {
+                        None
+                    }
+                })
                 .flatten()
                 .collect(),
             pub_decls: self
                 .typedecls
                 .clone()
                 .into_iter()
-                .filter(|(_, t)| !t.is_generic())
+                .filter_map(|(name, (vis, t))| {
+                    if !t.is_generic() && vis == Vis::Public {
+                        Some((name, t))
+                    } else {
+                        None
+                    }
+                })
                 .collect(),
             pub_gens: self
                 .typedecls
                 .clone()
                 .into_iter()
-                .filter(|(_, t)| t.is_generic())
-                .map(|(name, t)| (name.clone(), (t, self.funcs[&name].clone())))
+                .filter(|(_, (vis, t))| *vis == Vis::Public && t.is_generic())
+                .map(|(name, (_, t))| (name.clone(), (t, self.funcs[&name].clone())))
                 .collect(),
-            pub_typefn: self.typefuns.clone(),
+            pub_typefn: self
+                .typefuns
+                .clone()
+                .into_iter()
+                .filter_map(|(name, (vis, tf))| {
+                    if vis == Vis::Public {
+                        Some((name, tf))
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
             pub_impls: self
                 .impls
                 .clone()
@@ -227,12 +261,12 @@ impl ParseTree {
         // 1. aggregate all the names that we use but do not provide
         // 2. copy over the necessary data based on each name
 
-        for (_, dd) in self.types.iter_mut() {
+        for (_, (_, dd)) in self.types.iter_mut() {
             dd.resolve(&mods);
             imported_data.extend(dd.imported(me));
         }
 
-        for (_, td) in self.typedecls.iter_mut() {
+        for (_, (_, td)) in self.typedecls.iter_mut() {
             td.resolve(&mods);
             let (types, decls) = td.imported(me);
             imported_data.extend(types);
@@ -253,7 +287,7 @@ impl ParseTree {
             imported_idents.extend(ns);
         }
 
-        for TypeFun { ty, .. } in self.typefuns.values_mut() {
+        for (_, TypeFun { ty, .. }) in self.typefuns.values_mut() {
             ty.resolve(mods);
             imported_data.extend(ty.imported(me));
         }
@@ -275,6 +309,14 @@ impl ParseTree {
 
         // Now the secret step 1.5: add the impl types and bodies
         // to the tree
+
+        // Ensure all private typefunctions are in the private impl map
+        for (vis, tf) in self.typefuns.values() {
+            if *vis == Vis::Private {
+                self.private_impl_map.insert(tf.name.clone(), vec![]);
+            }
+        }
+
         for Impl {
             fn_name: new_name,
             args,
@@ -285,7 +327,11 @@ impl ParseTree {
             let ns = new_name.rsplit_once(".").unwrap().0;
             let tf = new_name.rsplit_once("$").unwrap().0;
 
-            let TypeFun { name, ty, vars } = mods[ns].pub_typefn[tf].clone();
+            let (vis, TypeFun { name, ty, vars }) = if let Some(tf) = mods[ns].pub_typefn.get(tf) {
+                (Vis::Public, tf.clone())
+            } else {
+                self.typefuns.get(tf).unwrap().clone()
+            };
 
             // substitutions to go from impl to real type
             let mut subs = HashMap::new();
@@ -305,8 +351,14 @@ impl ParseTree {
             let real_type = ty.replace_all(&subs);
 
             self.typedecls
-                .insert(new_name.clone(), QualType(cons, real_type));
-            self.funcs.insert(new_name, body);
+                .insert(new_name.clone(), (vis, QualType(cons, real_type.clone())));
+            self.funcs.insert(new_name.clone(), body);
+
+            // If impl visibility is private add it to the private impl map
+            self.private_impl_map
+                .get_mut(tf)
+                .unwrap()
+                .push((new_name.clone(), real_type));
         }
 
         // Now step two:
@@ -326,7 +378,7 @@ impl ParseTree {
             let modu = &mods[mod_name];
 
             self.types
-                .insert(name.clone(), modu.pub_data[&name].clone());
+                .insert(name.clone(), (Vis::Import, modu.pub_data[&name].clone()));
         }
 
         while let Some(name) = imported_idents.pop_front() {
@@ -337,12 +389,13 @@ impl ParseTree {
                 // cons is a no op since the constructor is automatically
                 // created from the data definition
             } else if let Some(decl) = modu.pub_decls.get(&name) {
-                self.typedecls.insert(name, decl.clone());
+                self.typedecls.insert(name, (Vis::Import, decl.clone()));
             } else if let Some(tfun) = modu.pub_typefn.get(&name) {
-                self.typefuns.insert(name, tfun.clone());
+                self.typefuns.insert(name, (Vis::Import, tfun.clone()));
             } else if let Some((ty, body)) = modu.pub_gens.get(&name) {
                 if !self.typedecls.contains_key(&name) {
-                    self.typedecls.insert(name.clone(), ty.clone());
+                    self.typedecls
+                        .insert(name.clone(), (Vis::Private, ty.clone()));
 
                     for f in body {
                         let (ts, ns) = f.imported(me);

@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 
 use crate::llvm::LLVMType;
+use crate::parse_tree::Vis;
 use std::error::Error;
 use std::io::Write;
 
@@ -89,16 +90,24 @@ impl Module {
         writeln!(self)?;
 
         // Output all imported functions from other modules
-        for name in tree.import_idents {
-            if let Some((from, to)) = tree.func_types.get(&name) {
-                let args = if *from == LLVMType::Void {
-                    "".to_string()
+        for (name, from, to) in tree
+            .func_types
+            .iter()
+            .filter_map(|(name, (vis, from, to))| {
+                if *vis == Vis::Import {
+                    Some((name, from, to))
                 } else {
-                    format!("{}", from)
-                };
+                    None
+                }
+            })
+        {
+            let args = if *from == LLVMType::Void {
+                "".to_string()
+            } else {
+                format!("{}", from)
+            };
 
-                writeln!(self, "declare fastcc {to} @{name}({})", args)?;
-            }
+            writeln!(self, "declare fastcc {to} @{name}({})", args)?;
         }
 
         // Output all enum types
@@ -230,11 +239,20 @@ impl Module {
         self.reset();
         let mut named_vars = HashMap::new();
         named_vars.insert("arg.0".to_string(), "%arg.0".to_string());
+
         for (name, expr) in tree.funcs {
             // get function type
-            let (from, to) = tree.func_types.get(&name).unwrap();
+            let (vis, from, to) = tree.func_types.get(&name).unwrap();
 
-            let vis = if name == "main" { "" } else { "" };
+            if *vis == Vis::Import {
+                continue;
+            }
+
+            let vis = if name == "main" || *vis == Vis::Public {
+                ""
+            } else {
+                "private "
+            };
 
             if *from == LLVMType::Void {
                 writeln!(self, "define {vis}fastcc {to} @{name}() {{")?;
