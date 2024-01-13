@@ -89,8 +89,6 @@ impl Module {
 
         writeln!(self)?;
 
-        eprintln!("{:#?}", tree.func_types);
-
         // Output all imported functions from other modules
         for (name, from, to) in tree
             .func_types

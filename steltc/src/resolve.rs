@@ -387,7 +387,6 @@ impl ParseTree {
 
         while let Some(name) = imported_idents.pop_front() {
             let mod_name = name.split_once(".").unwrap().0;
-            eprintln!("{mod_name}");
             let modu = &mods[mod_name];
 
             if let Some(_) = modu.pub_cons.get(&name) {
@@ -796,8 +795,6 @@ impl Expression {
                     if let Some(v) = aliases.get(ns) {
                         *i = format!("{v}.{t}");
                     } else if !imports.contains(ns) {
-                        eprintln!("{aliases:?}");
-                        eprintln!("{ns}.{t}");
                         panic!("namespace {ns} not imported")
                     }
                 } else if !locals.contains(i) {

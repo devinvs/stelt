@@ -260,7 +260,6 @@ impl MIRTree {
                     // add to concrete_decls ig, ughh
                     concrete_decls.insert(n_prime.clone(), (Vis::Private, t.clone()));
 
-                    eprintln!("{n}");
                     let oldty = generic_decls[&n].clone();
                     let subs = oldty.get_generic_subs(&t);
 
