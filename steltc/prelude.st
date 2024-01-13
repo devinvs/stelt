@@ -6,9 +6,7 @@ pub type char = Char(u32)
 pub type list<a> = Nil | Cons(a, list<a>)
 
 impl add(u32)
-// add(x, y) = unsafe llvm!("%out", "%out = add i32 %x, %y")
-add(x, y) = 0
+add(x, y) = llvm!("%out", "%out = add i32 %x, %y")
 
 impl eq(u32)
-// eq(x, y) = unsafe llvm!("%out", "%out = icmp eq i32 %x, %y")
-eq(x, y) = False
+eq(x, y) = llvm!("%out", "%out = icmp eq i32 %x, %y")

@@ -173,7 +173,7 @@ impl std::fmt::Display for LLVMType {
                 f.write_str("}")
             }
             Self::Array(t, num) => f.write_fmt(format_args!("[{num} x {t}]")),
-            Self::Named(n) => f.write_fmt(format_args!("%{n}")),
+            Self::Named(n) => f.write_fmt(format_args!("%\"{n}\"")),
             Self::Func(..) => f.write_str("ptr"),
         }
     }

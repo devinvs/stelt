@@ -55,6 +55,8 @@ impl LIRExpression {
                     _ => panic!(),
                 };
 
+                let f = f.rsplit_once(".").unwrap().1;
+
                 if f.starts_with("Cons") {
                     match *args.clone() {
                         LIRExpression::Tuple(es, _) => {
@@ -183,7 +185,7 @@ impl MIRTree {
         let mut externs = HashSet::new();
         externs.extend(self.external.iter().map(|s| s.clone()));
 
-        let eq_impls = &impl_map["prelude.eq"];
+        let eq_impls = &impl_map["prelude/eq"];
 
         // lower all the mir functions to lir expressions
         for (f, expr) in self.funcs {

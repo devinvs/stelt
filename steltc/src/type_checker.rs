@@ -54,19 +54,19 @@ impl TypeChecker {
             Type::ForAll(
                 vec!["a".to_string()],
                 vec![],
-                Box::new(Type::Unsafe(Box::new(Type::Arrow(
+                Box::new(Type::Arrow(
                     Box::new(Type::Tuple(vec![
                         Type::Generic(
-                            vec![Type::Ident("prelude.char".to_string())],
-                            Box::new(Type::Ident("prelude.list".to_string())),
+                            vec![Type::Ident("prelude/char".to_string())],
+                            Box::new(Type::Ident("prelude/list".to_string())),
                         ),
                         Type::Generic(
-                            vec![Type::Ident("prelude.char".to_string())],
-                            Box::new(Type::Ident("prelude.list".to_string())),
+                            vec![Type::Ident("prelude/char".to_string())],
+                            Box::new(Type::Ident("prelude/list".to_string())),
                         ),
                     ])),
                     Box::new(Type::GenVar("a".to_string())),
-                )))),
+                )),
             ),
         );
 

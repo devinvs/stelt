@@ -47,7 +47,8 @@ lazy_static! {
         m.insert("+", Token::Plus);
         m.insert("-", Token::Sub);
         m.insert("*", Token::Mul);
-        m.insert("/", Token::Div);
+        m.insert("/", Token::Slash);
+        m.insert("//", Token::Div);
         m.insert("%", Token::Mod);
         m.insert("**", Token::Pow);
         m.insert("=", Token::Assign);
@@ -207,6 +208,7 @@ pub enum Token {
     Mul,
     Sub,
     Div,
+    Slash,
     Mod,
     Pow,
     Assign,
@@ -285,7 +287,8 @@ impl Token {
             Self::Plus => "+",
             Self::Mul => "*",
             Self::Sub => "-",
-            Self::Div => "/",
+            Self::Slash => "/",
+            Self::Div => "//",
             Self::Mod => "%",
             Self::Pow => "**",
             Self::Assign => "=",
@@ -387,10 +390,10 @@ impl Lexer {
 
             match c {
                 // Enter a comment
-                '/' if next.is_some() && *next.unwrap() == '/' => {
+                '#' => {
                     self.push_token(&mut tokens, &mut stack);
                     self.in_comment = true;
-                    self.end += 2;
+                    self.end += 1;
                 }
                 // Enter a string literal
                 '"' => {
@@ -524,6 +527,11 @@ impl Lexer {
                         token: Token::FatArrow,
                     })
                 }
+                '/' if next.is_some() && *next.unwrap() == '/' => {
+                    self.push_token(&mut tokens, &mut stack);
+                    chars.next().unwrap();
+                    tokens.push_back(Lexeme { token: Token::Div })
+                }
                 // Separators
                 ',' | '(' | ')' | '[' | ']' | '{' | '}' | ':' => {
                     self.push_token(&mut tokens, &mut stack);
@@ -535,8 +543,7 @@ impl Lexer {
                 }
 
                 // Single char Operators
-                '+' | '-' | '*' | '/' | '%' | '<' | '>' | '=' | '|' | '&' | '^' | '~' | '.'
-                | '?' => {
+                '+' | '-' | '*' | '/' | '%' | '<' | '>' | '=' | '|' | '&' | '^' | '~' | '?' => {
                     self.push_token(&mut tokens, &mut stack);
                     tokens.push_back(Lexeme {
                         token: MAP.get(c.to_string().as_str()).unwrap().clone(),

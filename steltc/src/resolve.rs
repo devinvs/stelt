@@ -63,7 +63,7 @@ impl ParseTree {
                     &self.type_aliases,
                     &self.aliases,
                 );
-                (format!("{prefix}.{name}"), t)
+                (format!("{prefix}/{name}"), t)
             })
             .collect();
 
@@ -98,7 +98,7 @@ impl ParseTree {
                     &self.type_aliases,
                     &self.aliases,
                 );
-                (format!("{prefix}.{name}"), (is_pub, td))
+                (format!("{prefix}/{name}"), (is_pub, td))
             })
             .collect();
 
@@ -119,7 +119,7 @@ impl ParseTree {
                         &self.aliases,
                     )
                 });
-                (format!("{prefix}.{name}"), funcs)
+                (format!("{prefix}/{name}"), funcs)
             })
             .collect();
 
@@ -138,7 +138,7 @@ impl ParseTree {
                     &self.aliases,
                     &HashSet::new(),
                 );
-                (format!("{prefix}.{name}"), def)
+                (format!("{prefix}/{name}"), def)
             })
             .collect();
 
@@ -148,7 +148,7 @@ impl ParseTree {
             .clone()
             .into_iter()
             .map(|(name, (is_pub, mut tf))| {
-                tf.name = format!("{prefix}.{name}");
+                tf.name = format!("{prefix}/{name}");
                 tf.ty.canonicalize(
                     prefix,
                     &local_datadecls,
@@ -156,7 +156,7 @@ impl ParseTree {
                     &self.type_aliases,
                     &self.aliases,
                 );
-                (format!("{prefix}.{name}"), (is_pub, tf))
+                (format!("{prefix}/{name}"), (is_pub, tf))
             })
             .collect();
 
@@ -324,7 +324,7 @@ impl ParseTree {
             ..
         } in self.impls.clone().into_iter()
         {
-            let ns = new_name.split_once(".").unwrap().0;
+            let ns = new_name.rsplit_once("/").unwrap().0;
             let tf = new_name.rsplit_once("$").unwrap().0;
 
             let (vis, TypeFun { name, ty, vars }) = if let Some(tf) = mods[ns].pub_typefn.get(tf) {
@@ -378,7 +378,7 @@ impl ParseTree {
         self.import_idents = imported_idents.clone().into_iter().collect();
 
         while let Some(name) = imported_data.pop_front() {
-            let mod_name = name.rsplit_once(".").unwrap().0;
+            let mod_name = name.rsplit_once("/").unwrap().0;
             let modu = &mods[mod_name];
 
             self.types
@@ -386,7 +386,7 @@ impl ParseTree {
         }
 
         while let Some(name) = imported_idents.pop_front() {
-            let mod_name = name.split_once(".").unwrap().0;
+            let mod_name = name.rsplit_once("/").unwrap().0;
             let modu = &mods[mod_name];
 
             if let Some(_) = modu.pub_cons.get(&name) {
@@ -423,7 +423,7 @@ impl DataDecl {
         aliases: &HashMap<String, String>,
     ) {
         // the name just gets hit with the prefix of this module
-        self.0 = format!("{me}.{}", self.0);
+        self.0 = format!("{me}/{}", self.0);
 
         self.2
             .iter_mut()
@@ -487,8 +487,8 @@ impl Type {
                 if let Some(s) = aliases.get(i) {
                     *i = s.clone();
                 } else if types.contains(i) {
-                    *i = format!("{me}.{}", i);
-                } else if let Some((ns, _)) = i.rsplit_once(".") {
+                    *i = format!("{me}/{}", i);
+                } else if let Some((ns, _)) = i.rsplit_once("/") {
                     if !imports.contains(ns) {
                         panic!("type uses unimported ns {ns} from {i}")
                     }
@@ -529,7 +529,7 @@ impl Type {
     fn resolve(&mut self, mods: &HashMap<String, Module>) {
         match self {
             Type::Ident(i) => {
-                if let Some((ns, _)) = i.rsplit_once(".") {
+                if let Some((ns, _)) = i.rsplit_once("/") {
                     if let Some(t) = mods[ns].type_alias.get(i) {
                         *self = t.clone();
                     }
@@ -552,7 +552,7 @@ impl Type {
 
     fn imported(&self, me: &str) -> Vec<String> {
         match self {
-            Type::Ident(i) if i.contains(".") && !i.starts_with(me) => {
+            Type::Ident(i) if i.contains("/") && !i.starts_with(me) => {
                 vec![i.clone()]
             }
             Type::ForAll(_, _, _) => panic!(),
@@ -630,8 +630,8 @@ impl Constraint {
         let Constraint(name, ts) = self;
 
         if typefuns.contains(name) {
-            *name = format!("{me}.{name}");
-        } else if let Some((ns, _)) = name.rsplit_once(".") {
+            *name = format!("{me}/{name}");
+        } else if let Some((ns, _)) = name.rsplit_once("/") {
             if !imports.contains(ns) {
                 panic!()
             }
@@ -645,7 +645,7 @@ impl Constraint {
 
     fn imported(&self, me: &str) -> (Vec<String>, Vec<String>) {
         let types = self.1.iter().map(|t| t.imported(me)).flatten().collect();
-        let decls = if self.0.contains(".") && !self.0.starts_with(me) {
+        let decls = if self.0.contains("/") && !self.0.starts_with(me) {
             vec![self.0.clone()]
         } else {
             vec![]
@@ -669,7 +669,7 @@ impl Impl {
     ) {
         // Every impl gets a unique global name based on their typefunction name
         self.fn_name = crate::gen_var(&if typefuns.contains(&self.fn_name) {
-            format!("{me}.{}$", self.fn_name)
+            format!("{me}/{}$", self.fn_name)
         } else {
             format!("{}$", self.fn_name)
         });
@@ -695,7 +695,7 @@ impl FunctionDef {
         imports: &HashSet<String>,
         aliases: &HashMap<String, String>,
     ) {
-        self.name = format!("{me}.{}", self.name);
+        self.name = format!("{me}/{}", self.name);
 
         self.args.canonicalize(me, types, aliases, imports);
         let mut locals = HashSet::new();
@@ -724,18 +724,18 @@ impl Pattern {
         match self {
             Pattern::Cons(f, args, _) => {
                 let fc = f.clone();
-                let (ty, c) = fc.rsplit_once(".").unwrap();
+                let (t, c) = fc.rsplit_once(".").unwrap();
 
-                let ty = match aliases.get(ty) {
+                let ty = match aliases.get(t) {
                     Some(s) => s,
-                    _ => ty,
+                    _ => t,
                 };
 
                 *f = format!("{ty}.{c}");
 
                 if types.contains(ty) {
-                    *f = format!("{me}.{ty}.{c}");
-                } else if let Some((ns, _)) = ty.rsplit_once(".") {
+                    *f = format!("{me}/{ty}.{c}");
+                } else if let Some((ns, _)) = ty.rsplit_once("/") {
                     if !imports.contains(ns) {
                         panic!("where does {ty}.{c} come from?");
                     }
@@ -790,8 +790,17 @@ impl Expression {
                 if let Some(v) = aliases.get(i) {
                     *i = v.clone();
                 } else if decls.contains(i) || cons.contains(i) || typefuns.contains(i) {
-                    *i = format!("{me}.{i}");
-                } else if let Some((ns, t)) = i.clone().rsplit_once(".") {
+                    *i = format!("{me}/{i}");
+                } else if let Some((t, c)) = i.clone().rsplit_once(".") {
+                    let t = if let Some(v) = aliases.get(t) { v } else { t };
+                    let ns = t.rsplit_once("/").unwrap().0;
+
+                    if !imports.contains(ns) {
+                        panic!("undeclared import {ns}");
+                    }
+
+                    *i = format!("{t}.{c}");
+                } else if let Some((ns, t)) = i.clone().rsplit_once("/") {
                     if let Some(v) = aliases.get(ns) {
                         *i = format!("{v}.{t}");
                     } else if !imports.contains(ns) {
@@ -856,7 +865,7 @@ impl Expression {
 
         match self {
             Expression::Identifier(i) => {
-                if i.contains(".") && !i.starts_with(me) {
+                if i.contains("/") && !i.starts_with(me) {
                     ns.push(i.clone());
                 }
             }

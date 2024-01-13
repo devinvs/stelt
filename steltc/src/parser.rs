@@ -139,8 +139,9 @@ impl ParseTree {
                 }) => {
                     t.assert(Token::Import)?;
                     let mut namespace = t.ident()?;
-                    while t.consume(Token::Dot).is_some() {
-                        namespace.push_str(".");
+
+                    while t.consume(Token::Slash).is_some() {
+                        namespace.push_str("/");
                         namespace.push_str(&t.ident()?);
                     }
 
@@ -149,8 +150,8 @@ impl ParseTree {
                 Some(Lexeme { token: Token::From }) => {
                     t.assert(Token::From)?;
                     let mut ns = t.ident()?;
-                    while t.consume(Token::Dot).is_some() {
-                        ns.push_str(".");
+                    while t.consume(Token::Slash).is_some() {
+                        ns.push_str("/");
                         ns.push_str(&t.ident()?);
                     }
 
@@ -162,9 +163,9 @@ impl ParseTree {
 
                         if t.consume(Token::As).is_some() {
                             let alias = t.ident()?;
-                            me.aliases.insert(alias.clone(), format!("{ns}.{item}"));
+                            me.aliases.insert(alias.clone(), format!("{ns}/{item}"));
                         } else {
-                            me.aliases.insert(item.clone(), format!("{ns}.{item}"));
+                            me.aliases.insert(item.clone(), format!("{ns}/{item}"));
                         }
 
                         if !t.consume(Token::Comma).is_some() {
@@ -491,8 +492,8 @@ impl Type {
                 token: Token::Ident(mut i),
                 ..
             }) => {
-                while t.consume(Token::Dot).is_some() {
-                    i.push_str(".");
+                while t.consume(Token::Slash).is_some() {
+                    i.push_str("/");
                     i.push_str(&t.ident()?);
                 }
 

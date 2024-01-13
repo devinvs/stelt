@@ -46,10 +46,10 @@ impl Module {
     pub fn var(&mut self, prefix: &str) -> String {
         if prefix == "anon" {
             self.anon += 1;
-            format!("%{prefix}.{}", self.anon - 1)
+            format!("%\"{prefix}.{}\"", self.anon - 1)
         } else {
             self.i += 1;
-            format!("%{prefix}.{}", self.i - 1)
+            format!("%\"{prefix}.{}\"", self.i - 1)
         }
     }
 
@@ -69,7 +69,7 @@ impl Module {
         for name in tree.external {
             let (from, to) = tree.extern_types.get(&name).unwrap();
 
-            write!(self, "declare {to} @{name}(")?;
+            write!(self, "declare {to} @\"{name}\" (")?;
 
             for (i, f) in from.iter().enumerate() {
                 let attrs = match *f {
@@ -107,16 +107,16 @@ impl Module {
                 format!("{}", from)
             };
 
-            writeln!(self, "declare fastcc {to} @{name}({})", args)?;
+            writeln!(self, "declare fastcc {to} @\"{name}\" ({})", args)?;
         }
 
         // Output all enum types
         for (name, t) in tree.enums.iter() {
-            writeln!(self, "%{} = type {}", name, t)?;
+            writeln!(self, "%\"{}\" = type {}", name, t)?;
 
             // ... and their variants
             for (vname, t) in tree.variants[name].iter() {
-                writeln!(self, "%{} = type {}", vname, t)?;
+                writeln!(self, "%\"{}\" = type {}", vname, t)?;
             }
 
             writeln!(self)?;
@@ -165,15 +165,18 @@ impl Module {
                 };
 
                 if t == LLVMType::Void {
-                    writeln!(self, "define private fastcc %{name} @{varname} () {{")?;
+                    writeln!(
+                        self,
+                        "define private fastcc %\"{name}\" @\"{varname}\" () {{"
+                    )?;
                 } else {
                     writeln!(
                         self,
-                        "define private fastcc %{name} @{varname} ({t} %in) {{"
+                        "define private fastcc %\"{name}\" @\"{varname}\" ({t} %in) {{"
                     )?;
                 }
 
-                writeln!(self, "\t%ptr = alloca %{name}")?;
+                writeln!(self, "\t%ptr = alloca %\"{name}\"")?;
 
                 // store enum tag
                 writeln!(self, "\tstore i8 {i}, ptr %ptr")?;
@@ -203,7 +206,7 @@ impl Module {
                             (v, t2)
                         };
 
-                        writeln!(self, "\t{i_ptr} = getelementptr inbounds %{varname}, ptr %ptr, i32 0, i32 {}", i+1)?;
+                        writeln!(self, "\t{i_ptr} = getelementptr inbounds %\"{varname}\", ptr %ptr, i32 0, i32 {}", i+1)?;
                         writeln!(self, "\tstore {t2} {v}, ptr {i_ptr}")?;
                     }
                 } else {
@@ -215,7 +218,7 @@ impl Module {
                         // get pointer to and store single value
                         writeln!(
                             self,
-                            "\t%var = getelementptr inbounds %{varname}, ptr %ptr, i32 0, i32 1"
+                            "\t%var = getelementptr inbounds %\"{varname}\", ptr %ptr, i32 0, i32 1"
                         )?;
                         writeln!(self, "\tstore {t} %in, ptr {x}")?;
                         writeln!(self, "\tstore ptr {x}, ptr %var")?;
@@ -223,14 +226,14 @@ impl Module {
                         // get pointer to and store single value
                         writeln!(
                             self,
-                            "\t%var = getelementptr inbounds %{varname}, ptr %ptr, i32 0, i32 1"
+                            "\t%var = getelementptr inbounds %\"{varname}\", ptr %ptr, i32 0, i32 1"
                         )?;
                         writeln!(self, "\tstore {t} %in, ptr %var")?;
                     }
                 }
 
-                writeln!(self, "\n\t%ret = load %{name}, ptr %ptr")?;
-                writeln!(self, "\tret %{name} %ret")?;
+                writeln!(self, "\n\t%ret = load %\"{name}\", ptr %ptr")?;
+                writeln!(self, "\tret %\"{name}\" %ret")?;
                 writeln!(self, "}}\n")?;
             }
         }
@@ -255,9 +258,12 @@ impl Module {
             };
 
             if *from == LLVMType::Void {
-                writeln!(self, "define {vis}fastcc {to} @{name}() {{")?;
+                writeln!(self, "define {vis}fastcc {to} @\"{name}\" () {{")?;
             } else {
-                writeln!(self, "define {vis}fastcc {to} @{name}({from} %arg.0) {{")?;
+                writeln!(
+                    self,
+                    "define {vis}fastcc {to} @\"{name}\" ({from} %arg.0) {{"
+                )?;
             }
 
             let var = self.var("return");
@@ -361,7 +367,7 @@ impl LIRExpression {
                 if let Some(v) = named_vars.get(&n) {
                     Ok(Some(v.clone()))
                 } else {
-                    Ok(Some(format!("@{n}")))
+                    Ok(Some(format!("@\"{n}\"")))
                 }
             }
             Self::ExternCall(f, args, t) => {
@@ -380,7 +386,7 @@ impl LIRExpression {
                     write!(module, "{out} = ")?;
                 }
 
-                write!(module, "call {t} @{f}(")?;
+                write!(module, "call {t} @\"{f}\"(")?;
 
                 for i in 0..a.len() {
                     let arg = a[i].as_ref().unwrap();
@@ -413,11 +419,11 @@ impl LIRExpression {
                 };
 
                 if t == LLVMType::Void {
-                    writeln!(module, "\tcall fastcc {t} @{f}{args}")?; // FIX!!!
+                    writeln!(module, "\tcall fastcc {t} @\"{f}\"{args}")?; // FIX!!!
                     Ok(None)
                 } else {
                     // get type of function
-                    writeln!(module, "\t{out} = call fastcc {t} @{f}{args}")?; // FIX!!!
+                    writeln!(module, "\t{out} = call fastcc {t} @\"{f}\"{args}")?; // FIX!!!
 
                     Ok(Some(out))
                 }
@@ -552,7 +558,7 @@ impl LIRExpression {
 
                 writeln!(module, "\t{ptr} = alloca {base}")?;
                 writeln!(module, "\tstore {base} {exp}, ptr {ptr}")?;
-                writeln!(module, "\t{out} = load %{ty}, ptr {ptr}")?;
+                writeln!(module, "\t{out} = load %\"{ty}\", ptr {ptr}")?;
 
                 Ok(Some(out))
             }

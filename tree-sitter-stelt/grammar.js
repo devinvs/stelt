@@ -9,7 +9,7 @@ module.exports = grammar({
   rules: {
     source_file: $ => repeat($._definition),
 
-    comment: $ => seq('//', /(\\+(.|\r?\n)|[^\\\n])*/),
+    comment: $ => seq('#', /(\\+(.|\r?\n)|[^\\\n])*/),
 
     _definition: $ => choice(
       $.type_declaration,
@@ -178,12 +178,16 @@ module.exports = grammar({
         "match",
         $.expr,
         "with",
-        repeat(seq(
-          "|",
-          $.pattern,
-          ":",
-          $.expr
-        ))
+        "[",
+        csv(seq($.pattern, "->", $.expr)),
+        "]",
+      )),
+      prec.left(20, seq(
+        $.expr,
+        "<-",
+        $.expr,
+        "in",
+        $.expr
       )),
       // prec.right(seq(
       //   "|",

@@ -1052,7 +1052,7 @@ pub fn gen_impl_map(
         }
 
         for (new_name, _) in module.pub_impls.iter() {
-            let ns = new_name.split_once(".").unwrap().0;
+            let ns = new_name.rsplit_once("/").unwrap().0;
             let name = new_name.rsplit_once("$").unwrap().0;
 
             let (_, QualType(_, real_type)) = &trees[ns].typedecls[new_name];
