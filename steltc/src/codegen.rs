@@ -243,12 +243,16 @@ impl Module {
         let mut named_vars = HashMap::new();
         named_vars.insert("arg.0".to_string(), "%arg.0".to_string());
 
-        for (name, expr) in tree.funcs {
+        for (mut name, expr) in tree.funcs {
             // get function type
             let (vis, from, to) = tree.func_types.get(&name).unwrap();
 
             if *vis == Vis::Import {
                 continue;
+            }
+
+            if name == "main/main" {
+                name = "main".to_string();
             }
 
             let vis = if name == "main" || *vis == Vis::Public {

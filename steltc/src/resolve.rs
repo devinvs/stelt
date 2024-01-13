@@ -98,7 +98,14 @@ impl ParseTree {
                     &self.type_aliases,
                     &self.aliases,
                 );
-                (format!("{prefix}/{name}"), (is_pub, td))
+
+                let name = if self.external.contains(&name) {
+                    name
+                } else {
+                    format!("{prefix}/{name}")
+                };
+
+                (name, (is_pub, td))
             })
             .collect();
 
@@ -117,6 +124,7 @@ impl ParseTree {
                         &local_typefuns,
                         &self.imports,
                         &self.aliases,
+                        &self.external,
                     )
                 });
                 (format!("{prefix}/{name}"), funcs)
@@ -137,6 +145,7 @@ impl ParseTree {
                     &self.imports,
                     &self.aliases,
                     &HashSet::new(),
+                    &self.external,
                 );
                 (format!("{prefix}/{name}"), def)
             })
@@ -171,6 +180,7 @@ impl ParseTree {
                 &self.imports,
                 &self.type_aliases,
                 &self.aliases,
+                &self.external,
             );
         }
 
@@ -666,6 +676,7 @@ impl Impl {
         imports: &HashSet<String>,
         type_aliases: &HashMap<String, Type>,
         aliases: &HashMap<String, String>,
+        external: &HashSet<String>,
     ) {
         // Every impl gets a unique global name based on their typefunction name
         self.fn_name = crate::gen_var(&if typefuns.contains(&self.fn_name) {
@@ -678,9 +689,9 @@ impl Impl {
             .iter_mut()
             .for_each(|t| t.canonicalize(me, types, typefuns, imports, type_aliases, aliases));
 
-        self.body
-            .iter_mut()
-            .for_each(|fd| fd.canonicalize(me, decls, types, cons, typefuns, imports, aliases));
+        self.body.iter_mut().for_each(|fd| {
+            fd.canonicalize(me, decls, types, cons, typefuns, imports, aliases, external)
+        });
     }
 }
 
@@ -694,6 +705,7 @@ impl FunctionDef {
         typefuns: &HashSet<String>,
         imports: &HashSet<String>,
         aliases: &HashMap<String, String>,
+        external: &HashSet<String>,
     ) {
         self.name = format!("{me}/{}", self.name);
 
@@ -701,8 +713,9 @@ impl FunctionDef {
         let mut locals = HashSet::new();
         locals.extend(self.args.free_vars());
 
-        self.body
-            .canonicalize(me, decls, cons, types, typefuns, imports, aliases, &locals);
+        self.body.canonicalize(
+            me, decls, cons, types, typefuns, imports, aliases, &locals, external,
+        );
     }
 
     fn imported(&self, me: &str) -> (Vec<String>, Vec<String>) {
@@ -784,26 +797,30 @@ impl Expression {
         imports: &HashSet<String>,
         aliases: &HashMap<String, String>,
         locals: &HashSet<String>,
+        external: &HashSet<String>,
     ) {
+        // First apply aliases to identifier
+        if let Expression::Identifier(i) = self {
+            if let Some(v) = aliases.get(i) {
+                // if i is an alias expand it
+                *i = v.clone();
+            } else if let Some((t, c)) = i.clone().rsplit_once(".") {
+                // If i is a call to a cons where the type is an
+                // alias then expand it
+                if let Some(v) = aliases.get(t) {
+                    *i = format!("{v}.{c}");
+                }
+            }
+        }
+
         match self {
             Expression::Identifier(i) => {
-                if let Some(v) = aliases.get(i) {
-                    *i = v.clone();
+                if external.contains(i) {
+                    // do nothing, you are perfect just the way you are
                 } else if decls.contains(i) || cons.contains(i) || typefuns.contains(i) {
                     *i = format!("{me}/{i}");
-                } else if let Some((t, c)) = i.clone().rsplit_once(".") {
-                    let t = if let Some(v) = aliases.get(t) { v } else { t };
-                    let ns = t.rsplit_once("/").unwrap().0;
-
+                } else if let Some((ns, _)) = i.clone().rsplit_once("/") {
                     if !imports.contains(ns) {
-                        panic!("undeclared import {ns}");
-                    }
-
-                    *i = format!("{t}.{c}");
-                } else if let Some((ns, t)) = i.clone().rsplit_once("/") {
-                    if let Some(v) = aliases.get(ns) {
-                        *i = format!("{v}.{t}");
-                    } else if !imports.contains(ns) {
                         panic!("namespace {ns} not imported")
                     }
                 } else if !locals.contains(i) {
@@ -814,46 +831,70 @@ impl Expression {
             }
             Expression::Let(p, e, body) => {
                 p.canonicalize(me, types, aliases, imports);
-                e.canonicalize(me, decls, cons, types, typefuns, imports, aliases, locals);
+                e.canonicalize(
+                    me, decls, cons, types, typefuns, imports, aliases, locals, external,
+                );
 
                 let mut locals = locals.clone();
                 locals.extend(p.free_vars());
-                body.canonicalize(me, decls, cons, types, typefuns, imports, aliases, &locals);
+                body.canonicalize(
+                    me, decls, cons, types, typefuns, imports, aliases, &locals, external,
+                );
             }
             Expression::Tuple(es) => {
                 es.iter_mut().for_each(|e| {
-                    e.canonicalize(me, decls, cons, types, typefuns, imports, aliases, locals)
+                    e.canonicalize(
+                        me, decls, cons, types, typefuns, imports, aliases, locals, external,
+                    )
                 });
             }
             Expression::If(cond, a, b) => {
-                cond.canonicalize(me, decls, cons, types, typefuns, imports, aliases, locals);
-                a.canonicalize(me, decls, cons, types, typefuns, imports, aliases, locals);
-                b.canonicalize(me, decls, cons, types, typefuns, imports, aliases, locals);
+                cond.canonicalize(
+                    me, decls, cons, types, typefuns, imports, aliases, locals, external,
+                );
+                a.canonicalize(
+                    me, decls, cons, types, typefuns, imports, aliases, locals, external,
+                );
+                b.canonicalize(
+                    me, decls, cons, types, typefuns, imports, aliases, locals, external,
+                );
             }
             Expression::Match(e, eps) => {
-                e.canonicalize(me, decls, cons, types, typefuns, imports, aliases, locals);
+                e.canonicalize(
+                    me, decls, cons, types, typefuns, imports, aliases, locals, external,
+                );
 
                 for (p, e) in eps {
                     p.canonicalize(me, types, aliases, imports);
 
                     let mut locals = locals.clone();
                     locals.extend(p.free_vars());
-                    e.canonicalize(me, decls, cons, types, typefuns, imports, aliases, &locals);
+                    e.canonicalize(
+                        me, decls, cons, types, typefuns, imports, aliases, &locals, external,
+                    );
                 }
             }
             Expression::Call(a, b) => {
-                a.canonicalize(me, decls, cons, types, typefuns, imports, aliases, locals);
-                b.canonicalize(me, decls, cons, types, typefuns, imports, aliases, locals);
+                a.canonicalize(
+                    me, decls, cons, types, typefuns, imports, aliases, locals, external,
+                );
+                b.canonicalize(
+                    me, decls, cons, types, typefuns, imports, aliases, locals, external,
+                );
             }
             Expression::Lambda(p, e) => {
                 p.canonicalize(me, types, aliases, imports);
 
                 let mut locals = locals.clone();
                 locals.extend(p.free_vars());
-                e.canonicalize(me, decls, cons, types, typefuns, imports, aliases, &locals);
+                e.canonicalize(
+                    me, decls, cons, types, typefuns, imports, aliases, &locals, external,
+                );
             }
             Expression::Unsafe(e) => {
-                e.canonicalize(me, decls, cons, types, typefuns, imports, aliases, locals);
+                e.canonicalize(
+                    me, decls, cons, types, typefuns, imports, aliases, locals, external,
+                );
             }
             _ => {}
         }
@@ -867,6 +908,10 @@ impl Expression {
             Expression::Identifier(i) => {
                 if i.contains("/") && !i.starts_with(me) {
                     ns.push(i.clone());
+
+                    if let Some((t, _)) = i.rsplit_once(".") {
+                        ts.push(t.to_string());
+                    }
                 }
             }
             Expression::Let(p, e, body) => {

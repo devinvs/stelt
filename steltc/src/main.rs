@@ -93,6 +93,7 @@ fn compile(path: &Path, outdir: &Path) {
         }
 
         modules.insert(name.clone(), tree.canonicalize(&name));
+        eprintln!("{:#?}", tree.funcs.get("io/println"));
         trees.insert(name, tree);
     }
 
