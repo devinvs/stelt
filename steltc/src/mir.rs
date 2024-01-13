@@ -115,6 +115,12 @@ impl MIRTree {
                             ))
                         };
 
+                        let mut cons = cons.clone();
+
+                        for a in args.clone() {
+                            cons.args = cons.args.replace(&a, &Type::GenVar(a.clone()));
+                        }
+
                         constructors.insert(
                             cons.name.clone(),
                             Type::ForAll(
@@ -216,9 +222,26 @@ impl MIRTree {
             Some((name.clone(), body))
         }));
 
+        let mut generic_types = HashMap::new();
+        let mut concrete_types = HashMap::new();
+
         while let Some((name, body)) = concrete_queue.pop_front() {
             // resolve the typefn to their implementation
-            let body = body.resolve_typefn(impl_map);
+            let (body, imported) = body.resolve_typefn(impl_map);
+
+            for import in imported {
+                let (tf, _) = import.rsplit_once("$").unwrap();
+
+                let imp = impl_map[tf]
+                    .iter()
+                    .find(|(n, _)| *n == import)
+                    .unwrap()
+                    .1
+                    .clone();
+
+                concrete_decls.insert(import, (Vis::Import, imp));
+            }
+
             // extract generic calls, getting a new body and a list of those calls
             let (f, calls) = body.extract_calls(&generic_decls, &cons);
             // insert into our concrete functions
@@ -237,6 +260,7 @@ impl MIRTree {
                     // add to concrete_decls ig, ughh
                     concrete_decls.insert(n_prime.clone(), (Vis::Private, t.clone()));
 
+                    eprintln!("{n}");
                     let oldty = generic_decls[&n].clone();
                     let subs = oldty.get_generic_subs(&t);
 
@@ -245,9 +269,6 @@ impl MIRTree {
                 }
             }
         }
-
-        let mut generic_types = HashMap::new();
-        let mut concrete_types = HashMap::new();
 
         // split out the generic type prototypes and the concrete types
         for (name, (vis, t)) in self.types {
@@ -296,19 +317,20 @@ impl MIRTree {
         }
 
         concrete_types.extend(other_concretes);
+
         // change type constructor names to have their type as a prefix
 
-        for (_, (_, data)) in concrete_types.iter_mut() {
-            let name = data.name();
-            match data {
-                DataDecl(_, _, cons) => {
-                    for cons in cons.iter_mut() {
-                        let newname = format!("{}${}$", cons.name, name);
-                        cons.name = newname;
-                    }
-                }
-            }
-        }
+        // for (_, (_, data)) in concrete_types.iter_mut() {
+        //     let name = data.name();
+        //     match data {
+        //         DataDecl(_, _, cons) => {
+        //             for cons in cons.iter_mut() {
+        //                 let newname = format!("{}${}$", cons.name, name);
+        //                 cons.name = newname;
+        //             }
+        //         }
+        //     }
+        // }
 
         self.types = concrete_types.into_iter().collect();
         self.typedecls = concrete_decls;
@@ -459,41 +481,75 @@ impl MIRExpression {
         }
     }
 
-    fn resolve_typefn(self, impl_map: &HashMap<String, Vec<(String, Type)>>) -> Self {
+    fn resolve_typefn(
+        self,
+        impl_map: &HashMap<String, Vec<(String, Type)>>,
+    ) -> (Self, Vec<String>) {
         match self {
             Self::Identifier(s, Some(t)) => {
                 if let Some(impls) = impl_map.get(&s) {
-                    Self::Identifier(
-                        resolve_typefn(impls, t.clone()).expect(&format!(
-                            "Could not find impl for typefn: {s} of type {t:?}"
-                        )),
-                        Some(t),
-                    )
+                    let id = resolve_typefn(impls, t.clone()).expect(&format!(
+                        "Could not find impl for typefn: {s} of type {t:?}"
+                    ));
+
+                    (Self::Identifier(id.clone(), Some(t)), vec![id])
                 } else {
-                    Self::Identifier(s, Some(t))
+                    (Self::Identifier(s, Some(t)), vec![])
                 }
             }
-            Self::Tuple(exprs, t) => Self::Tuple(
-                exprs
-                    .into_iter()
-                    .map(|e| e.resolve_typefn(impl_map))
-                    .collect(),
-                t,
-            ),
-            Self::Match(x, pats, t) => Self::Match(
-                Box::new(x.resolve_typefn(impl_map)),
-                pats.into_iter()
-                    .map(|(p, e)| (p, e.resolve_typefn(impl_map)))
-                    .collect(),
-                t,
-            ),
-            Self::Call(m, n, t) => Self::Call(
-                Box::new(m.resolve_typefn(impl_map)),
-                Box::new(n.resolve_typefn(impl_map)),
-                t,
-            ),
-            Self::Lambda1(x, m, t) => Self::Lambda1(x, Box::new(m.resolve_typefn(impl_map)), t),
-            a => a,
+            Self::Tuple(exprs, t) => {
+                let mut ids = vec![];
+
+                let t = Self::Tuple(
+                    exprs
+                        .into_iter()
+                        .map(|e| {
+                            let (a, is) = e.resolve_typefn(impl_map);
+                            ids.extend(is);
+                            a
+                        })
+                        .collect(),
+                    t,
+                );
+
+                (t, ids)
+            }
+            Self::Match(x, pats, t) => {
+                let mut ids = vec![];
+
+                let (x, is) = x.resolve_typefn(impl_map);
+                ids.extend(is);
+
+                let m = Self::Match(
+                    Box::new(x),
+                    pats.into_iter()
+                        .map(|(p, e)| {
+                            let (e, is) = e.resolve_typefn(impl_map);
+                            ids.extend(is);
+                            (p, e)
+                        })
+                        .collect(),
+                    t,
+                );
+
+                (m, ids)
+            }
+            Self::Call(m, n, t) => {
+                let mut ids = vec![];
+
+                let (m, is) = m.resolve_typefn(impl_map);
+                let (n, iss) = n.resolve_typefn(impl_map);
+
+                ids.extend(is);
+                ids.extend(iss);
+
+                (Self::Call(Box::new(m), Box::new(n), t), ids)
+            }
+            Self::Lambda1(x, m, t) => {
+                let (m, ids) = m.resolve_typefn(impl_map);
+                (Self::Lambda1(x, Box::new(m), t), ids)
+            }
+            a => (a, vec![]),
         }
     }
 
@@ -572,9 +628,13 @@ impl MIRExpression {
                         Type::Arrow(_, t) => t,
                         _ => panic!(),
                     };
-                    let newname = format!("{name}${}$", out_t.to_string());
+                    let local_name = name.rsplit_once(".").unwrap().1;
 
-                    (MIRExpression::Identifier(newname, t), vec![])
+                    let newname = format!("{}.{}", out_t.as_ref().to_string(), local_name);
+                    (
+                        MIRExpression::Identifier(newname.clone(), t.clone()),
+                        vec![],
+                    )
                 } else {
                     (MIRExpression::Identifier(name, t), vec![])
                 }
@@ -627,7 +687,8 @@ impl Pattern {
     fn extract_generics(self) -> Self {
         match self {
             Self::Cons(name, args, t) => {
-                let newname = format!("{name}${}$", t.as_ref().unwrap().to_string());
+                let local_name = name.rsplit_once(".").unwrap().1;
+                let newname = format!("{}.{local_name}", t.as_ref().unwrap().to_string());
 
                 let args = args.extract_generics();
 
@@ -927,6 +988,9 @@ impl DataDecl {
                 for con in cons {
                     let mut con = con.clone();
 
+                    let local_name = con.name.rsplit_once(".").unwrap().1;
+                    con.name = format!("{name}.{local_name}");
+
                     for (arg, val) in args.iter().zip(vals.iter()) {
                         con = con.replace(arg, val);
                     }
@@ -989,7 +1053,7 @@ pub fn gen_impl_map(
         }
 
         for (new_name, _) in module.pub_impls.iter() {
-            let ns = new_name.rsplit_once(".").unwrap().0;
+            let ns = new_name.split_once(".").unwrap().0;
             let name = new_name.rsplit_once("$").unwrap().0;
 
             let (_, QualType(_, real_type)) = &trees[ns].typedecls[new_name];
@@ -1003,6 +1067,7 @@ pub fn gen_impl_map(
                 );
             }
 
+            // trees[n].typedecls.insert(new_name.clone(), (real_type));
             // typedecls.insert(new_name.clone(), real_type);
             // tree.funcs.insert(new_name, imp.body);
         }

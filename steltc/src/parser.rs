@@ -257,7 +257,7 @@ fn parse_genargs(t: &mut TokenStream) -> Result<Vec<String>, String> {
     if t.consume(Token::LArrow).is_some() {
         let mut args = vec![];
         while !t.test(Token::RArrow) {
-            t.assert(Token::Quote)?;
+            // t.assert(Token::Quote)?;
             args.push(t.ident()?);
 
             if t.consume(Token::Comma).is_none() {
@@ -999,7 +999,12 @@ impl Expression {
             .chars()
             .map(|c| c as u64)
             .map(|i| Self::Num(i))
-            .map(|i| Self::Call(Box::new(Self::Identifier("Char".to_string())), Box::new(i)))
+            .map(|i| {
+                Self::Call(
+                    Box::new(Self::Identifier("char.Char".to_string())),
+                    Box::new(i),
+                )
+            })
             .collect::<Vec<_>>();
 
         Self::cons_from_es(&nums)

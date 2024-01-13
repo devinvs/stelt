@@ -16,7 +16,7 @@ type MutGamma<'a> = &'a mut HashMap<String, Type>;
 impl Type {
     pub fn map(&self, m: &HashMap<String, Type>) -> Self {
         match self {
-            Self::GenVar(s) => m.get(s).unwrap_or(&self).clone(),
+            Self::GenVar(s) => m.get(s).unwrap().clone(),
             Self::Tuple(ts) => Self::Tuple(ts.into_iter().map(|t| t.map(m)).collect()),
             Self::Arrow(a, b) => Self::Arrow(Box::new(a.map(m)), Box::new(b.map(m))),
             Self::Generic(vars, a) => Self::Generic(
@@ -57,12 +57,12 @@ impl TypeChecker {
                 Box::new(Type::Unsafe(Box::new(Type::Arrow(
                     Box::new(Type::Tuple(vec![
                         Type::Generic(
-                            vec![Type::Ident("char".to_string())],
-                            Box::new(Type::Ident("list".to_string())),
+                            vec![Type::Ident("prelude.char".to_string())],
+                            Box::new(Type::Ident("prelude.list".to_string())),
                         ),
                         Type::Generic(
-                            vec![Type::Ident("char".to_string())],
-                            Box::new(Type::Ident("list".to_string())),
+                            vec![Type::Ident("prelude.char".to_string())],
+                            Box::new(Type::Ident("prelude.list".to_string())),
                         ),
                     ])),
                     Box::new(Type::GenVar("a".to_string())),

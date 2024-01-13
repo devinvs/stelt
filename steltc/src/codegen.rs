@@ -89,6 +89,8 @@ impl Module {
 
         writeln!(self)?;
 
+        eprintln!("{:#?}", tree.func_types);
+
         // Output all imported functions from other modules
         for (name, from, to) in tree
             .func_types
@@ -203,7 +205,7 @@ impl Module {
                             (v, t2)
                         };
 
-                        writeln!(self, "\t{i_ptr} = getelementptr inbounds %{name}.{varname}, ptr %ptr, i32 0, i32 {}", i+1)?;
+                        writeln!(self, "\t{i_ptr} = getelementptr inbounds %{varname}, ptr %ptr, i32 0, i32 {}", i+1)?;
                         writeln!(self, "\tstore {t2} {v}, ptr {i_ptr}")?;
                     }
                 } else {
@@ -215,7 +217,7 @@ impl Module {
                         // get pointer to and store single value
                         writeln!(
                             self,
-                            "\t%var = getelementptr inbounds %{name}.{varname}, ptr %ptr, i32 0, i32 1"
+                            "\t%var = getelementptr inbounds %{varname}, ptr %ptr, i32 0, i32 1"
                         )?;
                         writeln!(self, "\tstore {t} %in, ptr {x}")?;
                         writeln!(self, "\tstore ptr {x}, ptr %var")?;
@@ -223,7 +225,7 @@ impl Module {
                         // get pointer to and store single value
                         writeln!(
                             self,
-                            "\t%var = getelementptr inbounds %{name}.{varname}, ptr %ptr, i32 0, i32 1"
+                            "\t%var = getelementptr inbounds %{varname}, ptr %ptr, i32 0, i32 1"
                         )?;
                         writeln!(self, "\tstore {t} %in, ptr %var")?;
                     }

@@ -183,7 +183,7 @@ impl MIRTree {
         let mut externs = HashSet::new();
         externs.extend(self.external.iter().map(|s| s.clone()));
 
-        let eq_impls = &impl_map["main.eq"];
+        let eq_impls = &impl_map["prelude.eq"];
 
         // lower all the mir functions to lir expressions
         for (f, expr) in self.funcs {

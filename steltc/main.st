@@ -1,16 +1,10 @@
-typefn add(a) = (a, a) -> a
-typefn zero(a) = () -> a
-typefn eq(a) = (a, a) -> bool
+from prelude import add, list, char
 
-
-type list<'a> = Nil | Cons('a, list<'a>)
-
-unsafe sum: list<u32> -> u32
+sum: list<u32> -> u32
 sum(l) = match l with [
-	list.Nil -> test(l),
-	list.Cons(x, xs) -> x + unsafe sum(xs)
+	list.Nil -> 0,
+	list.Cons(x, xs) -> x + sum(xs)
 ]
 
-test : list<u32> -> u32
-test(_) = 0
-
+main : () -> u32
+main() = sum([1, 2, 3, 4])

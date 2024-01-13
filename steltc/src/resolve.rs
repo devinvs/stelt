@@ -44,7 +44,7 @@ impl ParseTree {
         let local_cons: HashSet<String> = self
             .types
             .iter()
-            .map(|(_, (_, dd))| dd.2.iter().map(|c| c.name.clone()))
+            .map(|(n, (_, dd))| dd.2.iter().map(move |c| format!("{}.{}", n, c.name)))
             .flatten()
             .collect();
 
@@ -324,7 +324,7 @@ impl ParseTree {
             ..
         } in self.impls.clone().into_iter()
         {
-            let ns = new_name.rsplit_once(".").unwrap().0;
+            let ns = new_name.split_once(".").unwrap().0;
             let tf = new_name.rsplit_once("$").unwrap().0;
 
             let (vis, TypeFun { name, ty, vars }) = if let Some(tf) = mods[ns].pub_typefn.get(tf) {
@@ -350,15 +350,19 @@ impl ParseTree {
 
             let real_type = ty.replace_all(&subs);
 
-            self.typedecls
-                .insert(new_name.clone(), (vis, QualType(cons, real_type.clone())));
+            self.typedecls.insert(
+                new_name.clone(),
+                (vis.clone(), QualType(cons, real_type.clone())),
+            );
             self.funcs.insert(new_name.clone(), body);
 
             // If impl visibility is private add it to the private impl map
-            self.private_impl_map
-                .get_mut(tf)
-                .unwrap()
-                .push((new_name.clone(), real_type));
+            if vis == Vis::Private {
+                self.private_impl_map
+                    .get_mut(tf)
+                    .unwrap()
+                    .push((new_name.clone(), real_type));
+            }
         }
 
         // Now step two:
@@ -382,7 +386,8 @@ impl ParseTree {
         }
 
         while let Some(name) = imported_idents.pop_front() {
-            let mod_name = name.rsplit_once(".").unwrap().0;
+            let mod_name = name.split_once(".").unwrap().0;
+            eprintln!("{mod_name}");
             let modu = &mods[mod_name];
 
             if let Some(_) = modu.pub_cons.get(&name) {
@@ -787,12 +792,18 @@ impl Expression {
                     *i = v.clone();
                 } else if decls.contains(i) || cons.contains(i) || typefuns.contains(i) {
                     *i = format!("{me}.{i}");
-                } else if let Some((ns, _)) = i.rsplit_once(".") {
-                    if !imports.contains(ns) {
+                } else if let Some((ns, t)) = i.clone().rsplit_once(".") {
+                    if let Some(v) = aliases.get(ns) {
+                        *i = format!("{v}.{t}");
+                    } else if !imports.contains(ns) {
+                        eprintln!("{aliases:?}");
+                        eprintln!("{ns}.{t}");
                         panic!("namespace {ns} not imported")
                     }
                 } else if !locals.contains(i) {
-                    panic!("undeclared variable {i}");
+                    if i != "llvm!" {
+                        panic!("undeclared variable {i}");
+                    }
                 }
             }
             Expression::Let(p, e, body) => {
