@@ -25,6 +25,7 @@ impl LIRExpression {
     fn str_from_cons(expr: &LIRExpression) -> String {
         match expr {
             LIRExpression::GlobalCall(f, args, _) => {
+                let f = f.rsplit_once(".").unwrap().1;
                 if f.starts_with("Cons") {
                     match *args.clone() {
                         LIRExpression::Tuple(es, _) => {
@@ -46,7 +47,7 @@ impl LIRExpression {
                 } else if f.starts_with("Nil") {
                     "".to_string()
                 } else {
-                    panic!()
+                    panic!("{f}")
                 }
             }
             LIRExpression::Call(f, args, _) => {
@@ -109,7 +110,7 @@ pub struct LIRTree {
 }
 
 impl MIRTree {
-    pub fn lower(self, impl_map: &HashMap<String, Vec<(String, Type)>>) -> LIRTree {
+    pub fn lower(mut self, impl_map: &HashMap<String, Vec<(String, Type)>>) -> LIRTree {
         // get list of global names
         let mut globals = HashSet::new();
         globals.insert("arg.0".to_string());
@@ -186,10 +187,11 @@ impl MIRTree {
         externs.extend(self.external.iter().map(|s| s.clone()));
 
         let eq_impls = &impl_map["prelude/eq"];
+        let mut imports = vec![];
 
         // lower all the mir functions to lir expressions
         for (f, expr) in self.funcs {
-            let e = expr.lower(&variants, &global_funcs, &externs, eq_impls);
+            let e = expr.lower(&variants, &global_funcs, &externs, eq_impls, &mut imports);
             funcs.insert(f, e);
         }
 
@@ -214,6 +216,17 @@ impl MIRTree {
         for (name, expr) in funcs {
             let (_, funcs) = expr.extract_funcs(&name, &mut func_types, &globals, &HashMap::new());
             extracted_funcs.extend(funcs)
+        }
+
+        // Insert imported eq functions into typedecls as imports
+        for import in imports {
+            // find the type in the impl map
+            let t = impl_map["prelude/eq"]
+                .iter()
+                .find_map(|(n, t)| if *n == import { Some(t.clone()) } else { None })
+                .unwrap();
+
+            self.typedecls.insert(import, (Vis::Import, t));
         }
 
         // add all types of functions that we know
@@ -739,13 +752,14 @@ impl MIRExpression {
         global: &HashSet<String>,
         externs: &HashSet<String>,
         eq_impls: &Vec<(String, Type)>,
+        imports: &mut Vec<String>,
     ) -> LIRExpression {
         match self {
-            Self::Unsafe(e, _) => e.lower(vars, global, externs, eq_impls),
+            Self::Unsafe(e, _) => e.lower(vars, global, externs, eq_impls, imports),
             Self::True => LIRExpression::True,
             Self::False => LIRExpression::False,
             Self::Call(f, args, t) => {
-                let args = args.lower(vars, global, externs, eq_impls);
+                let args = args.lower(vars, global, externs, eq_impls, imports);
 
                 // auto box args if necessary
                 if let MIRExpression::Identifier(n, _) = &*f.clone() {
@@ -790,7 +804,7 @@ impl MIRExpression {
                     }
                 }
 
-                let f = f.lower(vars, global, externs, eq_impls);
+                let f = f.lower(vars, global, externs, eq_impls, imports);
                 LIRExpression::Call(Box::new(f), Box::new(args), LLVMType::from_type(t.unwrap()))
             }
             Self::Lambda1(arg, body, t) => {
@@ -807,7 +821,7 @@ impl MIRExpression {
                         Box::new(LIRExpression::Let1(
                             arg,
                             Box::new(LIRExpression::Identifier("arg.0".to_string(), in_t)),
-                            Box::new(body.lower(vars, global, externs, eq_impls)),
+                            Box::new(body.lower(vars, global, externs, eq_impls, imports)),
                             out_t,
                         )),
                         LLVMType::from_type(t.unwrap()),
@@ -815,7 +829,7 @@ impl MIRExpression {
                 } else {
                     LIRExpression::Lambda1(
                         None,
-                        Box::new(body.lower(vars, global, externs, eq_impls)),
+                        Box::new(body.lower(vars, global, externs, eq_impls, imports)),
                         LLVMType::from_type(t.unwrap()),
                     )
                 }
@@ -824,15 +838,15 @@ impl MIRExpression {
                 if pats.len() == 1 {
                     // unit type always passes the pattern match
                     if let (Pattern::Unit(..), expr) = &pats[0] {
-                        return expr.clone().lower(vars, global, externs, eq_impls);
+                        return expr.clone().lower(vars, global, externs, eq_impls, imports);
                     }
 
                     // Single var pattern just becomes a let expression
                     if let (Pattern::Var(s, t2), expr) = &pats[0] {
                         return LIRExpression::Let1(
                             s.clone(),
-                            Box::new(m.lower(vars, global, externs, eq_impls)),
-                            Box::new(expr.clone().lower(vars, global, externs, eq_impls)),
+                            Box::new(m.lower(vars, global, externs, eq_impls, imports)),
+                            Box::new(expr.clone().lower(vars, global, externs, eq_impls, imports)),
                             LLVMType::from_type(t2.clone().unwrap()),
                         );
                     }
@@ -851,12 +865,13 @@ impl MIRExpression {
                         global,
                         externs,
                         eq_impls,
+                        imports,
                     )
                 } else {
                     let n = crate::gen_var("match");
                     LIRExpression::Let1(
                         n.clone(),
-                        Box::new(m.lower(vars, global, externs, eq_impls)),
+                        Box::new(m.lower(vars, global, externs, eq_impls, imports)),
                         Box::new(Self::match_code(
                             n,
                             &pats,
@@ -865,6 +880,7 @@ impl MIRExpression {
                             global,
                             externs,
                             eq_impls,
+                            imports,
                         )),
                         LLVMType::from_type(t.unwrap()),
                     )
@@ -889,7 +905,7 @@ impl MIRExpression {
             Self::Num(n, t) => LIRExpression::Num(n, LLVMType::from_type(t.unwrap())),
             Self::Tuple(es, t) => LIRExpression::Tuple(
                 es.into_iter()
-                    .map(|e| e.lower(vars, global, externs, eq_impls))
+                    .map(|e| e.lower(vars, global, externs, eq_impls, imports))
                     .collect(),
                 LLVMType::from_type(t.unwrap()),
             ),
@@ -905,6 +921,7 @@ impl MIRExpression {
         global: &HashSet<String>,
         externs: &HashSet<String>,
         eq_impls: &Vec<(String, Type)>,
+        imports: &mut Vec<String>,
     ) -> LIRExpression {
         if pats.is_empty() {
             panic!("Ran out of patterns");
@@ -913,7 +930,7 @@ impl MIRExpression {
             Self::match_pattern_last(
                 pat.clone(),
                 LIRExpression::Identifier(x, LLVMType::from_type(pat.ty())),
-                exp.clone().lower(vars, global, externs, eq_impls),
+                exp.clone().lower(vars, global, externs, eq_impls, imports),
                 ty,
                 vars,
                 eq_impls,
@@ -928,6 +945,7 @@ impl MIRExpression {
                 global,
                 externs,
                 eq_impls,
+                imports,
             );
 
             let (pat, exp) = &pats[0];
@@ -943,11 +961,12 @@ impl MIRExpression {
                 // since this passed type checking the type of our match variable x
                 // should be the same type as the pattern
                 LIRExpression::Identifier(x, LLVMType::from_type(pat.ty())),
-                exp.clone().lower(vars, global, externs, eq_impls),
+                exp.clone().lower(vars, global, externs, eq_impls, imports),
                 thunk,
                 ty.clone(),
                 vars,
                 eq_impls,
+                imports,
             );
 
             LIRExpression::LetThunk(thunk_name, Box::new(fail), Box::new(first), ty)
@@ -1018,6 +1037,7 @@ impl MIRExpression {
         ty: LLVMType,
         vars: &HashMap<String, Vec<(String, LLVMType)>>,
         eq_impls: &Vec<(String, Type)>,
+        imports: &mut Vec<String>,
     ) -> LIRExpression {
         match pat {
             Pattern::Unit(_) => {
@@ -1026,34 +1046,41 @@ impl MIRExpression {
             }
             Pattern::True => LIRExpression::If(Box::new(exp), Box::new(yes), Box::new(no), ty),
             Pattern::False => LIRExpression::If(Box::new(exp), Box::new(no), Box::new(yes), ty),
-            Pattern::Unsafe(p, _) => Self::match_pattern(*p, exp, yes, no, ty, vars, eq_impls),
-            Pattern::Num(n, t) => LIRExpression::If(
-                Box::new(LIRExpression::GlobalCall(
-                    // Find the name of the function who implements eq for this num type
-                    resolve_typefn(eq_impls, eq_type!(t.as_ref().unwrap())).unwrap(),
-                    Box::new(LIRExpression::Tuple(
-                        vec![
-                            exp,
-                            LIRExpression::Num(n, LLVMType::from_type(t.clone().unwrap())),
-                        ],
-                        LLVMType::Struct(vec![
-                            LLVMType::from_type(t.clone().unwrap()),
-                            LLVMType::from_type(t.unwrap()),
-                        ]),
+            Pattern::Unsafe(p, _) => {
+                Self::match_pattern(*p, exp, yes, no, ty, vars, eq_impls, imports)
+            }
+            Pattern::Num(n, t) => {
+                // Find the name of the function who implements eq for this num type
+                let f = resolve_typefn(eq_impls, eq_type!(t.as_ref().unwrap())).unwrap();
+                imports.push(f.clone());
+
+                LIRExpression::If(
+                    Box::new(LIRExpression::GlobalCall(
+                        f,
+                        Box::new(LIRExpression::Tuple(
+                            vec![
+                                exp,
+                                LIRExpression::Num(n, LLVMType::from_type(t.clone().unwrap())),
+                            ],
+                            LLVMType::Struct(vec![
+                                LLVMType::from_type(t.clone().unwrap()),
+                                LLVMType::from_type(t.unwrap()),
+                            ]),
+                        )),
+                        LLVMType::I1,
                     )),
-                    LLVMType::I1,
-                )),
-                Box::new(yes),
-                Box::new(no),
-                ty,
-            ),
+                    Box::new(yes),
+                    Box::new(no),
+                    ty,
+                )
+            }
             Pattern::Var(x, _) => {
                 LIRExpression::Let1(x, Box::new(exp), Box::new(yes.clone()), yes.ty())
             }
             Pattern::Tuple(ps, _) => {
                 // due to type checking this is already guaranteed to be a tuple, so instead we
                 // just verify/gen ir for the components
-                Self::match_components(&ps, 0, exp, yes, no, vars, eq_impls)
+                Self::match_components(&ps, 0, exp, yes, no, vars, eq_impls, imports)
             }
             Pattern::Cons(n, args, t) => {
                 let t = t.unwrap();
@@ -1088,6 +1115,7 @@ impl MIRExpression {
                                 no.clone(),
                                 vars,
                                 eq_impls,
+                                imports,
                             )),
                             ty.clone(),
                         )),
@@ -1095,7 +1123,7 @@ impl MIRExpression {
                         ty,
                     )
                 } else {
-                    Self::match_pattern(*args, exp, yes, no, ty, vars, eq_impls)
+                    Self::match_pattern(*args, exp, yes, no, ty, vars, eq_impls, imports)
                 }
             }
             Pattern::Any(_) => yes,
@@ -1110,6 +1138,7 @@ impl MIRExpression {
         no: LIRExpression,
         vars: &HashMap<String, Vec<(String, LLVMType)>>,
         eq_impls: &Vec<(String, Type)>,
+        imports: &mut Vec<String>,
     ) -> LIRExpression {
         if ps.is_empty() {
             yes
@@ -1123,6 +1152,7 @@ impl MIRExpression {
                 no.clone(),
                 vars,
                 eq_impls,
+                imports,
             );
 
             let pt = LLVMType::from_type(p.ty());
@@ -1157,7 +1187,7 @@ impl MIRExpression {
                 LIRExpression::GetTuple(Box::new(exp.clone()), n, pt)
             };
 
-            Self::match_pattern(p.clone(), newe, rest, no, exp.ty(), vars, eq_impls)
+            Self::match_pattern(p.clone(), newe, rest, no, exp.ty(), vars, eq_impls, imports)
         }
     }
 

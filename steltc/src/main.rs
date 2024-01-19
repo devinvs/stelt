@@ -93,7 +93,6 @@ fn compile(path: &Path, outdir: &Path) {
         }
 
         modules.insert(name.clone(), tree.canonicalize(&name));
-        eprintln!("{:#?}", tree.funcs.get("io/println"));
         trees.insert(name, tree);
     }
 
@@ -125,7 +124,7 @@ fn compile(path: &Path, outdir: &Path) {
             }
         }
 
-        let mir = mir.with_concrete_types(&impl_map);
+        let mir = mir.with_concrete_types(&impl_map, &modules);
         let lir = mir.lower(&impl_map);
 
         let out_path = outdir.join(Path::new(&format!("{}.ll", name)));

@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use std::collections::VecDeque;
 
 use crate::parse_tree::{DataDecl, Expression, ParseTree, Pattern, QualType, Type, TypeCons, Vis};
+use crate::resolve::Module;
 
 use crate::unify::apply_unifier;
 use crate::unify::unify;
@@ -183,7 +184,11 @@ impl MIRTree {
         }
     }
 
-    pub fn with_concrete_types(mut self, impl_map: &HashMap<String, Vec<(String, Type)>>) -> Self {
+    pub fn with_concrete_types(
+        mut self,
+        impl_map: &HashMap<String, Vec<(String, Type)>>,
+        modules: &HashMap<String, Module>,
+    ) -> Self {
         let mut generic_decls = HashMap::new();
         let mut concrete_decls = HashMap::new();
 
@@ -269,8 +274,33 @@ impl MIRTree {
             }
         }
 
-        // split out the generic type prototypes and the concrete types
+        //
+        // Get a list of all the types that we have access to
+        //
+        let mut types = vec![];
+
+        // First add all our private types
         for (name, (vis, t)) in self.types {
+            if vis != Vis::Private {
+                continue;
+            }
+
+            types.push((name, (vis, t)));
+        }
+
+        // Then add all public types from all modules
+        // this is necessary since generics could inevitably
+        // use a type that we haven't imported
+        for module in modules.values() {
+            for (name, data) in module.pub_data.iter() {
+                types.push((name.clone(), (Vis::Public, data.clone())));
+            }
+        }
+
+        //
+        // split out the generic type prototypes and the concrete types
+        //
+        for (name, (vis, t)) in types {
             let argc = match t.clone() {
                 DataDecl(_, args, _) => args.len(),
             };
