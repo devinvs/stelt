@@ -1052,7 +1052,7 @@ impl Pattern {
         let nums = s
             .chars()
             .map(|c| c as u64)
-            .map(|i| Self::Num(i, None))
+            .map(|i| Self::Num(i as i64, None))
             .collect::<Vec<_>>();
 
         Self::cons_from_es(&nums)
@@ -1140,7 +1140,7 @@ impl Pattern {
             Some(Lexeme {
                 token: Token::Num(n),
                 ..
-            }) => Ok(Pattern::Num(n, Some(Type::I32))),
+            }) => Ok(Pattern::Num(n as i64, Some(Type::I32))),
             Some(Lexeme {
                 token: Token::String(s),
                 ..
@@ -1149,6 +1149,12 @@ impl Pattern {
             Some(Lexeme {
                 token: Token::False,
             }) => Ok(Self::False),
+            Some(Lexeme { token: Token::Sub }) => match t.next() {
+                Some(Lexeme {
+                    token: Token::Num(n),
+                }) => Ok(Pattern::Num(-(n as i64), None)),
+                _ => Err("expected number".to_string()),
+            },
             Some(Lexeme {
                 token: Token::Ident(mut i),
                 ..

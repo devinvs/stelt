@@ -407,6 +407,7 @@ impl ParseTree {
             } else if let Some(tfun) = modu.pub_typefn.get(&name) {
                 self.typefuns.insert(name, (Vis::Import, tfun.clone()));
             } else if let Some((ty, body)) = modu.pub_gens.get(&name) {
+                eprintln!("resolve generic {name}");
                 if !self.typedecls.contains_key(&name) {
                     self.typedecls
                         .insert(name.clone(), (Vis::Private, ty.clone()));

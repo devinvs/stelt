@@ -109,7 +109,7 @@ fn compile(path: &Path, outdir: &Path) {
     // Resolve namespace references and convert to mir
     let mut modules_mir = HashMap::new();
     for (name, tree) in trees {
-        let tree = MIRTree::from(tree);
+        let tree = MIRTree::from(tree, &modules);
         modules_mir.insert(name, tree);
     }
 
@@ -123,6 +123,8 @@ fn compile(path: &Path, outdir: &Path) {
                 std::process::exit(1);
             }
         }
+
+        // eprintln!("{:#?}", mir.funcs);
 
         let mir = mir.with_concrete_types(&impl_map, &modules);
         let lir = mir.lower(&impl_map);

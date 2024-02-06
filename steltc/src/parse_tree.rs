@@ -239,7 +239,7 @@ pub enum Expression {
 pub enum Pattern {
     Unit(Option<Type>),
 
-    Num(u64, Option<Type>),
+    Num(i64, Option<Type>),
     True,
     False,
 

@@ -62,7 +62,7 @@ pub struct MIRTree {
 }
 
 impl MIRTree {
-    pub fn from(tree: ParseTree) -> Self {
+    pub fn from(tree: ParseTree, modules: &HashMap<String, Module>) -> Self {
         // First things first: get the generic args out of the types
         // and convert to forall types
         //
@@ -75,13 +75,18 @@ impl MIRTree {
             .map(|dd| dd.0.clone())
             .collect::<HashSet<_>>();
 
+        let mut typefuns = tree.typefuns.clone();
+
+        for module in modules.values() {
+            for (name, tf) in module.pub_typefn.iter() {
+                typefuns.insert(name.clone(), (Vis::Public, tf.clone()));
+            }
+        }
+
         // Typedecls get their generics extracted into a forall type along with
         // the constraints from the QualType
         for (name, (vis, QualType(cons, t))) in tree.typedecls.into_iter() {
-            let cons = cons
-                .into_iter()
-                .map(|c| trans_cons(c, &tree.typefuns))
-                .collect();
+            let cons = cons.into_iter().map(|c| trans_cons(c, &typefuns)).collect();
             let t = t.extract_vars(&type_names, cons);
             typedecls.insert(name, (vis, t));
         }
@@ -265,6 +270,7 @@ impl MIRTree {
                     // add to concrete_decls ig, ughh
                     concrete_decls.insert(n_prime.clone(), (Vis::Private, t.clone()));
 
+                    eprintln!("w {n}");
                     let oldty = generic_decls[&n].clone();
                     let subs = oldty.get_generic_subs(&t);
 
@@ -981,6 +987,13 @@ impl Type {
                     to.clone()
                 } else {
                     Type::Ident(s)
+                }
+            }
+            Type::GenVar(a) => {
+                if a == from {
+                    to.clone()
+                } else {
+                    Type::GenVar(a)
                 }
             }
             Type::Arrow(a, b) => {

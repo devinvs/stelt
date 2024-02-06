@@ -313,7 +313,7 @@ pub enum LIRExpression {
     GotoThunk(String, LLVMType),
 
     // Constant Fields
-    Num(u64, LLVMType), // A Number Literal
+    Num(i64, LLVMType), // A Number Literal
     Str(String),        // A String Literal, stores index into constant string array
     Unit,
     Tuple(Vec<LIRExpression>, LLVMType),
@@ -902,7 +902,7 @@ impl MIRExpression {
                     LIRExpression::Identifier(s, t)
                 }
             }
-            Self::Num(n, t) => LIRExpression::Num(n, LLVMType::from_type(t.unwrap())),
+            Self::Num(n, t) => LIRExpression::Num(n as i64, LLVMType::from_type(t.unwrap())),
             Self::Tuple(es, t) => LIRExpression::Tuple(
                 es.into_iter()
                     .map(|e| e.lower(vars, global, externs, eq_impls, imports))
