@@ -8,26 +8,24 @@ lazy_static! {
         let mut m = HashMap::new();
 
         // Keywords
+        m.insert("import", Token::Import);
+        m.insert("from", Token::From);
+        m.insert("as", Token::As);
+        m.insert("alias", Token::Alias);
         m.insert("pub", Token::Pub);
-        m.insert("def", Token::Def);
-        m.insert("let", Token::Let);
-        m.insert("in", Token::In);
+        m.insert("extern", Token::Extern);
         m.insert("type", Token::Type);
         m.insert("typefn", Token::Typefn);
         m.insert("impl", Token::Impl);
         m.insert("for", Token::For);
+        m.insert("let", Token::Let);
+        m.insert("in", Token::In);
         m.insert("if", Token::If);
         m.insert("then", Token::Then);
         m.insert("else", Token::Else);
         m.insert("match", Token::Match);
         m.insert("with", Token::With);
-        m.insert("extern", Token::Extern);
-        m.insert("import", Token::Import);
         m.insert("where", Token::Where);
-        m.insert("alias", Token::Alias);
-        m.insert("from", Token::From);
-        m.insert("as", Token::As);
-        m.insert("unsafe", Token::Unsafe);
 
         m.insert("True", Token::True);
         m.insert("False", Token::False);
@@ -48,7 +46,6 @@ lazy_static! {
         m.insert("-", Token::Sub);
         m.insert("*", Token::Mul);
         m.insert("/", Token::Slash);
-        m.insert("//", Token::Div);
         m.insert("%", Token::Mod);
         m.insert("**", Token::Pow);
         m.insert("=", Token::Assign);
@@ -58,11 +55,10 @@ lazy_static! {
         m.insert("->", Token::Arrow);
         m.insert("::", Token::Concat);
         m.insert("|", Token::Bar);
-        m.insert("||", Token::Or);
-        m.insert("&&", Token::And);
-        m.insert("!", Token::Not);
+        m.insert("or", Token::Or);
+        m.insert("and", Token::And);
+        m.insert("not", Token::Not);
         m.insert(".", Token::Dot);
-        m.insert("?", Token::Question);
 
         // Separators
         m.insert("(", Token::LParen);
@@ -76,8 +72,6 @@ lazy_static! {
         m.insert(",", Token::Comma);
         m.insert(":", Token::Colon);
         m.insert("'", Token::Quote);
-
-        m.insert("_", Token::Underscore);
 
         m
     };
@@ -171,7 +165,6 @@ pub enum Token {
     As,
     Alias,
     Pub,
-    Def,
     Type,
     Let,
     In,
@@ -186,8 +179,6 @@ pub enum Token {
     Extern,
     Import,
     Where,
-    Unsafe,
-    Underscore,
 
     True,
     False,
@@ -220,7 +211,6 @@ pub enum Token {
     LTE,
     GTE,
     Dot,
-    Question,
     Quote,
 
     // Fancy stuff maybe?
@@ -250,7 +240,6 @@ pub enum Token {
 impl Token {
     pub fn name(&self) -> String {
         match self {
-            Self::Unsafe => "unsafe",
             Self::Quote => "'",
             Self::From => "from",
             Self::As => "as",
@@ -263,10 +252,8 @@ impl Token {
             Self::With => "with",
             Self::Then => "then",
             Self::In => "in",
-            Self::Underscore => "_",
             Self::Extern => "extern",
             Self::FatArrow => "=>",
-            Self::Def => "def",
             Self::Type => "type",
             Self::Let => "let",
             Self::Typefn => "typefn",
@@ -300,7 +287,6 @@ impl Token {
             Self::LTE => "<=",
             Self::GTE => ">=",
             Self::Dot => ".",
-            Self::Question => "?",
             Self::Arrow => "->",
             Self::Concat => "::",
             Self::Bar => "|",
@@ -543,7 +529,7 @@ impl Lexer {
                 }
 
                 // Single char Operators
-                '+' | '-' | '*' | '/' | '%' | '<' | '>' | '=' | '|' | '&' | '^' | '~' | '?' => {
+                '+' | '-' | '*' | '/' | '%' | '<' | '>' | '=' => {
                     self.push_token(&mut tokens, &mut stack);
                     tokens.push_back(Lexeme {
                         token: MAP.get(c.to_string().as_str()).unwrap().clone(),

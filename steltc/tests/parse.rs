@@ -1,12 +1,10 @@
 use std::fs::{read_dir, read_to_string};
 use stelt::Lexer;
-use stelt::MIRTree;
 use stelt::Program;
-use stelt::TypeChecker;
 
 #[test]
-fn test_type_checker() {
-    for entry in read_dir("./tests/type_checker").unwrap() {
+fn test_parser() {
+    for entry in read_dir("./tests/parser").unwrap() {
         let entry = entry.unwrap();
         let path = entry.path();
         let name = entry.file_name();
@@ -20,16 +18,11 @@ fn test_type_checker() {
         let buf = read_to_string(path.clone()).unwrap();
 
         let mut tokens = lexer.lex(&buf).unwrap();
-        let program = Program::parse(&mut tokens).unwrap();
-
-        let mut mir = MIRTree::from(program);
-
-        let mut checker = TypeChecker::default();
-        let out = checker.check_program(&mut mir);
+        let program = Program::parse(&mut tokens);
 
         if should_fail {
-            assert!(out.is_err());
-        } else if let Err(e) = out {
+            assert!(program.is_err());
+        } else if let Err(e) = program {
             eprintln!("{e}");
             panic!()
         }

@@ -33,9 +33,9 @@ lazy_static! {
             import_idents: HashSet::new(),
             typefuns: HashMap::new(),
             impls: Vec::new(),
-            private_impl_map: HashMap::new()
+            private_impl_map: HashMap::new(),
         };
-        // let me = ParseTree::parse_with(&mut tokens, me).unwrap();
+        let me = ParseTree::parse_with(&mut tokens, me).unwrap();
         me
     };
 }
@@ -201,18 +201,6 @@ impl ParseTree {
                     me.types.insert(name, (is_pub, ty));
                 }
                 Some(Lexeme {
-                    token: Token::Unsafe,
-                }) => {
-                    t.assert(Token::Unsafe)?;
-                    let name = t.ident()?;
-                    t.assert(Token::Colon)?;
-
-                    let QualType(cons, t) = QualType::parse(t)?;
-
-                    me.typedecls
-                        .insert(name, (is_pub, QualType(cons, Type::Unsafe(Box::new(t)))));
-                }
-                Some(Lexeme {
                     token: Token::Ident(_),
                     ..
                 }) => {
@@ -245,7 +233,9 @@ impl ParseTree {
                         _ => panic!("ahh"),
                     }
                 }
-                Some(a) => return Err(format!("Unexpected token in declaration: '{:?}'", a.token)),
+                Some(a) => {
+                    return Err(format!("Unexpected token in declaration: '{:#?}'", a.token))
+                }
                 None => break,
             }
         }
@@ -473,11 +463,6 @@ impl Type {
             t.assert(Token::RArrow)?;
 
             Ok(Self::Generic(vars, Box::new(base)))
-        } else if t.consume(Token::Question).is_some() {
-            Ok(Self::Generic(
-                vec![base],
-                Box::new(Self::Ident("maybe".into())),
-            ))
         } else {
             Ok(base)
         }
@@ -736,16 +721,8 @@ impl Expression {
     }
 
     fn postfix(t: &mut TokenStream) -> Result<Self, String> {
-        let primary = Self::eunsafe(t)?;
+        let primary = Self::primary(t)?;
         Self::postfix_post(t, primary)
-    }
-
-    fn eunsafe(t: &mut TokenStream) -> Result<Self, String> {
-        if t.consume(Token::Unsafe).is_some() {
-            Ok(Self::Unsafe(Box::new(Self::primary(t)?)))
-        } else {
-            Self::primary(t)
-        }
     }
 
     fn postfix_post(t: &mut TokenStream, primary: Expression) -> Result<Self, String> {
@@ -802,14 +779,6 @@ impl Expression {
             };
 
             Expression::Call(Box::new(func), Box::new(args))
-        } else if t.consume(Token::Question).is_some() {
-            let then = Expression::parse(t)?;
-
-            t.assert(Token::Colon)?;
-
-            let else_ = Expression::parse(t)?;
-
-            Self::If(Box::new(primary), Box::new(then), Box::new(else_))
         } else if t.consume(Token::FatArrow).is_some() {
             // Fancy call with primary as first arg.
 
@@ -925,6 +894,22 @@ impl Expression {
                 token: Token::Ident(mut i),
                 ..
             } => {
+                // This is where we handle identifiers.
+                // It may be prefixed with a namespace delimited by slashes,
+                // then followed by at most one dot followed by an ident.
+                // If the ident that follows is capitalized, it is a constructor,
+                // else we don't parse it.
+
+                while t.consume(Token::Slash).is_some() {
+                    i.push_str("/");
+                    i.push_str(&t.ident()?);
+                }
+
+                if t.consume(Token::Dot).is_some() {
+                    i.push_str(".");
+                    i.push_str(&t.ident()?);
+                }
+
                 // if the ident is capitalized then this must be a constructor...
                 // we might change this later to be part of the naming/resolution step,
                 // but for now this is a good approximate
@@ -934,15 +919,6 @@ impl Expression {
                         Box::new(Self::Unit),
                     ))
                 } else {
-                    // This is where we handle the dot operator on identifiers. By default we assume
-                    // namespacing, then during the import step the namespaces
-                    // that were never imported get converted into the pipe operator
-
-                    while t.consume(Token::Dot).is_some() {
-                        i.push_str(".");
-                        i.push_str(&t.ident()?);
-                    }
-
                     Ok(Self::Identifier(i))
                 }
             }
@@ -1121,9 +1097,6 @@ impl Pattern {
 
         match t.next() {
             Some(Lexeme {
-                token: Token::Unsafe,
-            }) => Ok(Pattern::Unsafe(Box::new(Self::parse(t)?), None)),
-            Some(Lexeme {
                 token: Token::LBrace,
                 ..
             }) => {
@@ -1134,9 +1107,6 @@ impl Pattern {
                     None,
                 ))
             }
-            Some(Lexeme {
-                token: Token::Underscore,
-            }) => Ok(Pattern::Any(None)),
             Some(Lexeme {
                 token: Token::Num(n),
                 ..
@@ -1159,6 +1129,10 @@ impl Pattern {
                 token: Token::Ident(mut i),
                 ..
             }) => {
+                if i == "_" {
+                    return Ok(Pattern::Any(None));
+                }
+
                 while t.consume(Token::Dot).is_some() {
                     i.push_str(".");
                     i.push_str(&t.ident()?);
