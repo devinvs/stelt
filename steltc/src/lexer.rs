@@ -77,27 +77,18 @@ lazy_static! {
     };
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct Lexeme {
-    pub token: Token,
-}
+#[derive(Debug)]
+pub struct TokenStream(pub VecDeque<Token>, bool, bool);
 
-impl Lexeme {
-    fn test(&self, t: Token) -> bool {
-        self.token == t
+impl TokenStream {
+    fn consume_nl(&mut self) {
+        while self.0.front() == Some(&Token::NL) {
+            self.2 = true;
+            self.0.pop_front();
+        }
     }
-}
 
-pub type TokenStream = VecDeque<Lexeme>;
-
-pub trait LexemeFeed {
-    fn peek(&self) -> Option<&Lexeme>;
-    fn next(&mut self) -> Option<Lexeme>;
-    fn test(&mut self, t: Token) -> bool;
-    fn assert(&mut self, t: Token) -> Result<(), String>;
-    fn ident(&mut self) -> Result<String, String>;
-
-    fn consume(&mut self, t: Token) -> Option<()> {
+    pub fn consume(&mut self, t: Token) -> Option<()> {
         if self.test(t.clone()) {
             self.assert(t).unwrap();
             Some(())
@@ -105,56 +96,75 @@ pub trait LexemeFeed {
             None
         }
     }
-}
 
-impl LexemeFeed for TokenStream {
-    fn peek(&self) -> Option<&Lexeme> {
-        self.get(0)
+    pub fn peek(&mut self) -> Option<&Token> {
+        if !self.1 {
+            self.consume_nl();
+        }
+        self.0.get(0)
     }
 
-    fn next(&mut self) -> Option<Lexeme> {
-        self.pop_front()
+    pub fn next(&mut self) -> Option<Token> {
+        if !self.1 {
+            self.consume_nl();
+        }
+        self.0.pop_front()
     }
 
-    fn test(&mut self, t: Token) -> bool {
-        if let Some(l) = self.get(0) {
-            l.test(t)
+    pub fn test(&mut self, t: Token) -> bool {
+        if !self.1 {
+            self.consume_nl();
+        }
+        if let Some(l) = self.0.get(0) {
+            *l == t
         } else {
             false
         }
     }
 
-    fn assert(&mut self, t: Token) -> Result<(), String> {
-        if let Some(l) = self.pop_front() {
-            if l.test(t.clone()) {
+    pub fn assert(&mut self, t: Token) -> Result<(), String> {
+        if !self.1 {
+            self.consume_nl();
+        }
+
+        if let Some(l) = self.0.pop_front() {
+            if l == t {
                 Ok(())
             } else {
-                Err(format!(
-                    "Expected '{}', found '{}'",
-                    t.name(),
-                    l.token.name()
-                ))
+                Err(format!("Expected '{}', found '{}'", t.name(), l.name()))
             }
         } else {
             Err(format!("Expected '{}', found EOF", t.name()))
         }
     }
 
-    fn ident(&mut self) -> Result<String, String> {
-        if let Some(l) = self.pop_front() {
-            if let Lexeme {
-                token: Token::Ident(s),
-                ..
-            } = l
-            {
+    pub fn ident(&mut self) -> Result<String, String> {
+        if !self.1 {
+            self.consume_nl();
+        }
+
+        if let Some(l) = self.0.pop_front() {
+            if let Token::Ident(s) = l {
                 Ok(s)
             } else {
-                self.push_front(l.clone());
-                Err(format!("Expected identifier, found '{}'", l.token.name()))
+                self.0.push_front(l.clone());
+                Err(format!("Expected identifier, found '{}'", l.name()))
             }
         } else {
             Err(format!("Expected identifier, found EOF"))
         }
+    }
+
+    pub fn nl_aware(&mut self) {
+        self.1 = true;
+        if self.2 {
+            self.0.push_front(Token::NL);
+            self.2 = false;
+        }
+    }
+
+    pub fn nl_ignore(&mut self) {
+        self.1 = false;
     }
 }
 
@@ -231,6 +241,8 @@ pub enum Token {
     Comma,
     Colon,
 
+    NL,
+
     Num(u64),
     Char(char),
     String(String),
@@ -240,6 +252,7 @@ pub enum Token {
 impl Token {
     pub fn name(&self) -> String {
         match self {
+            Self::NL => "\\n",
             Self::Quote => "'",
             Self::From => "from",
             Self::As => "as",
@@ -313,10 +326,6 @@ impl Token {
 pub struct Lexer {
     in_string: bool,
     in_comment: bool,
-
-    line: usize,
-    start: usize,
-    end: usize,
 }
 
 impl Lexer {
@@ -332,10 +341,8 @@ impl Lexer {
             // If we are in a single line comment go to end of line
             if self.in_comment {
                 if c == '\n' {
-                    self.line += 1;
-                    self.start = 0;
-                    self.end = 0;
                     self.in_comment = false;
+                    tokens.push_back(Token::NL);
                 }
                 continue;
             }
@@ -345,7 +352,6 @@ impl Lexer {
             if self.in_string {
                 match c {
                     '"' => {
-                        self.end += 1;
                         self.push_token(&mut tokens, &mut stack);
                         self.in_string = false;
                     }
@@ -365,7 +371,6 @@ impl Lexer {
                             _ => return Err("Invalid escape sequence".to_string()),
                         };
 
-                        self.end += 2;
                         stack.push(new_c);
                         chars.next();
                     }
@@ -379,13 +384,11 @@ impl Lexer {
                 '#' => {
                     self.push_token(&mut tokens, &mut stack);
                     self.in_comment = true;
-                    self.end += 1;
                 }
                 // Enter a string literal
                 '"' => {
                     self.push_token(&mut tokens, &mut stack);
                     self.in_string = true;
-                    self.end += 1;
                 }
                 // Char Literal or type var...
                 '\'' if stack.is_empty() => {
@@ -419,18 +422,12 @@ impl Lexer {
 
                     if let Some('\'') = chars.peek() {
                         chars.next();
-                        tokens.push_back(Lexeme {
-                            token: Token::Char(c),
-                        });
-                        self.start += n + 1;
-                        self.end = self.start;
+                        tokens.push_back(Token::Char(c));
                     } else if n == 3 {
                         return Err("ahhh".to_string());
                     } else {
                         // not a char literal, parse as type var
-                        tokens.push_back(Lexeme {
-                            token: Token::Quote,
-                        });
+                        tokens.push_back(Token::Quote);
                         stack.push(c);
                     }
                 }
@@ -438,126 +435,81 @@ impl Lexer {
                 '*' if next.is_some() && *next.unwrap() == '*' => {
                     self.push_token(&mut tokens, &mut stack);
                     chars.next().unwrap();
-                    tokens.push_back(Lexeme { token: Token::Pow });
-                    self.start += 2;
-                    self.end = self.start;
+                    tokens.push_back(Token::Pow);
                 }
                 ':' if next.is_some() && *next.unwrap() == ':' => {
                     self.push_token(&mut tokens, &mut stack);
                     chars.next().unwrap();
-                    tokens.push_back(Lexeme {
-                        token: Token::Concat,
-                    });
-                    self.start += 2;
-                    self.end = self.start;
+                    tokens.push_back(Token::Concat);
                 }
                 '-' if next.is_some() && *next.unwrap() == '>' => {
                     self.push_token(&mut tokens, &mut stack);
                     chars.next().unwrap();
-                    tokens.push_back(Lexeme {
-                        token: Token::Arrow,
-                    });
-                    self.start += 2;
-                    self.end = self.start;
+                    tokens.push_back(Token::Arrow);
                 }
                 '|' if next.is_some() && *next.unwrap() == '|' => {
                     self.push_token(&mut tokens, &mut stack);
                     chars.next().unwrap();
-                    tokens.push_back(Lexeme { token: Token::Or });
-                    self.start += 2;
-                    self.end = self.start;
+                    tokens.push_back(Token::Or);
                 }
                 '&' if next.is_some() && *next.unwrap() == '&' => {
                     self.push_token(&mut tokens, &mut stack);
                     chars.next().unwrap();
-                    tokens.push_back(Lexeme { token: Token::And });
-                    self.start += 2;
-                    self.end = self.start;
+                    tokens.push_back(Token::And);
                 }
                 '=' if next.is_some() && *next.unwrap() == '=' => {
                     self.push_token(&mut tokens, &mut stack);
                     chars.next().unwrap();
-                    tokens.push_back(Lexeme {
-                        token: Token::Equal,
-                    });
-                    self.start += 2;
-                    self.end = self.start;
+                    tokens.push_back(Token::Equal);
                 }
                 '!' if next.is_some() && *next.unwrap() == '=' => {
                     self.push_token(&mut tokens, &mut stack);
                     chars.next().unwrap();
-                    tokens.push_back(Lexeme {
-                        token: Token::NotEqual,
-                    });
-                    self.start += 2;
-                    self.end = self.start;
+                    tokens.push_back(Token::NotEqual);
                 }
                 '<' if next.is_some() && *next.unwrap() == '=' => {
                     self.push_token(&mut tokens, &mut stack);
                     chars.next().unwrap();
-                    tokens.push_back(Lexeme { token: Token::LTE });
-                    self.start += 2;
-                    self.end = self.start;
+                    tokens.push_back(Token::LTE);
                 }
                 '>' if next.is_some() && *next.unwrap() == '=' => {
                     self.push_token(&mut tokens, &mut stack);
                     chars.next().unwrap();
-                    tokens.push_back(Lexeme { token: Token::GTE });
-                    self.start += 2;
-                    self.end = self.start;
+                    tokens.push_back(Token::GTE);
                 }
                 '=' if next.is_some() && *next.unwrap() == '>' => {
                     self.push_token(&mut tokens, &mut stack);
                     chars.next().unwrap();
-                    tokens.push_back(Lexeme {
-                        token: Token::FatArrow,
-                    })
+                    tokens.push_back(Token::FatArrow)
                 }
                 '/' if next.is_some() && *next.unwrap() == '/' => {
                     self.push_token(&mut tokens, &mut stack);
                     chars.next().unwrap();
-                    tokens.push_back(Lexeme { token: Token::Div })
+                    tokens.push_back(Token::Div)
                 }
                 // Separators
                 ',' | '(' | ')' | '[' | ']' | '{' | '}' | ':' => {
                     self.push_token(&mut tokens, &mut stack);
-                    tokens.push_back(Lexeme {
-                        token: MAP.get(c.to_string().as_str()).unwrap().clone(),
-                    });
-                    self.start += 1;
-                    self.end = self.start;
+                    tokens.push_back(MAP.get(c.to_string().as_str()).unwrap().clone());
                 }
 
                 // Single char Operators
                 '+' | '-' | '*' | '/' | '%' | '<' | '>' | '=' => {
                     self.push_token(&mut tokens, &mut stack);
-                    tokens.push_back(Lexeme {
-                        token: MAP.get(c.to_string().as_str()).unwrap().clone(),
-                    });
-                    self.start += 1;
-                    self.end = self.start;
+                    tokens.push_back(MAP.get(c.to_string().as_str()).unwrap().clone());
                 }
                 '!' if stack.is_empty() => {
                     self.push_token(&mut tokens, &mut stack);
-                    tokens.push_back(Lexeme {
-                        token: MAP.get(c.to_string().as_str()).unwrap().clone(),
-                    });
-                    self.start += 1;
-                    self.end = self.start;
+                    tokens.push_back(MAP.get(c.to_string().as_str()).unwrap().clone());
                 }
                 '\n' => {
                     self.push_token(&mut tokens, &mut stack);
-                    self.line += 1;
-                    self.start = 0;
-                    self.end = 0;
+                    tokens.push_back(Token::NL);
                 }
                 ' ' | '\t' => {
                     self.push_token(&mut tokens, &mut stack);
-                    self.start += 1;
-                    self.end = self.start;
                 }
                 _ => {
-                    self.end += 1;
                     stack.push(c);
                 }
             }
@@ -569,28 +521,21 @@ impl Lexer {
 
         self.push_token(&mut tokens, &mut stack);
 
-        Ok(tokens)
+        Ok(TokenStream(tokens, false, false))
     }
 
-    fn push_token(&mut self, tokens: &mut VecDeque<Lexeme>, stack: &mut String) {
+    fn push_token(&mut self, tokens: &mut VecDeque<Token>, stack: &mut String) {
         if !stack.is_empty() {
             if self.in_string {
-                tokens.push_back(Lexeme {
-                    token: Token::String(stack.clone()),
-                });
+                tokens.push_back(Token::String(stack.clone()));
             } else if let Some(tok) = MAP.get(stack.as_str()) {
-                tokens.push_back(Lexeme { token: tok.clone() });
+                tokens.push_back(tok.clone());
             } else if let Ok(i) = str::parse::<u64>(&stack) {
-                tokens.push_back(Lexeme {
-                    token: Token::Num(i),
-                });
+                tokens.push_back(Token::Num(i));
             } else {
-                tokens.push_back(Lexeme {
-                    token: Token::Ident(stack.clone()),
-                });
+                tokens.push_back(Token::Ident(stack.clone()));
             }
 
-            self.start = self.end;
             stack.clear();
         }
     }

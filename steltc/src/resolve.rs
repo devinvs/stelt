@@ -519,7 +519,6 @@ impl Type {
                 ts.iter_mut()
                     .for_each(|t| t.canonicalize(me, types, imports, type_aliases, aliases));
             }
-            Type::Unsafe(t) => t.canonicalize(me, types, imports, type_aliases, aliases),
             _ => {}
         }
     }
@@ -532,7 +531,6 @@ impl Type {
             Type::Generic(ts, t) => ts.iter().any(|t| t.is_generic()) || t.is_generic(),
             Type::Arrow(a, b) => a.is_generic() || b.is_generic(),
             Type::Tuple(ts) => ts.iter().any(|t| t.is_generic()),
-            Type::Unsafe(t) => t.is_generic(),
             _ => false,
         }
     }
@@ -556,7 +554,6 @@ impl Type {
                 b.resolve(mods);
             }
             Type::Tuple(ts) => ts.iter_mut().for_each(|t| t.resolve(mods)),
-            Type::Unsafe(t) => t.resolve(mods),
             _ => {}
         }
     }
@@ -580,7 +577,6 @@ impl Type {
                 .flatten()
                 .collect(),
             Type::Tuple(ts) => ts.iter().map(|t| t.imported(me)).flatten().collect(),
-            Type::Unsafe(t) => t.imported(me),
             _ => vec![],
         }
     }
@@ -763,7 +759,6 @@ impl Pattern {
                 ps.iter_mut()
                     .for_each(|p| p.canonicalize(me, types, aliases, imports));
             }
-            Pattern::Unsafe(p, _) => p.canonicalize(me, types, aliases, imports),
             _ => {}
         }
     }
@@ -781,7 +776,6 @@ impl Pattern {
                 rest
             }
             Pattern::Tuple(ps, _) => ps.iter().map(|p| p.imported(me)).flatten().collect(),
-            Pattern::Unsafe(p, _) => p.imported(me),
             _ => vec![],
         }
     }
@@ -892,11 +886,6 @@ impl Expression {
                     me, decls, cons, types, typefuns, imports, aliases, &locals, external,
                 );
             }
-            Expression::Unsafe(e) => {
-                e.canonicalize(
-                    me, decls, cons, types, typefuns, imports, aliases, locals, external,
-                );
-            }
             _ => {}
         }
     }
@@ -971,11 +960,6 @@ impl Expression {
                 ts.extend(p.imported(me));
                 let (a, b) = e.imported(me);
 
-                ts.extend(a);
-                ns.extend(b);
-            }
-            Expression::Unsafe(e) => {
-                let (a, b) = e.imported(me);
                 ts.extend(a);
                 ns.extend(b);
             }

@@ -24,7 +24,6 @@ impl Type {
                 Box::new(a.map(m)),
             ),
             Self::Box(t) => Self::Box(Box::new(t.map(m))),
-            Self::Unsafe(t) => Self::Unsafe(Box::new(t.map(m))),
             _ => self.clone(),
         }
     }
@@ -124,7 +123,6 @@ impl TypeChecker {
         };
 
         let simple = match simple {
-            Type::Unsafe(t) => *t,
             t => t,
         };
 
@@ -394,25 +392,6 @@ impl TypeChecker {
         Ok((sbs2, cons))
     }
 
-    fn judge_unsafe(
-        &mut self,
-        b: Gamma,
-        c: Gamma,
-        d: Gamma,
-        e: &mut Expression,
-        ty: Type,
-        subs: Theta,
-    ) -> Result<(Theta, Vec<Constraint>), String> {
-        e.set_type(ty.clone());
-
-        let e = match e {
-            Expression::Unsafe(e, _) => e,
-            _ => panic!(),
-        };
-
-        self.judge_type(b, c, d, e, Type::Unsafe(Box::new(ty)), subs)
-    }
-
     fn judge_match(
         &mut self,
         b: Gamma,
@@ -469,7 +448,6 @@ impl TypeChecker {
             Expression::Lambda1(..) => self.judge_lambda(builtins, cons, defs, e, t, subs),
             Expression::Call(..) => self.judge_call(builtins, cons, defs, e, t, subs),
             Expression::Match(..) => self.judge_match(builtins, cons, defs, e, t, subs),
-            Expression::Unsafe(..) => self.judge_unsafe(builtins, cons, defs, e, t, subs),
         }
     }
 
@@ -588,22 +566,6 @@ impl TypeChecker {
         Ok((subs, cons))
     }
 
-    fn judge_pattern_unsafe(
-        &mut self,
-        c: Gamma,
-        d: Gamma,
-        p: &mut Pattern,
-        t: Type,
-        subs: Theta,
-    ) -> Result<(Theta, Vec<Constraint>), String> {
-        match (p, t) {
-            (Pattern::Unsafe(p, _), Type::Unsafe(t)) => {
-                self.judge_pattern_helper(c, d, p, *t, subs)
-            }
-            _ => panic!(),
-        }
-    }
-
     fn judge_pattern_helper(
         &mut self,
         c: Gamma,
@@ -620,7 +582,6 @@ impl TypeChecker {
             Pattern::Var(..) => self.judge_pattern_var(d, p, t, subs),
             Pattern::Tuple(..) => self.judge_pattern_tuple(c, d, p, t, subs),
             Pattern::Cons(..) => self.judge_pattern_cons(c, d, p, t, subs),
-            Pattern::Unsafe(..) => self.judge_pattern_unsafe(c, d, p, t, subs),
         }
     }
 

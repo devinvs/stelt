@@ -1,11 +1,9 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use crate::lexer::Lexeme;
-use crate::lexer::LexemeFeed;
 use crate::lexer::Lexer;
+use crate::lexer::Token;
 use crate::lexer::TokenStream;
-use crate::Token;
 
 use crate::parse_tree::Constraint;
 use crate::parse_tree::{
@@ -55,9 +53,7 @@ impl ParseTree {
             };
 
             match t.peek() {
-                Some(Lexeme {
-                    token: Token::Alias,
-                }) => {
+                Some(Token::Alias) => {
                     t.assert(Token::Alias)?;
                     t.assert(Token::Type)?;
 
@@ -69,7 +65,7 @@ impl ParseTree {
 
                     me.type_aliases.insert(name, ty);
                 }
-                Some(Lexeme { token: Token::Impl }) => {
+                Some(Token::Impl) => {
                     t.assert(Token::Impl)?;
                     let name = t.ident()?;
 
@@ -85,11 +81,7 @@ impl ParseTree {
                     t.assert(Token::RParen)?;
 
                     let mut funcs = vec![];
-                    while t.peek()
-                        == Some(&Lexeme {
-                            token: Token::Ident(name.clone()),
-                        })
-                    {
+                    while t.peek() == Some(&Token::Ident(name.clone())) {
                         let name = t.ident()?;
                         let func = FunctionDef::parse(t, name, &me.imports)?;
                         funcs.push(func);
@@ -102,9 +94,7 @@ impl ParseTree {
                         body: funcs,
                     });
                 }
-                Some(Lexeme {
-                    token: Token::Typefn,
-                }) => {
+                Some(Token::Typefn) => {
                     t.assert(Token::Typefn)?;
 
                     let name = t.ident()?;
@@ -134,9 +124,7 @@ impl ParseTree {
                         ),
                     );
                 }
-                Some(Lexeme {
-                    token: Token::Import,
-                }) => {
+                Some(Token::Import) => {
                     t.assert(Token::Import)?;
                     let mut namespace = t.ident()?;
 
@@ -147,7 +135,7 @@ impl ParseTree {
 
                     me.imports.insert(namespace);
                 }
-                Some(Lexeme { token: Token::From }) => {
+                Some(Token::From) => {
                     t.assert(Token::From)?;
                     let mut ns = t.ident()?;
                     while t.consume(Token::Slash).is_some() {
@@ -173,10 +161,7 @@ impl ParseTree {
                         }
                     }
                 }
-                Some(Lexeme {
-                    token: Token::Extern,
-                    ..
-                }) => {
+                Some(Token::Extern) => {
                     t.assert(Token::Extern)?;
 
                     let name = t.ident()?;
@@ -187,9 +172,7 @@ impl ParseTree {
                         .insert(name.clone(), (is_pub, QualType(vec![], ty)));
                     me.external.insert(name);
                 }
-                Some(Lexeme {
-                    token: Token::Type, ..
-                }) => {
+                Some(Token::Type) => {
                     // Either a typedecl or datadecl
                     t.assert(Token::Type)?;
 
@@ -200,16 +183,11 @@ impl ParseTree {
                     let ty = DataDecl::parse(t, name.clone(), args)?;
                     me.types.insert(name, (is_pub, ty));
                 }
-                Some(Lexeme {
-                    token: Token::Ident(_),
-                    ..
-                }) => {
+                Some(Token::Ident(_)) => {
                     let name = t.ident()?;
 
                     match t.peek() {
-                        Some(Lexeme {
-                            token: Token::LParen,
-                        }) => {
+                        Some(Token::LParen) => {
                             let func = FunctionDef::parse(t, name, &me.imports)?;
                             if let Some(f) = me.funcs.get_mut(&func.name) {
                                 f.push(func);
@@ -217,25 +195,19 @@ impl ParseTree {
                                 me.funcs.insert(func.name.clone(), vec![func]);
                             }
                         }
-                        Some(Lexeme {
-                            token: Token::Colon,
-                        }) => {
+                        Some(Token::Colon) => {
                             t.assert(Token::Colon)?;
                             let ty = QualType::parse(t)?;
                             me.typedecls.insert(name, (is_pub, ty));
                         }
-                        Some(Lexeme {
-                            token: Token::Assign,
-                        }) => {
+                        Some(Token::Assign) => {
                             let expr = Expression::parse(t)?.extract_ns(&me.imports);
                             me.defs.insert(name, expr);
                         }
                         _ => panic!("ahh"),
                     }
                 }
-                Some(a) => {
-                    return Err(format!("Unexpected token in declaration: '{:#?}'", a.token))
-                }
+                Some(a) => return Err(format!("Unexpected token in declaration: '{:#?}'", a)),
                 None => break,
             }
         }
@@ -377,9 +349,7 @@ impl QualType {
             } else {
                 // we are not parsing a constraint list, parse as type
                 // we push the tokens back onto the lexer before parsing
-                t.push_front(Lexeme {
-                    token: Token::Ident(i),
-                });
+                t.0.push_front(Token::Ident(i));
                 Ok(QualType(vec![], Type::parse(t)?))
             }
         } else {
@@ -470,13 +440,8 @@ impl Type {
 
     fn parse_base(t: &mut TokenStream) -> Result<Self, String> {
         Ok(match t.next() {
-            Some(Lexeme {
-                token: Token::Quote,
-            }) => Type::GenVar(t.ident()?),
-            Some(Lexeme {
-                token: Token::Ident(mut i),
-                ..
-            }) => {
+            Some(Token::Quote) => Type::GenVar(t.ident()?),
+            Some(Token::Ident(mut i), ..) => {
                 while t.consume(Token::Slash).is_some() {
                     i.push_str("/");
                     i.push_str(&t.ident()?);
@@ -484,32 +449,16 @@ impl Type {
 
                 Type::Ident(i)
             }
-            Some(Lexeme { token: Token::Bool }) => Self::Bool,
-            Some(Lexeme {
-                token: Token::U8, ..
-            }) => Self::U8,
-            Some(Lexeme {
-                token: Token::U16, ..
-            }) => Self::U16,
-            Some(Lexeme {
-                token: Token::U32, ..
-            }) => Self::U32,
-            Some(Lexeme {
-                token: Token::U64, ..
-            }) => Self::U64,
-            Some(Lexeme {
-                token: Token::I8, ..
-            }) => Self::I8,
-            Some(Lexeme {
-                token: Token::I16, ..
-            }) => Self::I16,
-            Some(Lexeme {
-                token: Token::I32, ..
-            }) => Self::I32,
-            Some(Lexeme {
-                token: Token::I64, ..
-            }) => Self::I64,
-            Some(a) => return Err(format!("Unexpected token in type: '{}'", a.token.name())),
+            Some(Token::Bool) => Self::Bool,
+            Some(Token::U8) => Self::U8,
+            Some(Token::U16) => Self::U16,
+            Some(Token::U32) => Self::U32,
+            Some(Token::U64) => Self::U64,
+            Some(Token::I8) => Self::I8,
+            Some(Token::I16) => Self::I16,
+            Some(Token::I32) => Self::I32,
+            Some(Token::I64) => Self::I64,
+            Some(a) => return Err(format!("Unexpected token in type: '{}'", a.name())),
             None => return Err(format!("Unexpected EOF in type")),
         })
     }
@@ -549,16 +498,19 @@ impl Expression {
     //      ifelse, letin, etc
     //    + anything that has an unambiguous delimiting tokens
     pub fn parse(t: &mut TokenStream) -> Result<Self, String> {
-        let and = Self::andexpr(t)?;
+        if t.consume(Token::LCurly).is_some() {
+            let mut es = vec![];
 
-        if let Some(()) = t.consume(Token::Or) {
-            let end = Self::orexpr(t)?;
-            Ok(Self::Call(
-                Box::new(Self::Identifier("or".into())),
-                Box::new(Self::Tuple(vec![and, end])),
-            ))
+            loop {
+                es.push(Self::parse(t)?);
+                if t.consume(Token::RCurly).is_some() {
+                    break;
+                }
+            }
+
+            Ok(Self::List(es))
         } else {
-            Ok(and)
+            Self::orexpr(t)
         }
     }
 
@@ -821,12 +773,10 @@ impl Expression {
         };
 
         match next {
-            Lexeme { token: Token::True } => Ok(Expression::True),
-            Lexeme {
-                token: Token::False,
-            } => Ok(Expression::False),
+            Token::True => Ok(Expression::True),
+            Token::False => Ok(Expression::False),
             // Let statement
-            Lexeme { token: Token::Let } => {
+            Token::Let => {
                 let pat = Pattern::parse(t)?;
 
                 t.assert(Token::Assign)?;
@@ -840,7 +790,7 @@ impl Expression {
                 Ok(Self::Let(pat, Box::new(e), Box::new(body)))
             }
             // If statement
-            Lexeme { token: Token::If } => {
+            Token::If => {
                 let cond = Self::parse(t)?;
 
                 t.assert(Token::Then)?;
@@ -854,9 +804,7 @@ impl Expression {
                 Ok(Self::If(Box::new(cond), Box::new(then), Box::new(else_)))
             }
             // Match statement
-            Lexeme {
-                token: Token::Match,
-            } => {
+            Token::Match => {
                 let match_ = Self::parse(t)?;
 
                 t.assert(Token::With)?;
@@ -880,20 +828,11 @@ impl Expression {
                 Ok(Self::Match(Box::new(match_), cases))
             }
             // String literal
-            Lexeme {
-                token: Token::String(s),
-                ..
-            } => Ok(Self::cons_from_str(&s)),
+            Token::String(s) => Ok(Self::cons_from_str(&s)),
             // Number literal
-            Lexeme {
-                token: Token::Num(n),
-                ..
-            } => Ok(Self::Num(n)),
+            Token::Num(n) => Ok(Self::Num(n)),
             // Identifier
-            Lexeme {
-                token: Token::Ident(mut i),
-                ..
-            } => {
+            Token::Ident(mut i) => {
                 // This is where we handle identifiers.
                 // It may be prefixed with a namespace delimited by slashes,
                 // then followed by at most one dot followed by an ident.
@@ -923,10 +862,7 @@ impl Expression {
                 }
             }
             // Tuple
-            Lexeme {
-                token: Token::LParen,
-                ..
-            } => {
+            Token::LParen => {
                 if let Some(()) = t.consume(Token::RParen) {
                     Ok(Self::Unit)
                 } else {
@@ -948,9 +884,7 @@ impl Expression {
                 }
             }
             // List
-            Lexeme {
-                token: Token::LBrace,
-            } => {
+            Token::LBrace => {
                 let mut es = Vec::new();
 
                 while !t.test(Token::RBrace) {
@@ -966,7 +900,7 @@ impl Expression {
             // otherwise error
             a => {
                 //panic!("PrimaryExpr: Expected identifier, constant, or expression, found: {:?}", a);
-                Err(format!("Expected expression, found '{}'", a.token.name()))
+                Err(format!("Expected expression, found '{}'", a.name()))
             }
         }
     }
@@ -1096,10 +1030,7 @@ impl Pattern {
         }
 
         match t.next() {
-            Some(Lexeme {
-                token: Token::LBrace,
-                ..
-            }) => {
+            Some(Token::LBrace) => {
                 t.assert(Token::RBrace)?;
                 Ok(Pattern::Cons(
                     "list.Nil".to_string(),
@@ -1107,28 +1038,15 @@ impl Pattern {
                     None,
                 ))
             }
-            Some(Lexeme {
-                token: Token::Num(n),
-                ..
-            }) => Ok(Pattern::Num(n as i64, Some(Type::I32))),
-            Some(Lexeme {
-                token: Token::String(s),
-                ..
-            }) => Ok(Pattern::cons_from_str(&s)),
-            Some(Lexeme { token: Token::True }) => Ok(Self::True),
-            Some(Lexeme {
-                token: Token::False,
-            }) => Ok(Self::False),
-            Some(Lexeme { token: Token::Sub }) => match t.next() {
-                Some(Lexeme {
-                    token: Token::Num(n),
-                }) => Ok(Pattern::Num(-(n as i64), None)),
+            Some(Token::Num(n)) => Ok(Pattern::Num(n as i64, Some(Type::I32))),
+            Some(Token::String(s)) => Ok(Pattern::cons_from_str(&s)),
+            Some(Token::True) => Ok(Self::True),
+            Some(Token::False) => Ok(Self::False),
+            Some(Token::Sub) => match t.next() {
+                Some(Token::Num(n)) => Ok(Pattern::Num(-(n as i64), None)),
                 _ => Err("expected number".to_string()),
             },
-            Some(Lexeme {
-                token: Token::Ident(mut i),
-                ..
-            }) => {
+            Some(Token::Ident(mut i)) => {
                 if i == "_" {
                     return Ok(Pattern::Any(None));
                 }
@@ -1164,7 +1082,7 @@ impl Pattern {
                     }
                 }
             }
-            a => panic!("unexpected token: {a:?} {:?} {:?}", t.next(), t.next()),
+            a => panic!("unexpected token: {a:?}"),
         }
     }
 }

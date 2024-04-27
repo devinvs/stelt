@@ -755,7 +755,6 @@ impl MIRExpression {
         imports: &mut Vec<String>,
     ) -> LIRExpression {
         match self {
-            Self::Unsafe(e, _) => e.lower(vars, global, externs, eq_impls, imports),
             Self::True => LIRExpression::True,
             Self::False => LIRExpression::False,
             Self::Call(f, args, t) => {
@@ -986,7 +985,6 @@ impl MIRExpression {
             Pattern::Var(x, _) => {
                 LIRExpression::Let1(x, Box::new(exp), Box::new(yes.clone()), yes.ty())
             }
-            Pattern::Unsafe(p, _) => Self::match_pattern_last(*p, exp, yes, ty, vars, eq_impls),
             Pattern::Tuple(ps, _) => {
                 // due to type checking this is already guaranteed to be a tuple, so instead we
                 // just verify/gen ir for the components
@@ -1046,9 +1044,6 @@ impl MIRExpression {
             }
             Pattern::True => LIRExpression::If(Box::new(exp), Box::new(yes), Box::new(no), ty),
             Pattern::False => LIRExpression::If(Box::new(exp), Box::new(no), Box::new(yes), ty),
-            Pattern::Unsafe(p, _) => {
-                Self::match_pattern(*p, exp, yes, no, ty, vars, eq_impls, imports)
-            }
             Pattern::Num(n, t) => {
                 // Find the name of the function who implements eq for this num type
                 let f = resolve_typefn(eq_impls, eq_type!(t.as_ref().unwrap())).unwrap();
