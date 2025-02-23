@@ -52,4 +52,4 @@ for f in os.listdir("./tests"):
     s += 1
     success(f"{f:15s}: comp={comp_end-comp_start:.4f}, run={run_end-run_start:.4f}")
 
-print("\n{s} / {n} tests succeeded")
+print(f"\x1b[1m{s} / {n} tests succeeded\x1b[0m")
