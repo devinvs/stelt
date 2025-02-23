@@ -44,7 +44,7 @@ pub struct LIRTree {
 }
 
 impl MIRTree {
-    pub fn lower(mut self, impl_map: &HashMap<String, Vec<(String, Type)>>) -> LIRTree {
+    pub fn lower(self, impl_map: &HashMap<String, Vec<(String, Type)>>) -> LIRTree {
         // get list of global names
         let mut globals = HashSet::new();
         globals.insert("arg.0".to_string());
@@ -153,15 +153,16 @@ impl MIRTree {
         }
 
         // Insert imported eq functions into typedecls as imports
-        for import in imports {
-            // find the type in the impl map
-            let t = impl_map["prelude/eq"]
-                .iter()
-                .find_map(|(n, t)| if *n == import { Some(t.clone()) } else { None })
-                .unwrap();
+        // don't remember why this was here, but I'm going to leave it for further review
+        // for import in imports {
+        // find the type in the impl map
+        // let t = impl_map["prelude/eq"]
+        // .iter()
+        // .find_map(|(n, t)| if *n == import { Some(t.clone()) } else { None })
+        // .unwrap();
 
-            self.typedecls.insert(import, (Vis::Import, t));
-        }
+        // self.typedecls.insert(import, (Vis::Import, t));
+        // }
 
         // add all types of functions that we know
         for (f, (vis, t)) in self.typedecls.iter() {

@@ -256,7 +256,9 @@ impl Module {
                 name = "main".to_string();
             }
 
-            let vis = if name == "main" || *vis == Vis::Public {
+            let vis = if name == "main" {
+                ""
+            } else if *vis == Vis::Public {
                 ""
             } else {
                 "private "

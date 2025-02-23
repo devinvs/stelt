@@ -3,6 +3,7 @@ import sys
 import json
 import os
 import subprocess
+import time
 
 def error(s):
     print("\x1b[31m" + s + "\x1b[0m")
@@ -10,10 +11,17 @@ def error(s):
 def success(s):
     print("\x1b[32m" + s + "\x1b[0m")
 
+os.system(f"cargo build --release")
+n = 0
+s = 0
 for f in os.listdir("./tests"):
-    if os.system(f"cargo run -q -- tests/{f}/main.st") != 0:
+    n += 1
+
+    comp_start = time.time()
+    if os.system(f"cargo run -q --release -- tests/{f}/main.st") != 0:
         error(f"{f} failed to compile")
         continue
+    comp_end = time.time()
 
     spec_file = open(f"tests/{f}/spec.json")
     spec = json.loads(spec_file.read())
@@ -28,7 +36,9 @@ for f in os.listdir("./tests"):
         spec["stdout"] = ""
 
     # launch the program, write to stdin, check against stdout, return code
+    run_start = time.time()
     p = subprocess.run(["./build/main"], capture_output=True, input=spec["stdin"])
+    run_end = time.time()
 
     if p.returncode != spec["code"]:
         error(f"{f} failed: got retcode {p.returncode} expected {spec["code"]}")
@@ -39,5 +49,7 @@ for f in os.listdir("./tests"):
         error(f"{f} failed: got stdout {stdout} expected {spec["stdout"]}")
         continue
 
-    success(f"{f} succeeded")
+    s += 1
+    success(f"{f:15s}: comp={comp_end-comp_start:.4f}, run={run_end-run_start:.4f}")
 
+print("\n{s} / {n} tests succeeded")

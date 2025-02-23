@@ -33,13 +33,11 @@ fn main() {
     let outdir = cli.outdir.unwrap_or(PathBuf::from("./build"));
     let outf = outdir.join(path.file_stem().unwrap());
 
-    let objs = compile(path, outdir.clone())
-        .into_iter()
-        .map(|p| optimize(p, 3))
-        .map(|p| assemble(p, 3))
-        .collect();
-
-    link(objs, outf);
+    let objs = compile(path, outdir.clone());
+    let bc = llvmlink(objs);
+    let opt = optimize(bc, 3);
+    let obj = assemble(opt, 3);
+    let _bin = link(vec![obj], outf);
 }
 
 fn parse(path: &Path) -> Program {
@@ -129,8 +127,6 @@ fn compile(path: PathBuf, outdir: PathBuf) -> Vec<PathBuf> {
         modules_mir.insert(name, tree);
     }
 
-    eprintln!("{:?}", modules_mir["main"].typedecls.keys());
-
     let mut artifacts = vec![];
 
     // Now compile :)
@@ -167,7 +163,7 @@ fn compile(path: PathBuf, outdir: PathBuf) -> Vec<PathBuf> {
 }
 
 fn optimize(p: PathBuf, level: u8) -> PathBuf {
-    let out_p = p.with_extension("bc");
+    let out_p = PathBuf::from("./build/out.opt.bc");
 
     let fin = p.to_str().unwrap();
     let fout = out_p.to_str().unwrap();
@@ -204,47 +200,70 @@ fn assemble(p: PathBuf, level: u8) -> PathBuf {
     out_p
 }
 
+fn llvmlink(objs: Vec<PathBuf>) -> PathBuf {
+    let outp = PathBuf::from("./build/out.all.bc");
+    let fout = outp.to_str().unwrap();
+    let stat = Command::new("llvm-link")
+        .args(["-o", fout])
+        .args(objs)
+        .status()
+        .unwrap();
+
+    if !stat.success() {
+        eprintln!("llvm-link failed with exit code: {stat}");
+        std::process::exit(1);
+    }
+
+    outp
+}
+
 fn link(objs: Vec<PathBuf>, outp: PathBuf) {
     let fout = outp.to_str().unwrap();
 
     // what a massive compromise, i need to look into linkers and how to properly exit
     // without all this libc garbage. maybe rust or zig does something interesting
-    let stat = Command::new("mold")
-        .args([
-            "--hash-style=gnu",
-            "--build-id",
-            "--eh-frame-hdr",
-            "-m",
-            "elf_x86_64",
-            "-pie",
-            "-dynamic-linker",
-            "/lib64/ld-linux-x86-64.so.2",
-        ])
-        .args(["-o", fout])
-        .args([
-            "/usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/14.2.1/../../../../lib64/Scrt1.o",
-            "/usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/14.2.1/../../../../lib64/crti.o",
-            "/usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/14.2.1/crtbeginS.o",
-            "-L/usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/14.2.1",
-            "-L/usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/14.2.1/../../../../lib64",
-            "-L/lib/../lib64 -L/usr/lib/../lib64",
-            "-L/lib",
-            "-L/usr/lib",
-        ])
+    // let stat = Command::new("mold")
+    //     .args([
+    //         "--hash-style=gnu",
+    //         "--build-id",
+    //         "--eh-frame-hdr",
+    //         "-m",
+    //         "elf_x86_64",
+    //         "-pie",
+    //         "-dynamic-linker",
+    //         "/lib64/ld-linux-x86-64.so.2",
+    //     ])
+    //     .args(["-o", fout])
+    //     .args([
+    //         "/usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/14.2.1/../../../../lib64/Scrt1.o",
+    //         "/usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/14.2.1/../../../../lib64/crti.o",
+    //         "/usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/14.2.1/crtbeginS.o",
+    //         "-L/usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/14.2.1",
+    //         "-L/usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/14.2.1/../../../../lib64",
+    //         "-L/lib/../lib64 -L/usr/lib/../lib64",
+    //         "-L/lib",
+    //         "-L/usr/lib",
+    //     ])
+    //     .args(objs)
+    //     .args([
+    //         "-lgcc",
+    //         "--as-needed",
+    //         "-lgcc_s",
+    //         "--no-as-needed",
+    //         "-lc",
+    //         "-lgcc",
+    //         "--as-needed",
+    //         "-lgcc_s",
+    //         "--no-as-needed",
+    //         "/usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/14.2.1/crtendS.o",
+    //         "/usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/14.2.1/../../../../lib64/crtn.o",
+    //     ])
+    //     .status()
+    //     .unwrap();
+
+    let stat = Command::new("clang")
+        .args(["-flto", "-o", fout])
         .args(objs)
-        .args([
-            "-lgcc",
-            "--as-needed",
-            "-lgcc_s",
-            "--no-as-needed",
-            "-lc",
-            "-lgcc",
-            "--as-needed",
-            "-lgcc_s",
-            "--no-as-needed",
-            "/usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/14.2.1/crtendS.o",
-            "/usr/bin/../lib64/gcc/x86_64-pc-linux-gnu/14.2.1/../../../../lib64/crtn.o",
-        ])
         .status()
         .unwrap();
 

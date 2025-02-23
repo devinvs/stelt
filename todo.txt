@@ -1,3 +1,8 @@
+theres a bug with i8 sized types:
+type a = P | Q
+
+which causes them to be sized 2xi8
+
  - unsafe
     + allow types and constructors to be annotated with unsasfe
     + all expression that use them must be prefixed with unsafe

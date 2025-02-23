@@ -252,7 +252,15 @@ impl MIRTree {
                     .1
                     .clone();
 
-                concrete_decls.insert(import, (Vis::Import, imp));
+                let vis = if concrete_decls.contains_key(&import)
+                    || generic_decls.contains_key(&import)
+                {
+                    Vis::Public
+                } else {
+                    Vis::Import
+                };
+
+                concrete_decls.insert(import, (vis, imp));
             }
 
             // extract generic calls, getting a new body and a list of those calls

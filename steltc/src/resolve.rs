@@ -336,6 +336,7 @@ impl ParseTree {
             ..
         } in self.impls.clone().into_iter()
         {
+            // eprintln!("{new_name:?}");
             // an impl is compiled in the module it is defined in. So, its namespace is the module
             // who created it, not the module of the typefunction
             let ns = new_name.rsplit_once("/").unwrap().0;
@@ -683,6 +684,7 @@ impl Impl {
         external: &HashSet<String>,
     ) {
         // Every impl gets a unique global name based on their typefunction name.
+        // eprintln!("{me} {} {:?}", self.fn_name, aliases);
         let name = aliases.get(&self.fn_name).unwrap_or(&self.fn_name);
         self.fn_name = crate::gen_var(&if typefuns.contains(name) {
             format!("{me}/{}$", name)
