@@ -2,14 +2,16 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::LinkedList as List;
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Vis {
     Public,
     Private,
     Import,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParseTree {
     pub types: HashMap<String, (Vis, DataDecl)>,
 
@@ -31,14 +33,14 @@ pub struct ParseTree {
     pub import_idents: HashSet<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TypeFun {
     pub name: String,
     pub vars: Vec<String>,
     pub ty: Type,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Impl {
     pub fn_name: String,
     pub gen_args: Vec<String>,
@@ -46,7 +48,7 @@ pub struct Impl {
     pub body: Vec<FunctionDef>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 /// A data decl is the declaration of either a product type or a sum type.
 /// A product type is a list of ident type pairs, a sum type is a list of type
 /// constructors. Both have generic type args
@@ -68,20 +70,20 @@ impl DataDecl {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 /// A constructor for a single variant of a sum type
 pub struct TypeCons {
     pub name: String,
     pub args: Type,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize)]
 pub struct Constraint(pub String, pub Vec<Type>);
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize)]
 pub struct QualType(pub Vec<Constraint>, pub Type);
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize)]
 pub enum Type {
     ForAll(Vec<String>, Vec<crate::mir::Constraint>, Box<Type>),
     Generic(Vec<Type>, Box<Type>),
@@ -191,14 +193,14 @@ impl Type {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunctionDef {
     pub name: String,
     pub args: Pattern,
     pub body: Expression,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub enum Expression {
     /// An identifier that we can evaluate.
     /// usually a variable that was defined previously
@@ -228,16 +230,18 @@ pub enum Expression {
 
     // Constant Fields
     Num(u64), // A Number Literal
+    String(String),
     Unit,
     True,
     False,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub enum Pattern {
     Unit(Option<Type>),
 
     Num(i64, Option<Type>),
+    String(String, Option<Type>),
     True,
     False,
 
@@ -281,6 +285,7 @@ impl Pattern {
             Pattern::Num(_, t) => t,
             Pattern::Tuple(_, t) => t,
             Pattern::Cons(_, _, t) => t,
+            Pattern::String(_, t) => t,
         }
         .clone()
         .unwrap()
@@ -295,6 +300,7 @@ impl Pattern {
             Pattern::Num(_, t) => *t = Some(ty),
             Pattern::Tuple(_, t) => *t = Some(ty),
             Pattern::Cons(_, _, t) => *t = Some(ty),
+            Pattern::String(_, t) => *t = Some(ty),
         }
     }
 }

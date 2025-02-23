@@ -2,7 +2,7 @@ extern type getchar: () -> u32
 
 // a node in the ast is either an atom containing a string
 // or a list containing a list of nodes
-type ast = Atom(list<char>) | List(list<ast>)
+type ast = Atom([char]) | List([ast])
 
 // Since we check equality for the following types we need
 // to implement the eq function for each of them.
@@ -10,7 +10,7 @@ type ast = Atom(list<char>) | List(list<ast>)
 // or have a derive keyword such as haskell or rust
 
 // implement equals for a list of number
-impl eq(list<char>)
+impl eq([char])
 eq([], []) = True
 eq([], bs) = False
 eq(as, []) = False
@@ -22,15 +22,15 @@ eq(Atom(x), Atom(y)) = x==y
 eq(List(xs), List(ys)) = xs==ys
 eq(_, _) = False
 
-// implement equals for list<ast>
-impl eq(list<ast>)
+// implement equals for [ast]
+impl eq([ast])
 eq([], []) = True
 eq(x::xs, y::ys) = x==y && xs==ys
 eq(_, _) = False
 
 // read a string from stding using getchar()
 // stop at newline or EOF
-type read_string: () -> list<char>
+type read_string: () -> [char]
 read_string() = {
 	let x = getchar() in
 	if x == -1 || x == 10 then
@@ -44,7 +44,7 @@ read_string() = {
 // this is just a wrapper around our helper function since
 // for the first parse call we don't care about how many
 // tokens are left (for now at least)
-type parse: list<char> -> ast
+type parse: [char] -> ast
 parse(input) = let (ast, _) = parse_h(input) in ast
 
 // Parse the tree and return the ast and the remaining tokens
@@ -52,7 +52,7 @@ parse(input) = let (ast, _) = parse_h(input) in ast
 // - ( goes to parse a list
 // - ' executes the quote macro
 // - else just parse as an atom
-type parse_h: list<char> -> (ast, list<char>)
+type parse_h: [char] -> (ast, [char])
 parse_h(Char(40)::xs) =  let (asts, input) = parse_list(xs) in (List(asts), input)
 parse_h(Char(39)::xs) = 
 	let (rest, xs) = parse_h(xs) in
@@ -61,7 +61,7 @@ parse_h(xs) = let (atom, input) = parse_atom(xs) in (Atom(atom), input)
 
 // Parse a list of tokens stopping at ) and skipping whitespace
 // ( has already been popped so we just parse until )
-type parse_list: list<char> -> (list<ast>, list<char>)
+type parse_list: [char] -> ([ast], [char])
 parse_list(Char(41)::xs) = ([], xs) 			// stop at )
 parse_list(Char(32)::xs) = parse_list(xs) 	// skip spaces
 parse_list(Char(10)::xs) = parse_list(xs)		// skip newlines
@@ -71,7 +71,7 @@ parse_list(xs) =    					// continuously parse atoms
 	(first::rest, xs)
 
 // Parse an atom
-type parse_atom: list<char> -> (list<char>, list<char>)
+type parse_atom: [char] -> ([char], [char])
 parse_atom([]) = ([], [])
 parse_atom(Char(x)::xs) = {
 	if x!=40 && x!=41 && x>=33 && x<=126 then
@@ -91,7 +91,7 @@ print_tree(List(xs)) = {
 }
 
 // print out list of asts separated by spaces
-type print_list: list<ast> -> ()
+type print_list: [ast] -> ()
 print_list(Nil) = ()
 print_list(x::xs) = {
 	print_tree(x)
@@ -103,7 +103,7 @@ print_list(x::xs) = {
 // Paul Graham's "roots of lisp" I would highly recommend you do so
 
 // find an identifier in the environment and return its corresponding expression
-type lookup: (list<(list<char>, ast)>, list<char>) -> ast
+type lookup: ([]([]har], ast)>, [char]) -> ast
 lookup([], s) = Atom(s)
 lookup((key, val)::rest, test) =
 	if key==test then val else lookup(rest, test)
@@ -122,7 +122,7 @@ lookup((key, val)::rest, test) =
 //
 // additionally we implement a macro type thing:
 // (defun name args body) -> (label name (lambda args body))
-type eval: (ast, list<(list<char>, ast)>) -> (ast, list<(list<char>, ast)>)
+type eval: (ast, []([]har], ast)>) -> (ast, []([]har], ast)>)
 // an atom is replaced by a lookup in the env
 eval(Atom(e), env) = (lookup(env, e), env)
 // quote just returns the ast verbatim
@@ -197,7 +197,7 @@ eval(List(f::rest), env) =
 	
 
 // evaulate each val and insert into the env
-type evlist: (list<ast>, list<ast>, list<(list<char>, ast)>) -> list<(list<char>, ast)>
+type evlist: ([ast], [ast], []([]har], ast)>) -> []([]har], ast)>
 evlist([], _, env) = env
 evlist(Atom(name)::args, val::vals, env) =
 	let (val, env) = eval(val, env) in
@@ -207,9 +207,9 @@ evlist(Atom(name)::args, val::vals, env) =
 // no base case for now since thats just an error and I don't want to
 // bother rewriting everything to catch errors just yet, at least
 // not until I have newtypes/type aliases figured out...
-// I mean look at the type signatures, all these list<(list<i32>, ast)>
-// should at minimum be list<(str, ast)>, or even better just env
-type eval_cond: (list<ast>, list<(list<char>, ast)>) -> (ast, list<(list<char>, ast)>)
+// I mean look at the type signatures, all these []([]32], ast)>
+// should at minimum be [](]tr, ast)>, or even better just env
+type eval_cond: ([ast], []([]har], ast)>) -> (ast, []([]har], ast)>)
 eval_cond(List(cond::expr::_)::rest, env) =
 	let (cond, env) = eval(cond, env) in
 	if cond == Atom("t") then
@@ -219,7 +219,7 @@ eval_cond(List(cond::expr::_)::rest, env) =
 
 
 // print out the environment, useful for debugging
-type print_env: list<(list<char>, ast)> -> ()
+type print_env: []([]har], ast)> -> ()
 print_env([]) = print("end")
 print_env((name, expr)::xs) = {
 	print(name)
@@ -230,7 +230,7 @@ print_env((name, expr)::xs) = {
 
 
 // read, evaluate, print, loop
-type repl: (list<(list<char>, ast)>) -> ()
+type repl: ([]([]har], ast)>) -> ()
 repl(env) = {
 	print("lisp > ")
 	let input = read_string() in
@@ -245,5 +245,4 @@ repl(env) = {
 }
 
 type main: () -> ()
-main() =
-	repl([])	// start with an empty environment
+main() = repl([])	// start with an empty environment

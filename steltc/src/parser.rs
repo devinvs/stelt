@@ -17,7 +17,7 @@ lazy_static! {
     static ref PRELUDE: ParseTree = {
         let s = include_str!("./prelude.st");
         let mut l = Lexer::default();
-        let mut tokens = l.lex(s).unwrap();
+        let mut tokens = l.lex(&s).unwrap();
 
         let me = ParseTree {
             types: HashMap::new(),
@@ -210,6 +210,13 @@ impl ParseTree {
                 Some(a) => return Err(format!("Unexpected token in declaration: '{:#?}'", a)),
                 None => break,
             }
+
+            // every single item must be followed by a newline
+            t.nl_aware();
+            if t.consume(Token::NL).is_none() {
+                break; // TODO: maybe panic here, idk
+            }
+            t.nl_ignore();
         }
 
         Ok(me)
@@ -304,7 +311,7 @@ impl FunctionDef {
 }
 
 impl QualType {
-    // a ForAll Type looks like a list of constraints,
+    // a QualType looks like a list of constraints,
     // an arrow, and then a type. We have to test to see
     // if we are parsing type constraints before we can
     // really know what we are parsing.
@@ -458,6 +465,7 @@ impl Type {
             Some(Token::I16) => Self::I16,
             Some(Token::I32) => Self::I32,
             Some(Token::I64) => Self::I64,
+            Some(Token::Str) => Self::Str,
             Some(a) => return Err(format!("Unexpected token in type: '{}'", a.name())),
             None => return Err(format!("Unexpected EOF in type")),
         })
@@ -506,6 +514,12 @@ impl Expression {
                 if t.consume(Token::RCurly).is_some() {
                     break;
                 }
+
+                // every expression should be followed by a newline if
+                // not the curly brace
+                t.nl_aware();
+                t.assert(Token::NL)?;
+                t.nl_ignore();
             }
 
             Ok(Self::List(es))
@@ -678,7 +692,10 @@ impl Expression {
     }
 
     fn postfix_post(t: &mut TokenStream, primary: Expression) -> Result<Self, String> {
+        t.nl_aware();
+
         let pfix = if t.consume(Token::LParen).is_some() {
+            t.nl_ignore();
             // parse a call with a tuple
             let tup = if let Some(()) = t.consume(Token::RParen) {
                 Self::Unit
@@ -701,66 +718,47 @@ impl Expression {
             };
 
             Self::Call(Box::new(primary), Box::new(tup))
-        } else if t.consume(Token::Concat).is_some() {
-            // parse a concat expression
-            let end = Self::parse(t)?;
-            Self::Call(
-                Box::new(Self::Identifier("list.Cons".into())),
-                Box::new(Self::Tuple(vec![primary, end])),
-            )
-        } else if t.consume(Token::Dot).is_some() {
-            let func = Expression::Identifier(t.ident()?);
+        } else {
+            t.nl_ignore();
+            if t.consume(Token::Concat).is_some() {
+                // parse a concat expression
+                let end = Self::parse(t)?;
+                Self::Call(
+                    Box::new(Self::Identifier("list.Cons".into())),
+                    Box::new(Self::Tuple(vec![primary, end])),
+                )
+            } else if t.consume(Token::Dot).is_some() {
+                let func = Expression::Identifier(t.ident()?);
 
-            let mut es = vec![];
-            t.assert(Token::LParen)?;
+                let mut es = vec![];
+                t.assert(Token::LParen)?;
 
-            while !t.test(Token::RParen) {
-                es.push(Expression::parse(t)?);
-                if t.consume(Token::Comma).is_none() {
-                    break;
-                }
-            }
-            t.assert(Token::RParen)?;
-
-            let args = match es.len() {
-                0 => primary,
-                _ => {
-                    es.insert(0, primary);
-                    Expression::Tuple(es)
-                }
-            };
-
-            Expression::Call(Box::new(func), Box::new(args))
-        } else if t.consume(Token::FatArrow).is_some() {
-            // Fancy call with primary as first arg.
-
-            // must be followed by an identifer and then some args
-            let f = t.ident()?;
-
-            // Get args in tuple
-            let mut args = vec![primary];
-
-            t.assert(Token::LParen)?;
-            if let Some(()) = t.consume(Token::RParen) {
-            } else {
-                args.push(Self::parse(t)?);
-                while t.consume(Token::Comma).is_some() {
-                    args.push(Self::parse(t)?);
+                while !t.test(Token::RParen) {
+                    es.push(Expression::parse(t)?);
+                    if t.consume(Token::Comma).is_none() {
+                        break;
+                    }
                 }
                 t.assert(Token::RParen)?;
+
+                let args = match es.len() {
+                    0 => primary,
+                    _ => {
+                        es.insert(0, primary);
+                        Expression::Tuple(es)
+                    }
+                };
+
+                Expression::Call(Box::new(func), Box::new(args))
+            } else if t.consume(Token::Arrow).is_some() {
+                // parse lambda expression
+                let pat = primary.to_lambda_pattern();
+                let end = Self::parse(t)?;
+
+                Self::Lambda(pat, Box::new(end))
+            } else {
+                return Ok(primary);
             }
-
-            let args = Self::Tuple(args);
-
-            Self::Call(Box::new(Self::Identifier(f)), Box::new(args))
-        } else if t.consume(Token::Arrow).is_some() {
-            // parse lambda expression
-            let pat = primary.to_lambda_pattern();
-            let end = Self::parse(t)?;
-
-            Self::Lambda(pat, Box::new(end))
-        } else {
-            return Ok(primary);
         };
 
         Self::postfix_post(t, pfix)
@@ -828,7 +826,7 @@ impl Expression {
                 Ok(Self::Match(Box::new(match_), cases))
             }
             // String literal
-            Token::String(s) => Ok(Self::cons_from_str(&s)),
+            Token::String(s) => Ok(Self::String(s)),
             // Number literal
             Token::Num(n) => Ok(Self::Num(n)),
             // Identifier
@@ -905,22 +903,6 @@ impl Expression {
         }
     }
 
-    pub fn cons_from_str(s: &str) -> Self {
-        let nums = s
-            .chars()
-            .map(|c| c as u64)
-            .map(|i| Self::Num(i))
-            .map(|i| {
-                Self::Call(
-                    Box::new(Self::Identifier("char.Char".to_string())),
-                    Box::new(i),
-                )
-            })
-            .collect::<Vec<_>>();
-
-        Self::cons_from_es(&nums)
-    }
-
     pub fn cons_from_es(es: &[Self]) -> Self {
         if es.is_empty() {
             return Self::Call(
@@ -958,16 +940,6 @@ impl Expression {
 }
 
 impl Pattern {
-    pub fn cons_from_str(s: &str) -> Self {
-        let nums = s
-            .chars()
-            .map(|c| c as u64)
-            .map(|i| Self::Num(i as i64, None))
-            .collect::<Vec<_>>();
-
-        Self::cons_from_es(&nums)
-    }
-
     pub fn cons_from_es(es: &[Self]) -> Self {
         if es.is_empty() {
             return Self::Cons("list.Nil".to_string(), Box::new(Self::Unit(None)), None);
@@ -1039,7 +1011,7 @@ impl Pattern {
                 ))
             }
             Some(Token::Num(n)) => Ok(Pattern::Num(n as i64, Some(Type::I32))),
-            Some(Token::String(s)) => Ok(Pattern::cons_from_str(&s)),
+            Some(Token::String(s)) => Ok(Pattern::String(s, Some(Type::Str))),
             Some(Token::True) => Ok(Self::True),
             Some(Token::False) => Ok(Self::False),
             Some(Token::Sub) => match t.next() {

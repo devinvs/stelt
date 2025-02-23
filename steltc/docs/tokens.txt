@@ -1,0 +1,65 @@
+# tokens basically mean words which have to be separated by whitespace or separators
+tokens:
+	import
+	from
+	as
+	alias
+	pub
+	extern
+	type
+	typefn
+	impl
+	for
+	let
+	in
+	if
+	then
+	else
+	match
+	with
+	where
+	True
+	False
+	u8
+	u16
+	u32
+	u64
+	i8
+	i16
+	i32
+	i64
+	bool
+
+# separators 
+separators:
+	+
+	-
+	*
+	/
+	%
+	**
+	=
+	==
+	!=
+	=>
+	->
+	::
+	|
+	or
+	and
+	not
+	.
+	(
+	)
+	[
+	]
+	{
+	}
+	<
+	>
+	,
+	:
+	'
+
+# we also have strings delimited by " as well as numbers, but those are
+# pretty much how you would expect them to be lexed

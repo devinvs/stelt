@@ -262,6 +262,7 @@ impl ParseTree {
     // Impls are handled globally, so, no need to worry about it, only
     //    need to resolve the body with non-impl calls
     //    (I'm sure this won't come back to haunt me)
+    //    update: it has
     pub fn resolve(&mut self, me: &str, mods: &HashMap<String, Module>) {
         // Get the names of types from other modules used in our types
         let mut imported_data = VecDeque::new();
@@ -355,10 +356,13 @@ impl ParseTree {
             let ty = crate::mir::typefn_type(TypeFun {
                 name: name.clone(),
                 ty: ty.clone(),
-                vars: vec![],
+                vars,
             });
 
-            let real_type = ty.replace_all(&subs);
+            let real_type = match ty.replace_all(&subs) {
+                Type::ForAll(_, _, ty) => *ty,
+                _ => panic!("typefun conversion failed"),
+            };
 
             self.typedecls.insert(
                 new_name.clone(),
@@ -407,7 +411,6 @@ impl ParseTree {
             } else if let Some(tfun) = modu.pub_typefn.get(&name) {
                 self.typefuns.insert(name, (Vis::Import, tfun.clone()));
             } else if let Some((ty, body)) = modu.pub_gens.get(&name) {
-                eprintln!("resolve generic {name}");
                 if !self.typedecls.contains_key(&name) {
                     self.typedecls
                         .insert(name.clone(), (Vis::Private, ty.clone()));
@@ -544,7 +547,7 @@ impl Type {
                     }
                 }
             }
-            Type::ForAll(_, _, _) => panic!(),
+            Type::ForAll(_, _, _) => panic!("{self:?}"),
             Type::Generic(ts, t) => {
                 ts.iter_mut().for_each(|t| t.resolve(mods));
                 t.resolve(mods);

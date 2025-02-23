@@ -1,0 +1,3 @@
+quick idea: we can mutable static objects if we use a pub/sub architecture...
+
+(scary action at a distance, probably bad idea)

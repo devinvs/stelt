@@ -1,0 +1,7 @@
+fac(n) = 1            if n is 0
+		 n * fac(n-1) otherwise
+
+fac(0) = 1
+fac(n) = n * fac(n-1)
+
+-- fac(x) = 25

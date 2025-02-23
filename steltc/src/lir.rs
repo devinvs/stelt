@@ -21,72 +21,6 @@ macro_rules! eq_type {
     };
 }
 
-impl LIRExpression {
-    fn str_from_cons(expr: &LIRExpression) -> String {
-        match expr {
-            LIRExpression::GlobalCall(f, args, _) => {
-                let f = f.rsplit_once(".").unwrap().1;
-                if f.starts_with("Cons") {
-                    match *args.clone() {
-                        LIRExpression::Tuple(es, _) => {
-                            let c = match es[0].clone() {
-                                LIRExpression::GlobalCall(_, arg, _) => match *arg {
-                                    LIRExpression::Num(n, _) => char::from_u32(n as u32).unwrap(),
-                                    _ => panic!(),
-                                },
-                                a => panic!("{a:?}"),
-                            };
-                            let mut s = String::new();
-                            s.push(c);
-
-                            s.push_str(&LIRExpression::str_from_cons(&es[1]));
-                            s
-                        }
-                        _ => panic!(),
-                    }
-                } else if f.starts_with("Nil") {
-                    "".to_string()
-                } else {
-                    panic!("{f}")
-                }
-            }
-            LIRExpression::Call(f, args, _) => {
-                let f = match &**f {
-                    LIRExpression::Identifier(s, _) => s,
-                    _ => panic!(),
-                };
-
-                let f = f.rsplit_once(".").unwrap().1;
-
-                if f.starts_with("Cons") {
-                    match *args.clone() {
-                        LIRExpression::Tuple(es, _) => {
-                            let c = match es[0].clone() {
-                                LIRExpression::GlobalCall(_, arg, _) => match *arg {
-                                    LIRExpression::Num(n, _) => char::from_u32(n as u32).unwrap(),
-                                    _ => panic!(),
-                                },
-                                a => panic!("{a:?}"),
-                            };
-                            let mut s = String::new();
-                            s.push(c);
-
-                            s.push_str(&LIRExpression::str_from_cons(&es[1]));
-                            s
-                        }
-                        _ => panic!(),
-                    }
-                } else if f.starts_with("Nil") {
-                    "".to_string()
-                } else {
-                    panic!()
-                }
-            }
-            a => panic!("found {a:?}"),
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct LIRTree {
     /// Set of external function names
@@ -317,6 +251,7 @@ pub enum LIRExpression {
     Str(String),        // A String Literal, stores index into constant string array
     Unit,
     Tuple(Vec<LIRExpression>, LLVMType),
+    List(Vec<LIRExpression>, LLVMType),
     True,
     False,
 
@@ -347,6 +282,14 @@ impl LIRExpression {
                 }
             }
             Self::Tuple(es, _) => {
+                let mut free = vec![];
+                for e in es {
+                    free.extend(e.free_non_globals(vars))
+                }
+
+                free
+            }
+            Self::List(es, _) => {
                 let mut free = vec![];
                 for e in es {
                     free.extend(e.free_non_globals(vars))
@@ -704,6 +647,7 @@ impl LIRExpression {
             Self::Unbox(_, t) => t.clone(),
             Self::LLVM(_, _, t) => t.clone(),
             Self::NullClosure(_, t) => t.clone(),
+            Self::List(_, t) => t.clone(),
         }
     }
 
@@ -766,16 +710,16 @@ impl MIRExpression {
                     // for the expression
                     if n.starts_with("llvm!") {
                         match args {
-                            LIRExpression::Tuple(es, _) => {
-                                let out = LIRExpression::str_from_cons(&es[0]);
-                                let body = LIRExpression::str_from_cons(&es[1]);
-
-                                return LIRExpression::LLVM(
-                                    out.to_string(),
-                                    body.to_string(),
-                                    LLVMType::from_type(t.unwrap()),
-                                );
-                            }
+                            LIRExpression::Tuple(es, _) => match (es[0].clone(), es[1].clone()) {
+                                (LIRExpression::Str(out), LIRExpression::Str(body)) => {
+                                    return LIRExpression::LLVM(
+                                        out,
+                                        body,
+                                        LLVMType::from_type(t.unwrap()),
+                                    );
+                                }
+                                _ => panic!(),
+                            },
                             _ => panic!(),
                         }
                     }
@@ -902,7 +846,14 @@ impl MIRExpression {
                 }
             }
             Self::Num(n, t) => LIRExpression::Num(n as i64, LLVMType::from_type(t.unwrap())),
+            Self::String(s, _) => LIRExpression::Str(s),
             Self::Tuple(es, t) => LIRExpression::Tuple(
+                es.into_iter()
+                    .map(|e| e.lower(vars, global, externs, eq_impls, imports))
+                    .collect(),
+                LLVMType::from_type(t.unwrap()),
+            ),
+            Self::List(es, t) => LIRExpression::List(
                 es.into_iter()
                     .map(|e| e.lower(vars, global, externs, eq_impls, imports))
                     .collect(),
@@ -981,7 +932,11 @@ impl MIRExpression {
         eq_impls: &Vec<(String, Type)>,
     ) -> LIRExpression {
         match pat {
-            Pattern::Num(..) | Pattern::Unit(_) | Pattern::True | Pattern::False => yes,
+            Pattern::Num(..)
+            | Pattern::Unit(_)
+            | Pattern::True
+            | Pattern::False
+            | Pattern::String(..) => yes,
             Pattern::Var(x, _) => {
                 LIRExpression::Let1(x, Box::new(exp), Box::new(yes.clone()), yes.ty())
             }
@@ -1069,6 +1024,8 @@ impl MIRExpression {
                     ty,
                 )
             }
+            // TODO: fix string pattern matching
+            Pattern::String(_, _) => todo!(),
             Pattern::Var(x, _) => {
                 LIRExpression::Let1(x, Box::new(exp), Box::new(yes.clone()), yes.ty())
             }

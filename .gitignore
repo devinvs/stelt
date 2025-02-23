@@ -2,3 +2,9 @@
 *.ll
 *.o
 out
+tree-sitter-stelt/.editorconfig
+tree-sitter-stelt/Makefile
+tree-sitter-stelt/Package.swift
+tree-sitter-stelt/pyproject.toml
+tree-sitter-stelt/setup.py
+tree-sitter-stelt/stelt.so

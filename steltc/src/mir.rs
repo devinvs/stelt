@@ -12,7 +12,9 @@ use crate::parse_tree;
 
 type Theta = HashMap<Type, Type>;
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Constraint(pub String, pub Type);
 
 // Transform a parse tree constraint to a mir constraint
@@ -45,7 +47,8 @@ pub fn typefn_type(tf: parse_tree::TypeFun) -> Type {
     let t = tf.ty.replace_all(&subs);
     let cons = vec![Constraint(tf.name.clone(), t.clone())];
 
-    Type::ForAll(tf.vars, cons, Box::new(t))
+    let out = Type::ForAll(tf.vars, cons, Box::new(t));
+    out
 }
 
 #[derive(Debug)]
@@ -270,7 +273,6 @@ impl MIRTree {
                     // add to concrete_decls ig, ughh
                     concrete_decls.insert(n_prime.clone(), (Vis::Private, t.clone()));
 
-                    eprintln!("w {n}");
                     let oldty = generic_decls[&n].clone();
                     let subs = oldty.get_generic_subs(&t);
 
@@ -393,6 +395,9 @@ pub enum MIRExpression {
     /// usually a variable that was defined previously
     Identifier(String, Option<Type>),
 
+    /// A list of expressions
+    List(Vec<MIRExpression>, Option<Type>),
+
     /// A tuple of expressions
     Tuple(Vec<MIRExpression>, Option<Type>),
 
@@ -412,6 +417,7 @@ pub enum MIRExpression {
 
     // Constant Fields
     Num(u64, Option<Type>), // A Number Literal
+    String(String, Option<Type>),
     Unit(Option<Type>),
     True,
     False,
@@ -427,6 +433,7 @@ impl MIRExpression {
             MIRExpression::Identifier(n, _) => MIRExpression::Identifier(n, Some(t)),
             MIRExpression::Unit(_) => MIRExpression::Unit(Some(t)),
             MIRExpression::Num(n, _) => MIRExpression::Num(n, Some(t)),
+            MIRExpression::String(s, _) => MIRExpression::String(s, Some(t)),
             MIRExpression::Call(m, n, _) => MIRExpression::Call(
                 Box::new(m.sub_types(subs)),
                 Box::new(n.sub_types(subs)),
@@ -445,15 +452,24 @@ impl MIRExpression {
             MIRExpression::Tuple(es, _) => {
                 MIRExpression::Tuple(es.into_iter().map(|e| e.sub_types(subs)).collect(), Some(t))
             }
+            MIRExpression::List(es, _) => {
+                MIRExpression::List(es.into_iter().map(|e| e.sub_types(subs)).collect(), Some(t))
+            }
         }
     }
 
     fn from(tree: Expression, cons: &HashMap<String, Type>) -> Self {
         match tree {
-            Expression::List(..) => todo!(),
+            Expression::List(es) => Self::List(
+                es.into_iter()
+                    .map(|e| MIRExpression::from(e, cons))
+                    .collect(),
+                None,
+            ),
             Expression::True => Self::True,
             Expression::False => Self::False,
             Expression::Num(n) => Self::Num(n, None),
+            Expression::String(s) => Self::String(s, Some(Type::Str)),
             Expression::Unit => Self::Unit(Some(Type::Unit)),
             Expression::Identifier(i) => Self::Identifier(i, None),
             Expression::Tuple(es) => Self::Tuple(
@@ -591,9 +607,11 @@ impl MIRExpression {
             Self::Num(_, t) => t,
             Self::Unit(t) => t,
             Self::Tuple(_, t) => t,
+            Self::List(_, t) => t,
             Self::Match(_, _, t) => t,
             Self::Call(_, _, t) => t,
             Self::Lambda1(_, _, t) => t,
+            Self::String(_, t) => t,
         }
         .clone()
         .expect(&format!("{:?}", self))
@@ -605,11 +623,13 @@ impl MIRExpression {
             Self::False => {}
             Self::Identifier(_, t) => *t = Some(ty),
             Self::Num(_, t) => *t = Some(ty),
+            Self::String(_, t) => *t = Some(ty),
             Self::Unit(t) => *t = Some(ty),
             Self::Tuple(_, t) => *t = Some(ty),
             Self::Match(_, _, t) => *t = Some(ty),
             Self::Call(_, _, t) => *t = Some(ty),
             Self::Lambda1(_, _, t) => *t = Some(ty),
+            Self::List(_, t) => *t = Some(ty),
         }
     }
 
@@ -738,6 +758,7 @@ impl Pattern {
             Pattern::Var(x, _) => Pattern::Var(x, Some(t)),
             Pattern::Unit(_) => Pattern::Unit(Some(t)),
             Pattern::Num(n, _) => Pattern::Num(n, Some(t)),
+            Pattern::String(s, _) => Pattern::String(s, Some(t)),
             Pattern::Tuple(ps, _) => {
                 Pattern::Tuple(ps.into_iter().map(|p| p.sub_types(subs)).collect(), Some(t))
             }

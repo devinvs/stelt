@@ -12,6 +12,7 @@ mod unify;
 pub use codegen::Module;
 pub use lexer::Lexer;
 pub use lexer::Token;
+pub use lexer::TokenStream;
 pub use mir::gen_impl_map;
 pub use mir::MIRTree;
 pub use parse_tree::ParseTree as Program;

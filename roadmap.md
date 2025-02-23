@@ -1,17 +1,20 @@
-Things that need to be done for this to be a real language (in no particular order):
+Things that need to be done for this to be a real language (now in a very specific order):
+
+- get lisp program compiling and running
+- dynamic/static linking, optimizations, etc as options for cli
+- implement string pattern matching (strcmp or memcmp or smthn or idk)
+- test type aliases (broken? idk yet)
+- add very simple reference counting
+  + add tests with valgrind
+- test type constraints
+  + across modules
+  + nested/generic types
+- exhaustiveness checking
+- caching compilation checks
+
+Future no promises:
 
 Compiler:
-- imports that make sense
-- type aliases
-- self hosting compiler
-- reference counting gc
-- type constraints
-- exhaustiveness checking
-- opt-in linear types
-  + safe functional mutation
-  + this messes with generics, will need to ponder
-    - maybe have derivable copy?
-- better modules (probably not first class)
 - arrays
 - vectors w/ simd
 - possibly const generics for the above

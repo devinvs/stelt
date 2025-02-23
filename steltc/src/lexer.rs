@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::collections::VecDeque;
 
 use lazy_static::lazy_static;
+use serde::{Deserialize, Serialize};
 
 lazy_static! {
     pub static ref MAP: HashMap<&'static str, Token> = {
@@ -17,7 +18,6 @@ lazy_static! {
         m.insert("type", Token::Type);
         m.insert("typefn", Token::Typefn);
         m.insert("impl", Token::Impl);
-        m.insert("for", Token::For);
         m.insert("let", Token::Let);
         m.insert("in", Token::In);
         m.insert("if", Token::If);
@@ -40,6 +40,7 @@ lazy_static! {
         m.insert("i32", Token::I32);
         m.insert("i64", Token::I64);
         m.insert("bool", Token::Bool);
+        m.insert("str", Token::Str);
 
         // Operators
         m.insert("+", Token::Plus);
@@ -77,11 +78,11 @@ lazy_static! {
     };
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TokenStream(pub VecDeque<Token>, bool, bool);
 
 impl TokenStream {
-    fn consume_nl(&mut self) {
+    pub fn consume_nl(&mut self) {
         while self.0.front() == Some(&Token::NL) {
             self.2 = true;
             self.0.pop_front();
@@ -91,6 +92,7 @@ impl TokenStream {
     pub fn consume(&mut self, t: Token) -> Option<()> {
         if self.test(t.clone()) {
             self.assert(t).unwrap();
+            self.2 = false;
             Some(())
         } else {
             None
@@ -108,7 +110,12 @@ impl TokenStream {
         if !self.1 {
             self.consume_nl();
         }
-        self.0.pop_front()
+        let out = self.0.pop_front();
+        if out.is_some() {
+            self.2 = false;
+        }
+
+        out
     }
 
     pub fn test(&mut self, t: Token) -> bool {
@@ -129,6 +136,7 @@ impl TokenStream {
 
         if let Some(l) = self.0.pop_front() {
             if l == t {
+                self.2 = false;
                 Ok(())
             } else {
                 Err(format!("Expected '{}', found '{}'", t.name(), l.name()))
@@ -145,6 +153,7 @@ impl TokenStream {
 
         if let Some(l) = self.0.pop_front() {
             if let Token::Ident(s) = l {
+                self.2 = false;
                 Ok(s)
             } else {
                 self.0.push_front(l.clone());
@@ -168,7 +177,7 @@ impl TokenStream {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub enum Token {
     // Keywords
     From,
@@ -203,6 +212,7 @@ pub enum Token {
     I16,
     I32,
     I64,
+    Str,
 
     // Operators
     Plus,
@@ -284,6 +294,7 @@ impl Token {
             Self::I16 => "i16",
             Self::I32 => "i32",
             Self::I64 => "i64",
+            Self::Str => "str",
             Self::Plus => "+",
             Self::Mul => "*",
             Self::Sub => "-",
@@ -296,7 +307,7 @@ impl Token {
             Self::NotEqual => "!=",
             Self::Or => "||",
             Self::And => "&&",
-            Self::Not => "!",
+            Self::Not => "not",
             Self::LTE => "<=",
             Self::GTE => ">=",
             Self::Dot => ".",
@@ -495,10 +506,6 @@ impl Lexer {
 
                 // Single char Operators
                 '+' | '-' | '*' | '/' | '%' | '<' | '>' | '=' => {
-                    self.push_token(&mut tokens, &mut stack);
-                    tokens.push_back(MAP.get(c.to_string().as_str()).unwrap().clone());
-                }
-                '!' if stack.is_empty() => {
                     self.push_token(&mut tokens, &mut stack);
                     tokens.push_back(MAP.get(c.to_string().as_str()).unwrap().clone());
                 }

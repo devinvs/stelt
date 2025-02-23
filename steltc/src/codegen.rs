@@ -604,7 +604,7 @@ impl LIRExpression {
                             .collect::<Vec<_>>()
                             .join(" ");
 
-                        newbody.push_str(&format!("{}= {}", assn, rest));
+                        newbody.push_str(&format!("\t{} = {}\n", assn, rest));
                     } else {
                         let rest: String = line
                             .split(' ')
@@ -699,7 +699,7 @@ impl LIRExpression {
 
                 writeln!(
                     module,
-                    "\t{clos} = insertvalue {{ptr, ptr}} poison, ptr @{func}, 0"
+                    "\t{clos} = insertvalue {{ptr, ptr}} poison, ptr @\"{func}\", 0"
                 )?;
                 writeln!(
                     module,

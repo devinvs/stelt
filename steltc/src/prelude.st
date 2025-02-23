@@ -1,5 +1,1 @@
-from prelude import add, list
-	# sub,
-	# mul,
-	# div,
-	# list
+from prelude import list, add, mul, char

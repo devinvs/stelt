@@ -54,16 +54,7 @@ impl TypeChecker {
                 vec!["a".to_string()],
                 vec![],
                 Box::new(Type::Arrow(
-                    Box::new(Type::Tuple(vec![
-                        Type::Generic(
-                            vec![Type::Ident("prelude/char".to_string())],
-                            Box::new(Type::Ident("prelude/list".to_string())),
-                        ),
-                        Type::Generic(
-                            vec![Type::Ident("prelude/char".to_string())],
-                            Box::new(Type::Ident("prelude/list".to_string())),
-                        ),
-                    ])),
+                    Box::new(Type::Tuple(vec![Type::Str, Type::Str])),
                     Box::new(Type::GenVar("a".to_string())),
                 )),
             ),
@@ -229,6 +220,14 @@ impl TypeChecker {
         Ok((subs, vec![]))
     }
 
+    fn judge_str(&self, t: Type, subs: Theta) -> Result<(Theta, Vec<Constraint>), String> {
+        let subs = unify(Type::Str, t.clone(), subs.clone()).ok_or_else(|| {
+            let realtype = apply_unifier(t, &subs);
+            format!("Type mismatch: Expected str found {:?}", realtype)
+        })?;
+        Ok((subs, vec![]))
+    }
+
     fn judge_num(
         &mut self,
         e: &mut Expression,
@@ -305,6 +304,44 @@ impl TypeChecker {
         let subs = unify(Type::Tuple(ts.clone()), t.clone(), subs.clone()).ok_or_else(|| {
             let tname = apply_unifier(t.clone(), &subs);
             let xname = apply_unifier(Type::Tuple(ts.clone()), &subs);
+            format!("Type Mismatch: Expected {:?} found {:?}", xname, tname)
+        })?;
+
+        e.set_type(t);
+
+        Ok((subs, cons))
+    }
+
+    fn judge_list(
+        &mut self,
+        b: Gamma,
+        c: Gamma,
+        d: Gamma,
+        e: &mut Expression,
+        t: Type,
+        mut subs: Theta,
+    ) -> Result<(Theta, Vec<Constraint>), String> {
+        let mut ts = vec![];
+        let mut cons = vec![];
+
+        match e {
+            Expression::List(es, _) => {
+                for exp in es {
+                    let tv = self.gen_var();
+                    let (sbs, ncons) = self.judge_type(b, c, d, exp, tv.clone(), subs)?;
+                    subs = sbs;
+                    cons.extend(ncons);
+                    ts.push(tv);
+                }
+            }
+            _ => panic!(),
+        }
+
+        let tout = ts.last().unwrap().clone();
+
+        let subs = unify(tout.clone(), t.clone(), subs.clone()).ok_or_else(|| {
+            let tname = apply_unifier(t.clone(), &subs);
+            let xname = apply_unifier(tout, &subs);
             format!("Type Mismatch: Expected {:?} found {:?}", xname, tname)
         })?;
 
@@ -442,9 +479,11 @@ impl TypeChecker {
         match e {
             Expression::Unit(..) => self.judge_unit(t, subs),
             Expression::True | Expression::False => self.judge_bool(t, subs),
+            Expression::String(..) => self.judge_str(t, subs),
             Expression::Num(..) => self.judge_num(e, t, subs),
             Expression::Identifier(..) => self.judge_var(builtins, cons, defs, e, t, subs),
             Expression::Tuple(..) => self.judge_tuple(builtins, cons, defs, e, t, subs),
+            Expression::List(..) => self.judge_list(builtins, cons, defs, e, t, subs),
             Expression::Lambda1(..) => self.judge_lambda(builtins, cons, defs, e, t, subs),
             Expression::Call(..) => self.judge_call(builtins, cons, defs, e, t, subs),
             Expression::Match(..) => self.judge_match(builtins, cons, defs, e, t, subs),
@@ -462,6 +501,19 @@ impl TypeChecker {
         let subs = unify(v.clone(), t.clone(), subs.clone()).ok_or_else(|| {
             let tname = apply_unifier(t, &subs);
             format!("Type Mismatch: Expected {v:?} found {:?}", tname)
+        })?;
+
+        Ok((subs, vec![]))
+    }
+
+    fn judge_pattern_str(
+        &mut self,
+        t: Type,
+        subs: Theta,
+    ) -> Result<(Theta, Vec<Constraint>), String> {
+        let subs = unify(Type::Str, t.clone(), subs.clone()).ok_or_else(|| {
+            let tname = apply_unifier(t, &subs);
+            format!("Type Mismatch: Expected str found {:?}", tname)
         })?;
 
         Ok((subs, vec![]))
@@ -578,6 +630,7 @@ impl TypeChecker {
             Pattern::Any(..) => Ok((subs, vec![])),
             Pattern::True | Pattern::False => self.judge_bool(t, subs),
             Pattern::Unit(..) => self.judge_unit(t, subs),
+            Pattern::String(..) => self.judge_pattern_str(t, subs),
             Pattern::Num(..) => self.judge_pattern_num(p, t, subs),
             Pattern::Var(..) => self.judge_pattern_var(d, p, t, subs),
             Pattern::Tuple(..) => self.judge_pattern_tuple(c, d, p, t, subs),

@@ -25,7 +25,7 @@ fn main() {
     }
 
     let path = Path::new(&args[1]);
-    let outdir = Path::new(args.get(2).map(|s| s.as_str()).unwrap_or("./"));
+    let outdir = Path::new(args.get(2).map(|s| s.as_str()).unwrap_or("./build"));
 
     compile(path, outdir);
 }
@@ -34,10 +34,13 @@ fn parse(path: &Path) -> Program {
     let mut file = File::open(path).unwrap();
     let mut buf = String::with_capacity(file.metadata().unwrap().len() as usize);
     file.read_to_string(&mut buf).unwrap();
+    parse_str(&buf)
+}
 
+fn parse_str(s: &str) -> Program {
     // Lex
     let mut lexer = Lexer::default();
-    let mut tokens = match lexer.lex(&buf) {
+    let mut tokens = match lexer.lex(s) {
         Ok(t) => t,
         Err(e) => {
             eprintln!("{e}");
@@ -123,8 +126,6 @@ fn compile(path: &Path, outdir: &Path) {
                 std::process::exit(1);
             }
         }
-
-        // eprintln!("{:#?}", mir.funcs);
 
         let mir = mir.with_concrete_types(&impl_map, &modules);
         let lir = mir.lower(&impl_map);

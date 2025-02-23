@@ -1,33 +1,25 @@
 # stelt
 
-Yet Another Programming Language
+brought to you by a year of depression followed by a few better ones
 
 <hr>
 
-### Some Specifics
+### Some Specifics which definitely haven't changed over the course of building this language
 
 - Static strong typing
   + Local type inference
 - Functional, ie immutable w/ first class functions and closures
 - Sum and Product types
 - Powerful pattern matching
-- C-interop
-- Opt-in linear typing (todo)
-  + allows for mutation
+- C-interop (hopefully easy but idk about structs and whatnot yet)
 - typefunctions
   + basically typeclasses but easier
 + Fast reference counting by default (todo)
-  - via Biased reference counting
+  - via Biased reference counting or maybe other fancy techniques
 + llvm backend
-+ A program that compiles should **never** crash (probably todo lol)
-  - outside of ffi of course
-+ rust-like unsafe (todo)
-
-Anti-features
-+ currying by default
-+ macros
-+ hidden control flow
-+ using the M word
+  - others in the works possibly
++ go-like concurrency
++ multi-platform/arch i hope
 
 Things I'm thinking about:
 + zig-like async
@@ -36,16 +28,5 @@ Things I'm thinking about:
   - makes math hard (why division why?)
     + default to 0 for special operator like pony?
       - we will see
-
-### performance < usability < safety
-
-The general guiding principle is to encourage developers to
-1. make it work
-2. make it right
-3. make it fast
-
-So in general we provide defaults that guarantee ease of use and saftey, but at the cost
-of performance.
-
-For performance critical sections the developer can strip out the default behavior and replace
-it with faster code where needed.
+        + then again probably not if we are being completely honest.
+          programs that are wrong should crash if not caught.

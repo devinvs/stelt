@@ -1,0 +1,94 @@
+# this only vaguely follows bnf, but is a pretty accurate
+# representation of how the parser... parses
+# implicitly defined are <ident> <str> <num>
+# also i use csv as func to not explicitly define csv every time
+
+prog ::= stmt*
+
+stmt ::= import <ident> (/ <ident>)*
+	   | from <ident> (/ <ident>)* import csv(<ident> (as <ident>)?)
+       | alias type <ident> = <type>
+	   | extern <ident> : <type>
+	   | type <ident> <gen_args> = <data_decl>
+	   | <func_def>
+	   | <ident> : <qual_type>
+	   | <ident> = <expr>
+	   | typefn <ident> ( csv(<ident>) ) = <type>
+	   | impl <ident> <gen_args> ( csv(<qual_type>) ) <func_def>+
+
+gen_args ::= < csv(<ident>) >
+
+qual_type ::= <constraints>? <type>
+
+constraints ::= <constraint> + <constraints>
+			  | <constraint> =>
+
+constraint ::= <ident> ( csv(<type>) )
+
+type ::= ( csv(<type>) )
+	   | [ csv(<type>) ]
+	   | <base_type> < csv(<type>) >
+
+base_type ::= ' <ident>
+			| <ident>
+			| bool
+			| u8
+			| u16
+			| u32
+			| u64
+			| i8
+			| i16
+			| i32
+			| i64
+
+data_decl ::= <constructor> | <data_decl>
+			| <constructor>
+
+constructor ::= <ident> (( csv(<type>) ))?
+
+# precedence based expression parser
+# todo: revisit postfix precedence, might mismatch parser and expected behavior
+expr ::= <primary> <postfix>*
+
+primary ::= True
+	   	  | False
+	      | let <pattern> = <expr> in <expr>
+		  | if <expr> then <expr> else <expr>
+		  | match <expr> with [ csv(<pattern> -> <expr>) ]
+		  | <str>
+		  | <num>
+		  | <ident> (/ <ident>)* (. <ident>)?
+		  | ( csv(<expr>) )
+		  | [ csv(<expr>) ]
+		  | { <expr>* }
+		  | <or_expr>
+
+or_expr ::= <and_expr> (or <or_expr>)*
+
+and_expr ::= <eq_expr> (== <and_expr>)*
+		   | <eq_expr> (!= <and_expr>)*
+
+rel_expr ::= <add_expr> (< <rel_expr>)*
+		   | <add_expr> (<= <rel_expr>)*
+		   | <add_expr> (> <rel_expr>)*
+		   | <add_expr> (>= <rel_expr>)*
+
+add_expr ::= <mul_expr> (+ <add_expr>)*
+		   | <mul_expr> (- <add_expr>)*
+
+mul_expr ::= <pow_expr> (* <mul_expr>)*
+		   | <pow_expr> (/ <mul_expr>)*
+		   | <pow_expr> (% <mul_expr>)*
+
+pow_expr ::= <unary_exp> (** <pow_expr>)*
+
+unary_expr ::= not <unary_expr>
+			 | - <unary_expr>
+			 | <expr>
+
+postfix ::= ( csv(<expr>) )
+		  | :: <expr>
+		  | . <ident> ( csv(<expr>) )
+		    # kind of a weird case, expr needs to be converted to a pattern
+			# maybe need to rework this
+		  | -> <expr>

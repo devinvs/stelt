@@ -1,0 +1,1613 @@
+types:
+  maybe:
+  - Public
+  - - maybe
+    - - a
+    - - name: None
+        args: Unit
+      - name: Some
+        args: !Ident a
+  char:
+  - Public
+  - - char
+    - []
+    - - name: Char
+        args: U32
+  list:
+  - Public
+  - - list
+    - - a
+    - - name: 'Nil'
+        args: Unit
+      - name: Cons
+        args: !Tuple
+        - !Ident a
+        - !Generic
+          - - !Ident a
+          - !Ident list
+  map:
+  - Public
+  - - map
+    - - a
+      - b
+    - - name: Map
+        args: !Generic
+        - - !Tuple
+            - !Ident a
+            - !Ident b
+        - !Ident list
+external: []
+typedecls:
+  sum:
+  - Private
+  - - []
+    - !Arrow
+      - !Generic
+        - - U32
+        - !Ident list
+      - U32
+  main:
+  - Private
+  - - []
+    - !Arrow
+      - Unit
+      - U32
+  square:
+  - Private
+  - - []
+    - !Arrow
+      - U32
+      - U32
+  map:
+  - Private
+  - - []
+    - !Arrow
+      - !Tuple
+        - !Generic
+          - - !GenVar a
+          - !Ident list
+        - !Arrow
+          - !GenVar a
+          - !GenVar b
+      - !Generic
+        - - !GenVar b
+        - !Ident list
+typefuns:
+  neg:
+  - Public
+  - name: neg
+    vars:
+    - a
+    ty: !Arrow
+    - !Ident a
+    - !Ident a
+  leq:
+  - Public
+  - name: leq
+    vars:
+    - a
+    ty: !Arrow
+    - !Tuple
+      - !Ident a
+      - !Ident a
+    - Bool
+  sub:
+  - Public
+  - name: sub
+    vars:
+    - a
+    ty: !Arrow
+    - !Tuple
+      - !Ident a
+      - !Ident a
+    - !Ident a
+  mul:
+  - Public
+  - name: mul
+    vars:
+    - a
+    ty: !Arrow
+    - !Tuple
+      - !Ident a
+      - !Ident a
+    - !Ident a
+  div:
+  - Public
+  - name: div
+    vars:
+    - a
+    ty: !Arrow
+    - !Tuple
+      - !Ident a
+      - !Ident a
+    - !Ident a
+  mod:
+  - Public
+  - name: mod
+    vars:
+    - a
+    ty: !Arrow
+    - !Tuple
+      - !Ident a
+      - !Ident a
+    - !Ident a
+  eq:
+  - Public
+  - name: eq
+    vars:
+    - a
+    ty: !Arrow
+    - !Tuple
+      - !Ident a
+      - !Ident a
+    - Bool
+  add:
+  - Public
+  - name: add
+    vars:
+    - a
+    ty: !Arrow
+    - !Tuple
+      - !Ident a
+      - !Ident a
+    - !Ident a
+  geq:
+  - Public
+  - name: geq
+    vars:
+    - a
+    ty: !Arrow
+    - !Tuple
+      - !Ident a
+      - !Ident a
+    - Bool
+impls:
+- fn_name: neg
+  gen_args: []
+  args:
+  - - []
+    - I8
+  body:
+  - name: neg
+    args: !Var
+    - a
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = mul i8 %arg.0, -1'
+- fn_name: neg
+  gen_args: []
+  args:
+  - - []
+    - I16
+  body:
+  - name: neg
+    args: !Var
+    - a
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = mul i16 %arg.0, -1'
+- fn_name: neg
+  gen_args: []
+  args:
+  - - []
+    - I32
+  body:
+  - name: neg
+    args: !Var
+    - a
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = mul i32 %arg.0, -1'
+- fn_name: neg
+  gen_args: []
+  args:
+  - - []
+    - I64
+  body:
+  - name: neg
+    args: !Var
+    - a
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = mul i64 %arg.0, -1'
+- fn_name: add
+  gen_args: []
+  args:
+  - - []
+    - U8
+  body:
+  - name: add
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = add i8 %a, %b'
+- fn_name: add
+  gen_args: []
+  args:
+  - - []
+    - I8
+  body:
+  - name: add
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = add i8 %a, %b'
+- fn_name: add
+  gen_args: []
+  args:
+  - - []
+    - U16
+  body:
+  - name: add
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = add i16 %a, %b'
+- fn_name: add
+  gen_args: []
+  args:
+  - - []
+    - I16
+  body:
+  - name: add
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = add i16 %a, %b'
+- fn_name: add
+  gen_args: []
+  args:
+  - - []
+    - U32
+  body:
+  - name: add
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = add i32 %a, %b'
+- fn_name: add
+  gen_args: []
+  args:
+  - - []
+    - I32
+  body:
+  - name: add
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = add i32 %a, %b'
+- fn_name: add
+  gen_args: []
+  args:
+  - - []
+    - U64
+  body:
+  - name: add
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = add i64 %a, %b'
+- fn_name: add
+  gen_args: []
+  args:
+  - - []
+    - I64
+  body:
+  - name: add
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = add i64 %a, %b'
+- fn_name: sub
+  gen_args: []
+  args:
+  - - []
+    - U8
+  body:
+  - name: sub
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = sub i8 %a, %b'
+- fn_name: sub
+  gen_args: []
+  args:
+  - - []
+    - I8
+  body:
+  - name: sub
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = sub i8 %a, %b'
+- fn_name: sub
+  gen_args: []
+  args:
+  - - []
+    - U16
+  body:
+  - name: sub
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = sub i16 %a, %b'
+- fn_name: sub
+  gen_args: []
+  args:
+  - - []
+    - I16
+  body:
+  - name: sub
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = sub i16 %a, %b'
+- fn_name: sub
+  gen_args: []
+  args:
+  - - []
+    - U32
+  body:
+  - name: sub
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = sub i32 %a, %b'
+- fn_name: sub
+  gen_args: []
+  args:
+  - - []
+    - I32
+  body:
+  - name: sub
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = sub i32 %a, %b'
+- fn_name: sub
+  gen_args: []
+  args:
+  - - []
+    - U64
+  body:
+  - name: sub
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = sub i64 %a, %b'
+- fn_name: sub
+  gen_args: []
+  args:
+  - - []
+    - I64
+  body:
+  - name: sub
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = sub i64 %a, %b'
+- fn_name: mul
+  gen_args: []
+  args:
+  - - []
+    - U8
+  body:
+  - name: mul
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = mul i8 %a, %b'
+- fn_name: mul
+  gen_args: []
+  args:
+  - - []
+    - I8
+  body:
+  - name: mul
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = mul i8 %a, %b'
+- fn_name: mul
+  gen_args: []
+  args:
+  - - []
+    - U16
+  body:
+  - name: mul
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = mul i16 %a, %b'
+- fn_name: mul
+  gen_args: []
+  args:
+  - - []
+    - I16
+  body:
+  - name: mul
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = mul i16 %a, %b'
+- fn_name: mul
+  gen_args: []
+  args:
+  - - []
+    - U32
+  body:
+  - name: mul
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = mul i32 %a, %b'
+- fn_name: mul
+  gen_args: []
+  args:
+  - - []
+    - I32
+  body:
+  - name: mul
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = mul i32 %a, %b'
+- fn_name: mul
+  gen_args: []
+  args:
+  - - []
+    - U64
+  body:
+  - name: mul
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = mul i64 %a, %b'
+- fn_name: mul
+  gen_args: []
+  args:
+  - - []
+    - I64
+  body:
+  - name: mul
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = mul i64 %a, %b'
+- fn_name: div
+  gen_args: []
+  args:
+  - - []
+    - U8
+  body:
+  - name: div
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = sdiv i8 %a, %b'
+- fn_name: div
+  gen_args: []
+  args:
+  - - []
+    - I8
+  body:
+  - name: div
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = sdiv i8 %a, %b'
+- fn_name: div
+  gen_args: []
+  args:
+  - - []
+    - U16
+  body:
+  - name: div
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = sdiv i16 %a, %b'
+- fn_name: div
+  gen_args: []
+  args:
+  - - []
+    - I16
+  body:
+  - name: div
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = sdiv i16 %a, %b'
+- fn_name: div
+  gen_args: []
+  args:
+  - - []
+    - U32
+  body:
+  - name: div
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = sdiv i32 %a, %b'
+- fn_name: div
+  gen_args: []
+  args:
+  - - []
+    - I32
+  body:
+  - name: div
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = sdiv i32 %a, %b'
+- fn_name: div
+  gen_args: []
+  args:
+  - - []
+    - U64
+  body:
+  - name: div
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = sdiv i64 %a, %b'
+- fn_name: div
+  gen_args: []
+  args:
+  - - []
+    - I64
+  body:
+  - name: div
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = sdiv i64 %a, %b'
+- fn_name: mod
+  gen_args: []
+  args:
+  - - []
+    - U8
+  body:
+  - name: mod
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = srem i8 %a, %b'
+- fn_name: mod
+  gen_args: []
+  args:
+  - - []
+    - I8
+  body:
+  - name: mod
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = srem i8 %a, %b'
+- fn_name: mod
+  gen_args: []
+  args:
+  - - []
+    - U16
+  body:
+  - name: mod
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = srem i16 %a, %b'
+- fn_name: mod
+  gen_args: []
+  args:
+  - - []
+    - I16
+  body:
+  - name: mod
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = srem i16 %a, %b'
+- fn_name: mod
+  gen_args: []
+  args:
+  - - []
+    - U32
+  body:
+  - name: mod
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = srem i32 %a, %b'
+- fn_name: mod
+  gen_args: []
+  args:
+  - - []
+    - I32
+  body:
+  - name: mod
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = srem i32 %a, %b'
+- fn_name: mod
+  gen_args: []
+  args:
+  - - []
+    - U64
+  body:
+  - name: mod
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = srem i64 %a, %b'
+- fn_name: mod
+  gen_args: []
+  args:
+  - - []
+    - I64
+  body:
+  - name: mod
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String '%out = srem i64 %a, %b'
+- fn_name: eq
+  gen_args: []
+  args:
+  - - []
+    - U8
+  body:
+  - name: eq
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String "\n\t%cmp = icmp eq i8 %a, %b\n\t%cast = zext i1 %cmp to i8\n\t%out = insertvalue %bool undef, i8 %cast, 0"
+- fn_name: eq
+  gen_args: []
+  args:
+  - - []
+    - I8
+  body:
+  - name: eq
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String "\n\t%cmp = icmp eq i8 %a, %b\n\t%cast = zext i1 %cmp to i8\n\t%out = insertvalue %bool undef, i8 %cast, 0"
+- fn_name: eq
+  gen_args: []
+  args:
+  - - []
+    - U16
+  body:
+  - name: eq
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String "\n\t%cmp = icmp eq i16 %a, %b\n\t%cast = zext i1 %cmp to i8\n\t%out = insertvalue %bool undef, i8 %cast, 0"
+- fn_name: eq
+  gen_args: []
+  args:
+  - - []
+    - I16
+  body:
+  - name: eq
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String "\n\t%cmp = icmp eq i16 %a, %b\n\t%cast = zext i1 %cmp to i8\n\t%out = insertvalue %bool undef, i8 %cast, 0"
+- fn_name: eq
+  gen_args: []
+  args:
+  - - []
+    - U32
+  body:
+  - name: eq
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String "\n\t%cmp = icmp eq i32 %a, %b\n\t%cast = zext i1 %cmp to i8\n\t%out = insertvalue %bool undef, i8 %cast, 0"
+- fn_name: eq
+  gen_args: []
+  args:
+  - - []
+    - I32
+  body:
+  - name: eq
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String "\n\t%cmp = icmp eq i32 %a, %b\n\t%cast = zext i1 %cmp to i8\n\t%out = insertvalue %bool undef, i8 %cast, 0"
+- fn_name: eq
+  gen_args: []
+  args:
+  - - []
+    - U64
+  body:
+  - name: eq
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String "\n\t%cmp = icmp eq i64 %a, %b\n\t%cast = zext i1 %cmp to i8\n\t%out = insertvalue %bool undef, i8 %cast, 0"
+- fn_name: eq
+  gen_args: []
+  args:
+  - - []
+    - I64
+  body:
+  - name: eq
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String "\n\t%cmp = icmp eq i64 %a, %b\n\t%cast = zext i1 %cmp to i8\n\t%out = insertvalue %bool undef, i8 %cast, 0"
+- fn_name: geq
+  gen_args: []
+  args:
+  - - []
+    - I8
+  body:
+  - name: geq
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String "\n\t%cmp = icmp sge i8 %a, %b\n\t%cast = zext i1 %cmp to i8\n\t%out = insertvalue %bool undef, i8 %cast, 0"
+- fn_name: geq
+  gen_args: []
+  args:
+  - - []
+    - U8
+  body:
+  - name: geq
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String "\n\t%cmp = icmp uge i8 %a, %b\n\t%cast = zext i1 %cmp to i8\n\t%out = insertvalue %bool undef, i8 %cast, 0"
+- fn_name: geq
+  gen_args: []
+  args:
+  - - []
+    - I16
+  body:
+  - name: geq
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String "\n\t%cmp = icmp sge i16 %a, %b\n\t%cast = zext i1 %cmp to i8\n\t%out = insertvalue %bool undef, i8 %cast, 0"
+- fn_name: geq
+  gen_args: []
+  args:
+  - - []
+    - U16
+  body:
+  - name: geq
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String "\n\t%cmp = icmp uge i16 %a, %b\n\t%cast = zext i1 %cmp to i8\n\t%out = insertvalue %bool undef, i8 %cast, 0"
+- fn_name: geq
+  gen_args: []
+  args:
+  - - []
+    - I32
+  body:
+  - name: geq
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String "\n\t%cmp = icmp sge i32 %a, %b\n\t%cast = zext i1 %cmp to i8\n\t%out = insertvalue %bool undef, i8 %cast, 0"
+- fn_name: geq
+  gen_args: []
+  args:
+  - - []
+    - U32
+  body:
+  - name: geq
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String "\n\t%cmp = icmp uge i32 %a, %b\n\t%cast = zext i1 %cmp to i8\n\t%out = insertvalue %bool undef, i8 %cast, 0"
+- fn_name: geq
+  gen_args: []
+  args:
+  - - []
+    - I64
+  body:
+  - name: geq
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String "\n\t%cmp = icmp sge i64 %a, %b\n\t%cast = zext i1 %cmp to i8\n\t%out = insertvalue %bool undef, i8 %cast, 0"
+- fn_name: geq
+  gen_args: []
+  args:
+  - - []
+    - U64
+  body:
+  - name: geq
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String "\n\t%cmp = icmp uge i64 %a, %b\n\t%cast = zext i1 %cmp to i8\n\t%out = insertvalue %bool undef, i8 %cast, 0"
+- fn_name: leq
+  gen_args: []
+  args:
+  - - []
+    - I8
+  body:
+  - name: leq
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String "\n\t%cmp = icmp sle i8 %a, %b\n\t%cast = zext i1 %cmp to i8\n\t%out = insertvalue %bool undef, i8 %cast, 0"
+- fn_name: leq
+  gen_args: []
+  args:
+  - - []
+    - U8
+  body:
+  - name: leq
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String "\n\t%cmp = icmp ule i8 %a, %b\n\t%cast = zext i1 %cmp to i8\n\t%out = insertvalue %bool undef, i8 %cast, 0"
+- fn_name: leq
+  gen_args: []
+  args:
+  - - []
+    - I16
+  body:
+  - name: leq
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String "\n\t%cmp = icmp sle i16 %a, %b\n\t%cast = zext i1 %cmp to i8\n\t%out = insertvalue %bool undef, i8 %cast, 0"
+- fn_name: leq
+  gen_args: []
+  args:
+  - - []
+    - U16
+  body:
+  - name: leq
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String "\n\t%cmp = icmp ule i16 %a, %b\n\t%cast = zext i1 %cmp to i8\n\t%out = insertvalue %bool undef, i8 %cast, 0"
+- fn_name: leq
+  gen_args: []
+  args:
+  - - []
+    - I32
+  body:
+  - name: leq
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String "\n\t%cmp = icmp sle i32 %a, %b\n\t%cast = zext i1 %cmp to i8\n\t%out = insertvalue %bool undef, i8 %cast, 0"
+- fn_name: leq
+  gen_args: []
+  args:
+  - - []
+    - U32
+  body:
+  - name: leq
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String "\n\t%cmp = icmp ule i32 %a, %b\n\t%cast = zext i1 %cmp to i8\n\t%out = insertvalue %bool undef, i8 %cast, 0"
+- fn_name: leq
+  gen_args: []
+  args:
+  - - []
+    - I64
+  body:
+  - name: leq
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String "\n\t%cmp = icmp sle i64 %a, %b\n\t%cast = zext i1 %cmp to i8\n\t%out = insertvalue %bool undef, i8 %cast, 0"
+- fn_name: leq
+  gen_args: []
+  args:
+  - - []
+    - U64
+  body:
+  - name: leq
+    args: !Tuple
+    - - !Var
+        - a
+        - null
+      - !Var
+        - b
+        - null
+    - null
+    body: !Call
+    - !Identifier llvm!
+    - !Tuple
+      - !String '%out'
+      - !String "\n\t%cmp = icmp ule i64 %a, %b\n\t%cast = zext i1 %cmp to i8\n\t%out = insertvalue %bool undef, i8 %cast, 0"
+funcs:
+  main:
+  - name: main
+    args: !Unit Unit
+    body: !Call
+    - !Identifier sum
+    - !Call
+      - !Identifier map
+      - !Tuple
+        - !Call
+          - !Identifier list.Cons
+          - !Tuple
+            - !Num 1
+            - !Call
+              - !Identifier list.Cons
+              - !Tuple
+                - !Num 2
+                - !Call
+                  - !Identifier list.Cons
+                  - !Tuple
+                    - !Num 3
+                    - !Call
+                      - !Identifier list.Cons
+                      - !Tuple
+                        - !Num 4
+                        - !Call
+                          - !Identifier list.Nil
+                          - Unit
+        - !Identifier square
+  sum:
+  - name: sum
+    args: !Cons
+    - list.Nil
+    - !Unit Unit
+    - null
+    body: !Num 0
+  - name: sum
+    args: !Cons
+    - list.Cons
+    - !Tuple
+      - - !Var
+          - x
+          - null
+        - !Var
+          - xs
+          - null
+      - null
+    - null
+    body: !Call
+    - !Identifier add
+    - !Tuple
+      - !Identifier x
+      - !Call
+        - !Identifier sum
+        - !Identifier xs
+  map:
+  - name: map
+    args: !Cons
+    - list.Nil
+    - !Unit Unit
+    - null
+    body: !Call
+    - !Identifier list.Nil
+    - Unit
+  - name: map
+    args: !Tuple
+    - - !Cons
+        - list.Cons
+        - !Tuple
+          - - !Var
+              - x
+              - null
+            - !Var
+              - xs
+              - null
+          - null
+        - null
+      - !Var
+        - f
+        - null
+    - null
+    body: !Call
+    - !Identifier list.Cons
+    - !Tuple
+      - !Call
+        - !Identifier f
+        - !Identifier x
+      - !Call
+        - !Identifier map
+        - !Tuple
+          - !Identifier xs
+          - !Identifier f
+  square:
+  - name: square
+    args: !Var
+    - x
+    - null
+    body: !Call
+    - !Identifier add
+    - !Tuple
+      - !Identifier x
+      - !Identifier x
+defs: {}
+type_aliases: {}
+aliases: {}
+private_impl_map: {}
+imports: []
+import_idents: []
+

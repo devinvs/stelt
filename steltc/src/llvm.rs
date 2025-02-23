@@ -51,6 +51,7 @@ impl LLVMType {
             Type::Ident(n) => Self::Named(n),
             Type::Generic(..) => Self::Named(t.to_string()),
             Type::Box(n) => Self::Ptr(Box::new(LLVMType::from_type(*n))),
+            Type::Str => Self::Str,
             a => panic!("{a:?}"),
         }
     }

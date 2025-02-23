@@ -1,0 +1,55 @@
+#!/usr/bin/python3
+import sys
+import json
+import os
+import subprocess
+
+def error(s):
+    print("\x1b[31m" + s + "\x1b[0m")
+
+def success(s):
+    print("\x1b[32m" + s + "\x1b[0m")
+
+for f in os.listdir("./tests"):
+    if os.system(f"cargo run -q -- tests/{f}/main.st") != 0:
+        error(f"{f} failed to compile")
+        continue
+
+    if os.system("opt -O3 build/main.ll -o build/main.bc") != 0:
+        error(f"{f} failed to optimize")
+        continue
+    
+    if os.system("llc --relocation-model=pic -filetype=obj -O3 build/main.bc") != 0:
+        error(f"{f} failed to assemble")
+        continue
+
+    if os.system("clang build/main.o build/prelude.o -o out") != 0:
+        error(f"{f} failed to build")
+        continue
+
+    spec_file = open(f"tests/{f}/spec.json")
+    spec = json.loads(spec_file.read())
+
+    if "code" not in spec:
+        spec["code"] = 0
+
+    if "stdin" not in spec:
+        spec["stdin"] = ""
+
+    if "stdout" not in spec:
+        spec["stdout"] = ""
+
+    # launch the program, write to stdin, check against stdout, return code
+    p = subprocess.run(["./out"], capture_output=True, input=spec["stdin"])
+
+    if p.returncode != spec["code"]:
+        error(f"{f} failed: got retcode {p.returncode} expected {spec["code"]}")
+        continue
+
+    stdout = p.stdout.decode("utf-8")
+    if stdout != spec["stdout"]:
+        error(f"{f} failed: got stdout {stdout} expected {spec["stdout"]}")
+        continue
+
+    success(f"{f} succeeded")
+

@@ -2,6 +2,8 @@
 name = "stelt"
 version = "0.1.0"
 edition = "2021"
+default-run = "stelt"
+
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -15,3 +17,6 @@ debug = true
 [dependencies]
 lazy_static = "*"
 termcolor = "1.2"
+serde = { version="1.0", features=["derive"] }
+serde_yml = "0.0.12"
+clap = { version="4.5", features=["derive"]}
