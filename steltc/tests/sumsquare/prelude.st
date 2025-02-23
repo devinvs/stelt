@@ -185,6 +185,12 @@ pub typefn eq(a) = (a, a) -> bool
 # neq: eq('a) => ('a, 'a) -> bool
 # neq(a, b) = !eq(a, b)
 
+impl eq(str)
+eq(a, b) = llvm!("%out", "
+	%cmp = call i32 @strcmp(ptr %a, ptr %b)
+	%out = icmp eq i32 %cmp, 0
+")
+
 impl eq(u8)
 eq(a, b) = llvm!("%out","%out = icmp eq i8 %a, %b")
 

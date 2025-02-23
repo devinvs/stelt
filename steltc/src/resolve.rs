@@ -165,6 +165,7 @@ impl ParseTree {
                     &self.type_aliases,
                     &self.aliases,
                 );
+
                 (format!("{prefix}/{name}"), (is_pub, tf))
             })
             .collect();
@@ -335,9 +336,12 @@ impl ParseTree {
             ..
         } in self.impls.clone().into_iter()
         {
+            // an impl is compiled in the module it is defined in. So, its namespace is the module
+            // who created it, not the module of the typefunction
             let ns = new_name.rsplit_once("/").unwrap().0;
             let tf = new_name.rsplit_once("$").unwrap().0;
 
+            // find the typefunction in another module, or in our own typefunctions
             let (vis, TypeFun { name, ty, vars }) = if let Some(tf) = mods[ns].pub_typefn.get(tf) {
                 (Vis::Public, tf.clone())
             } else {
@@ -678,11 +682,12 @@ impl Impl {
         aliases: &HashMap<String, String>,
         external: &HashSet<String>,
     ) {
-        // Every impl gets a unique global name based on their typefunction name
-        self.fn_name = crate::gen_var(&if typefuns.contains(&self.fn_name) {
-            format!("{me}/{}$", self.fn_name)
+        // Every impl gets a unique global name based on their typefunction name.
+        let name = aliases.get(&self.fn_name).unwrap_or(&self.fn_name);
+        self.fn_name = crate::gen_var(&if typefuns.contains(name) {
+            format!("{me}/{}$", name)
         } else {
-            format!("{}$", self.fn_name)
+            format!("{}$", name)
         });
 
         self.args

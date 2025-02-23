@@ -64,6 +64,7 @@ impl Module {
 
     pub fn compile(&mut self, tree: LIRTree, main: Option<String>) -> Result<(), Box<dyn Error>> {
         writeln!(self, "declare ptr @malloc(i64) nounwind")?;
+        writeln!(self, "declare i32 @strcmp(ptr, ptr) nounwind")?;
 
         // Output extern functions
         for name in tree.external {
@@ -591,7 +592,7 @@ impl LIRExpression {
                         let rest: String = rest
                             .split(' ')
                             .map(|s| {
-                                let t = s.replace(",", "");
+                                let t = s.replace(",", "").replace(")", "");
                                 if t.starts_with("%") && !defs.contains(&t) {
                                     if let Some(v) = named_vars.get(&t[1..]) {
                                         s.replace(&t, v)

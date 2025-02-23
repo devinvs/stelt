@@ -419,7 +419,7 @@ impl Type {
 
             Ok(Self::Generic(
                 vec![inner],
-                Box::new(Self::Ident("list".to_string())),
+                Box::new(Self::Ident("prelude/list".to_string())),
             ))
         } else {
             Self::parse_generic(t)
@@ -534,7 +534,7 @@ impl Expression {
         if let Some(()) = t.consume(Token::Or) {
             let end = Self::orexpr(t)?;
             Ok(Self::Call(
-                Box::new(Self::Identifier("or".into())),
+                Box::new(Self::Identifier("prelude/or".into())),
                 Box::new(Self::Tuple(vec![and, end])),
             ))
         } else {
@@ -548,7 +548,7 @@ impl Expression {
         if let Some(()) = t.consume(Token::And) {
             let end = Self::andexpr(t)?;
             Ok(Self::Call(
-                Box::new(Self::Identifier("and".into())),
+                Box::new(Self::Identifier("prelude/and".into())),
                 Box::new(Self::Tuple(vec![bitor, end])),
             ))
         } else {
@@ -562,13 +562,13 @@ impl Expression {
         if let Some(()) = t.consume(Token::NotEqual) {
             let end = Self::eqexpr(t)?;
             Ok(Self::Call(
-                Box::new(Self::Identifier("neq".into())),
+                Box::new(Self::Identifier("prelude/neq".into())),
                 Box::new(Self::Tuple(vec![rel, end])),
             ))
         } else if let Some(()) = t.consume(Token::Equal) {
             let end = Self::eqexpr(t)?;
             Ok(Self::Call(
-                Box::new(Self::Identifier("eq".into())),
+                Box::new(Self::Identifier("prelude/eq".into())),
                 Box::new(Self::Tuple(vec![rel, end])),
             ))
         } else {
@@ -582,25 +582,25 @@ impl Expression {
         if let Some(()) = t.consume(Token::LArrow) {
             let end = Self::relexpr(t)?;
             Ok(Self::Call(
-                Box::new(Self::Identifier("lt".into())),
+                Box::new(Self::Identifier("prelude/lt".into())),
                 Box::new(Self::Tuple(vec![conc, end])),
             ))
         } else if let Some(()) = t.consume(Token::RArrow) {
             let end = Self::relexpr(t)?;
             Ok(Self::Call(
-                Box::new(Self::Identifier("gt".into())),
+                Box::new(Self::Identifier("prelude/gt".into())),
                 Box::new(Self::Tuple(vec![conc, end])),
             ))
         } else if let Some(()) = t.consume(Token::LTE) {
             let end = Self::relexpr(t)?;
             Ok(Self::Call(
-                Box::new(Self::Identifier("leq".into())),
+                Box::new(Self::Identifier("prelude/leq".into())),
                 Box::new(Self::Tuple(vec![conc, end])),
             ))
         } else if let Some(()) = t.consume(Token::GTE) {
             let end = Self::relexpr(t)?;
             Ok(Self::Call(
-                Box::new(Self::Identifier("geq".into())),
+                Box::new(Self::Identifier("prelude/geq".into())),
                 Box::new(Self::Tuple(vec![conc, end])),
             ))
         } else {
@@ -614,13 +614,13 @@ impl Expression {
         if let Some(()) = t.consume(Token::Plus) {
             let end = Self::addexpr(t)?;
             Ok(Self::Call(
-                Box::new(Self::Identifier("add".into())),
+                Box::new(Self::Identifier("prelude/add".into())),
                 Box::new(Self::Tuple(vec![mul, end])),
             ))
         } else if let Some(()) = t.consume(Token::Sub) {
             let end = Self::addexpr(t)?;
             Ok(Self::Call(
-                Box::new(Self::Identifier("sub".into())),
+                Box::new(Self::Identifier("prelude/sub".into())),
                 Box::new(Self::Tuple(vec![mul, end])),
             ))
         } else {
@@ -634,19 +634,19 @@ impl Expression {
         if let Some(()) = t.consume(Token::Mul) {
             let end = Self::mulexpr(t)?;
             Ok(Self::Call(
-                Box::new(Self::Identifier("mul".into())),
+                Box::new(Self::Identifier("prelude/mul".into())),
                 Box::new(Self::Tuple(vec![pow, end])),
             ))
         } else if let Some(()) = t.consume(Token::Div) {
             let end = Self::mulexpr(t)?;
             Ok(Self::Call(
-                Box::new(Self::Identifier("div".into())),
+                Box::new(Self::Identifier("prelude/div".into())),
                 Box::new(Self::Tuple(vec![pow, end])),
             ))
         } else if let Some(()) = t.consume(Token::Mod) {
             let end = Self::mulexpr(t)?;
             Ok(Self::Call(
-                Box::new(Self::Identifier("mod".into())),
+                Box::new(Self::Identifier("prelude/mod".into())),
                 Box::new(Self::Tuple(vec![pow, end])),
             ))
         } else {
@@ -660,7 +660,7 @@ impl Expression {
         if let Some(()) = t.consume(Token::Pow) {
             let end = Self::powexpr(t)?;
             Ok(Self::Call(
-                Box::new(Self::Identifier("pow".into())),
+                Box::new(Self::Identifier("prelude/pow".into())),
                 Box::new(Self::Tuple(vec![unary, end])),
             ))
         } else {
@@ -672,13 +672,13 @@ impl Expression {
         if let Some(()) = t.consume(Token::Not) {
             let un = Self::unary(t)?;
             Ok(Self::Call(
-                Box::new(Self::Identifier("not".into())),
+                Box::new(Self::Identifier("prelude/not".into())),
                 Box::new(un),
             ))
         } else if let Some(()) = t.consume(Token::Sub) {
             let un = Self::unary(t)?;
             Ok(Self::Call(
-                Box::new(Self::Identifier("neg".into())),
+                Box::new(Self::Identifier("prelude/neg".into())),
                 Box::new(un),
             ))
         } else {
@@ -724,7 +724,7 @@ impl Expression {
                 // parse a concat expression
                 let end = Self::parse(t)?;
                 Self::Call(
-                    Box::new(Self::Identifier("list.Cons".into())),
+                    Box::new(Self::Identifier("prelude/list.Cons".into())),
                     Box::new(Self::Tuple(vec![primary, end])),
                 )
             } else if t.consume(Token::Dot).is_some() {
@@ -906,13 +906,13 @@ impl Expression {
     pub fn cons_from_es(es: &[Self]) -> Self {
         if es.is_empty() {
             return Self::Call(
-                Box::new(Self::Identifier("list.Nil".to_string())),
+                Box::new(Self::Identifier("prelude/list.Nil".to_string())),
                 Box::new(Self::Unit),
             );
         }
 
         Self::Call(
-            Box::new(Self::Identifier("list.Cons".to_string())),
+            Box::new(Self::Identifier("prelude/list.Cons".to_string())),
             Box::new(Self::Tuple(vec![
                 es[0].clone(),
                 Self::cons_from_es(&es[1..]),
@@ -942,11 +942,15 @@ impl Expression {
 impl Pattern {
     pub fn cons_from_es(es: &[Self]) -> Self {
         if es.is_empty() {
-            return Self::Cons("list.Nil".to_string(), Box::new(Self::Unit(None)), None);
+            return Self::Cons(
+                "prelude/list.Nil".to_string(),
+                Box::new(Self::Unit(None)),
+                None,
+            );
         }
 
         Self::Cons(
-            "list.Cons".to_string(),
+            "prelude/list.Cons".to_string(),
             Box::new(Self::Tuple(
                 vec![es[0].clone(), Self::cons_from_es(&es[1..])],
                 None,
@@ -961,7 +965,7 @@ impl Pattern {
         if t.consume(Token::Concat).is_some() {
             let xs = Self::parse(t)?;
             return Ok(Self::Cons(
-                "list.Cons".into(),
+                "prelude/list.Cons".into(),
                 Box::new(Pattern::Tuple(vec![x, xs], None)),
                 None,
             ));
@@ -1005,7 +1009,7 @@ impl Pattern {
             Some(Token::LBrace) => {
                 t.assert(Token::RBrace)?;
                 Ok(Pattern::Cons(
-                    "list.Nil".to_string(),
+                    "prelude/list.Nil".to_string(),
                     Box::new(Self::Unit(Some(Type::Unit))),
                     None,
                 ))

@@ -157,7 +157,11 @@ impl TokenStream {
                 Ok(s)
             } else {
                 self.0.push_front(l.clone());
-                Err(format!("Expected identifier, found '{}'", l.name()))
+                Err(format!(
+                    "Expected identifier, found '{}' {:?}",
+                    l.name(),
+                    self
+                ))
             }
         } else {
             Err(format!("Expected identifier, found EOF"))
@@ -305,8 +309,8 @@ impl Token {
             Self::Assign => "=",
             Self::Equal => "==",
             Self::NotEqual => "!=",
-            Self::Or => "||",
-            Self::And => "&&",
+            Self::Or => "or",
+            Self::And => "and",
             Self::Not => "not",
             Self::LTE => "<=",
             Self::GTE => ">=",

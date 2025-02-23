@@ -258,9 +258,7 @@ impl TypeChecker {
         };
         let (x, cons) = self
             .apply_gamma_all(&name, builtins, cons, defined)
-            .ok_or(format!(
-                "judge_var: Type not known for {name:?}\n{defined:#?}"
-            ))?;
+            .ok_or(format!("judge_var: Type not known for {name:?}\n"))?;
 
         let theta = unify(x.clone(), t.clone(), subs.clone()).ok_or_else(|| {
             let tname = apply_unifier(t.clone(), &subs);

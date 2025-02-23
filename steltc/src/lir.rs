@@ -1024,8 +1024,28 @@ impl MIRExpression {
                     ty,
                 )
             }
-            // TODO: fix string pattern matching
-            Pattern::String(_, _) => todo!(),
+            Pattern::String(s, _) => {
+                // Find the name of the function who implements eq for str type
+                let f = resolve_typefn(eq_impls, eq_type!(Type::Str)).unwrap();
+                imports.push(f.clone());
+
+                LIRExpression::If(
+                    Box::new(LIRExpression::GlobalCall(
+                        f,
+                        Box::new(LIRExpression::Tuple(
+                            vec![exp, LIRExpression::Str(s)],
+                            LLVMType::Struct(vec![
+                                LLVMType::from_type(Type::Str),
+                                LLVMType::from_type(Type::Str),
+                            ]),
+                        )),
+                        LLVMType::I1,
+                    )),
+                    Box::new(yes),
+                    Box::new(no),
+                    ty,
+                )
+            }
             Pattern::Var(x, _) => {
                 LIRExpression::Let1(x, Box::new(exp), Box::new(yes.clone()), yes.ty())
             }

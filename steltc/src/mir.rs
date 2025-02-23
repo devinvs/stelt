@@ -1093,16 +1093,17 @@ pub fn gen_impl_map(
     // Additionally create a map of each (typefn, type) to the new name
     let mut impl_map = HashMap::<String, Vec<(String, Type)>>::new();
 
+    // Make sure there is at least an empty list for every typefunction
     for (_, module) in mods {
-        // Make sure there is at least an empty list for every typefunction
         for tfun in module.pub_typefn.iter() {
             if !impl_map.contains_key(tfun.0) {
                 impl_map.insert(tfun.0.clone(), vec![]);
             }
         }
+    }
 
+    for (ns, module) in mods {
         for (new_name, _) in module.pub_impls.iter() {
-            let ns = new_name.rsplit_once("/").unwrap().0;
             let name = new_name.rsplit_once("$").unwrap().0;
 
             let (_, QualType(_, real_type)) = &trees[ns].typedecls[new_name];

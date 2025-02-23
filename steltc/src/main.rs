@@ -129,6 +129,8 @@ fn compile(path: PathBuf, outdir: PathBuf) -> Vec<PathBuf> {
         modules_mir.insert(name, tree);
     }
 
+    eprintln!("{:?}", modules_mir["main"].typedecls.keys());
+
     let mut artifacts = vec![];
 
     // Now compile :)
