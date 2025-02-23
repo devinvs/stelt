@@ -15,18 +15,6 @@ for f in os.listdir("./tests"):
         error(f"{f} failed to compile")
         continue
 
-    if os.system("opt -O3 build/main.ll -o build/main.bc") != 0:
-        error(f"{f} failed to optimize")
-        continue
-    
-    if os.system("llc --relocation-model=pic -filetype=obj -O3 build/main.bc") != 0:
-        error(f"{f} failed to assemble")
-        continue
-
-    if os.system("clang build/main.o build/prelude.o -o out") != 0:
-        error(f"{f} failed to build")
-        continue
-
     spec_file = open(f"tests/{f}/spec.json")
     spec = json.loads(spec_file.read())
 
@@ -40,7 +28,7 @@ for f in os.listdir("./tests"):
         spec["stdout"] = ""
 
     # launch the program, write to stdin, check against stdout, return code
-    p = subprocess.run(["./out"], capture_output=True, input=spec["stdin"])
+    p = subprocess.run(["./build/main"], capture_output=True, input=spec["stdin"])
 
     if p.returncode != spec["code"]:
         error(f"{f} failed: got retcode {p.returncode} expected {spec["code"]}")

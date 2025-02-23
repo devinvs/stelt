@@ -251,7 +251,7 @@ impl Module {
                 continue;
             }
 
-            if name == "main/main" {
+            if Some(&name) == main.as_ref() {
                 name = "main".to_string();
             }
 
@@ -283,13 +283,14 @@ impl Module {
             self.reset();
         }
 
-        // Emit the real main function
-        if let Some(main) = main {
-            writeln!(self, "define i32 @main(i32 %argc, ptr %argv) {{")?;
-            writeln!(self, "\tcall void @{}()", main)?;
-            writeln!(self, "\tret i32 0")?;
-            writeln!(self, "}}\n")?;
-        }
+        // Emit the entry point
+        // if let Some(main) = main {
+        // writeln!(self, "define void @main(i32 %argc, ptr %argv) {{")?;
+        // writeln!(self, "\t%out = call i32 @\"{}\"()", main)?;
+        // writeln!(self, "\tcall void @exit(i32 %out)")?;
+        // writeln!(self, "\tret void")?;
+        // writeln!(self, "}}\n")?;
+        // }
 
         // Emit string definitions
         for (i, s) in self.strs.clone().into_iter().enumerate() {

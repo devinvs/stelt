@@ -2,3 +2,4 @@
 *.ll
 *.o
 out
+build/
