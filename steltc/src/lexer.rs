@@ -1,8 +1,11 @@
 use std::collections::HashMap;
 use std::collections::VecDeque;
+use std::path::PathBuf;
 
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
+
+use crate::error::SrcError;
 
 lazy_static! {
     pub static ref MAP: HashMap<&'static str, TokenType> = {
@@ -191,6 +194,10 @@ impl TokenStream {
     pub fn nl_ignore(&mut self) {
         self.1 = false;
     }
+
+    pub fn check(&self) -> bool {
+        true
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
@@ -371,12 +378,14 @@ pub struct Lexer {
 }
 
 impl Lexer {
-    pub fn lex(&mut self, input: &str) -> Result<TokenStream, String> {
+    pub fn lex(&mut self, input: &str, file: &PathBuf) -> Result<TokenStream, TokenStream> {
         let mut tokens = VecDeque::new();
         let mut chars = input.chars().peekable();
         let mut stack = String::new();
         let mut row = 0;
         let mut col = 0;
+
+        let mut fail = false;
 
         while let Some(c) = chars.next() {
             let next = chars.peek();
@@ -400,25 +409,11 @@ impl Lexer {
                         self.push_token(&mut tokens, &mut stack, row, col);
                         self.in_string = false;
                     }
-                    '\\' => {
-                        let new_c = match next {
-                            Some('a') => char::from_u32(7).unwrap(),
-                            Some('b') => char::from_u32(8).unwrap(),
-                            Some('f') => char::from_u32(12).unwrap(),
-                            Some('n') => '\n',
-                            Some('r') => '\r',
-                            Some('t') => '\t',
-                            Some('v') => char::from_u32(11).unwrap(),
-                            Some('\\') => '\\',
-                            Some('"') => '"',
-                            Some('?') => '?',
-                            Some('0') => char::from_u32(0).unwrap(),
-                            _ => return Err("Invalid escape sequence".to_string()),
-                        };
-
-                        stack.push(new_c);
-                        chars.next();
-                        col += 1;
+                    '\n' => {
+                        // for now we will allow multiline strings
+                        stack.push(c);
+                        row += 1;
+                        col = 0;
                     }
                     _ => stack.push(c),
                 }
@@ -441,13 +436,61 @@ impl Lexer {
                 '\'' if stack.is_empty() => {
                     self.push_token(&mut tokens, &mut stack, row, col);
 
-                    let val = chars.next().ok_or("Expected char literal".to_string())?;
+                    let val = match chars.next() {
+                        Some('\n') => {
+                            SrcError::new(
+                                file,
+                                (row, col),
+                                (row, col),
+                                "unclosed char literal".to_string(),
+                            )
+                            .print();
+                            row += 1;
+                            col = 0;
+                            continue;
+                        }
+                        Some(c) => c,
+                        _ => {
+                            SrcError::new(
+                                file,
+                                (row, col),
+                                (row, col),
+                                "unexpected end of file".to_string(),
+                            )
+                            .print();
+                            return Err(TokenStream(tokens, false, false));
+                        }
+                    };
+
                     col += 1;
 
                     let (c, n) = if val == '\\' {
-                        let escape = chars
-                            .next()
-                            .ok_or("Expected escape character".to_string())?;
+                        let escape = match chars.next() {
+                            Some('\n') => {
+                                SrcError::new(
+                                    file,
+                                    (row, col),
+                                    (row, col),
+                                    "unclosed char literal".to_string(),
+                                )
+                                .print();
+                                row += 1;
+                                col = 0;
+                                continue;
+                            }
+                            Some(c) => c,
+                            _ => {
+                                SrcError::new(
+                                    file,
+                                    (row, col),
+                                    (row, col),
+                                    "unexpected end of file".to_string(),
+                                )
+                                .print();
+                                return Err(TokenStream(tokens, false, false));
+                            }
+                        };
+
                         let new_c = match escape {
                             'a' => char::from_u32(7).unwrap(),
                             'b' => char::from_u32(8).unwrap(),
@@ -461,7 +504,29 @@ impl Lexer {
                             '"' => '"',
                             '?' => '?',
                             '0' => char::from_u32(0).unwrap(),
-                            _ => return Err("Invalid escape sequence".to_string()),
+                            '\n' => {
+                                SrcError::new(
+                                    file,
+                                    (row, col),
+                                    (row, col),
+                                    "expected escape character, found newline".to_string(),
+                                )
+                                .print();
+                                row += 1;
+                                col = 0;
+                                continue;
+                            }
+                            _ => {
+                                fail = true;
+                                SrcError::new(
+                                    file,
+                                    (row, col),
+                                    (row, col),
+                                    "invalid character escape character".to_string(),
+                                )
+                                .print();
+                                'X' // just a placeholder since lexing fails
+                            }
                         };
                         col += 1;
                         (new_c, 3)
@@ -474,7 +539,7 @@ impl Lexer {
                         tokens.push_back(Token::new(TokenType::Char(c), row, col));
                         col += 1;
                     } else if n == 3 {
-                        return Err("ahhh".to_string());
+                        panic!("ahhh in the lexer");
                     } else {
                         // not a char literal, parse as type var
                         tokens.push_back(Token::new(TokenType::Quote, row, col));
@@ -584,12 +649,23 @@ impl Lexer {
         }
 
         if self.in_string {
-            return Err(format!("Unclosed string literal: expected \""));
+            fail = true;
+            SrcError::new(
+                file,
+                (row, col),
+                (row, col),
+                "unclosed string literal, expected \"".to_string(),
+            )
+            .print();
+        } else {
+            self.push_token(&mut tokens, &mut stack, row, col);
         }
 
-        self.push_token(&mut tokens, &mut stack, row, col);
-
-        Ok(TokenStream(tokens, false, false))
+        if fail {
+            Err(TokenStream(tokens, false, false))
+        } else {
+            Ok(TokenStream(tokens, false, false))
+        }
     }
 
     fn push_token(

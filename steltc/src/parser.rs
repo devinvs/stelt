@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::path::PathBuf;
 
 use crate::lexer::Lexer;
 use crate::lexer::Token;
@@ -18,7 +19,7 @@ lazy_static! {
     static ref PRELUDE: ParseTree = {
         let s = include_str!("./prelude.st");
         let mut l = Lexer::default();
-        let mut tokens = l.lex(&s).unwrap();
+        let mut tokens = l.lex(&s, &"./prelude.st".into()).unwrap();
 
         let me = ParseTree {
             types: HashMap::new(),
@@ -404,9 +405,24 @@ impl QualType {
 }
 
 impl Type {
-    pub fn from_str(s: &str) -> Result<Self, String> {
+    pub fn from_str(s: &str, file: &PathBuf) -> Result<Self, String> {
         let mut l = Lexer::default();
-        let mut tokens = l.lex(s)?;
+        let tokens = l.lex(s, file);
+
+        let mut tokens = match tokens {
+            Ok(t) => {
+                if t.check() {
+                    t
+                } else {
+                    return Err("fail".to_string());
+                }
+            }
+            Err(t) => {
+                t.check();
+                return Err("fail".to_string());
+            }
+        };
+
         Type::parse(&mut tokens)
     }
 

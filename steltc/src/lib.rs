@@ -1,4 +1,5 @@
 mod codegen;
+mod error;
 mod lexer;
 mod lir;
 mod llvm;

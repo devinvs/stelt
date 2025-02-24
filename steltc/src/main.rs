@@ -44,16 +44,22 @@ fn parse(path: &Path) -> Program {
     let mut file = File::open(path).unwrap();
     let mut buf = String::with_capacity(file.metadata().unwrap().len() as usize);
     file.read_to_string(&mut buf).unwrap();
-    parse_str(&buf)
+    parse_str(&buf, &path.into())
 }
 
-fn parse_str(s: &str) -> Program {
+fn parse_str(s: &str, file: &PathBuf) -> Program {
     // Lex
     let mut lexer = Lexer::default();
-    let mut tokens = match lexer.lex(s) {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!("{e}");
+    let mut tokens = match lexer.lex(s, file) {
+        Ok(t) => {
+            if t.check() {
+                t
+            } else {
+                std::process::exit(1);
+            }
+        }
+        Err(t) => {
+            t.check();
             std::process::exit(1);
         }
     };
