@@ -215,7 +215,7 @@ impl TokenStream {
                 TokenType::Ident(s) => {
                     // Token rules:
                     // - must start with alphabet or _
-                    // - must contain only alphanumeric or _
+                    // - must contain only alphanumeric or _ (also . but thats a sneaky case for the parser)
                     // - can end with ! or ?
                     let mut cs = s.chars();
 
@@ -233,6 +233,7 @@ impl TokenStream {
 
                     for (i, c) in s.chars().enumerate() {
                         if c != '_'
+                            && c != '.'
                             && !c.is_alphanumeric()
                             && !(i == s.len() - 1 && (c == '!' || c == '?'))
                         {
@@ -297,7 +298,7 @@ impl TokenStream {
                 TokenType::LCurly => {
                     curly_stack.push_front((row, col));
                 }
-                TokenType::RCurly => match brace_stack.pop_front() {
+                TokenType::RCurly => match curly_stack.pop_front() {
                     Some(_) => {}
                     None => {
                         success = false;
