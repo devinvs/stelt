@@ -82,20 +82,56 @@ lazy_static! {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct TokenStream(pub VecDeque<Token>, bool, bool);
+pub struct TokenStream {
+    pub queue: VecDeque<Token>,
+    nl_aware: bool,
+    pub nl_last: bool,
+    eof: (u32, u32),
+    file: PathBuf,
+}
 
 impl TokenStream {
+    fn new(
+        queue: VecDeque<Token>,
+        nl_aware: bool,
+        nl_last: bool,
+        eof: (u32, u32),
+        file: PathBuf,
+    ) -> Self {
+        Self {
+            queue,
+            nl_aware,
+            nl_last,
+            eof,
+            file,
+        }
+    }
+
+    pub fn file(&self) -> PathBuf {
+        self.file.clone()
+    }
+
+    pub fn eof(&self) -> (u32, u32) {
+        self.eof
+    }
+
     pub fn consume_nl(&mut self) {
-        while self.0.front().map(|t| &t.ty) == Some(&TokenType::NL) {
-            self.2 = true;
-            self.0.pop_front();
+        while self.queue.front().map(|t| &t.ty) == Some(&TokenType::NL) {
+            self.nl_last = true;
+            self.queue.pop_front();
         }
     }
 
     pub fn consume(&mut self, t: TokenType) -> Option<()> {
         if self.test(t.clone()) {
+            if t == TokenType::NL {
+                self.nl_last = true;
+            } else {
+                self.nl_last = false;
+            }
+
             self.assert(t).unwrap();
-            self.2 = false;
+
             Some(())
         } else {
             None
@@ -103,96 +139,124 @@ impl TokenStream {
     }
 
     pub fn peek(&mut self) -> Option<&Token> {
-        if !self.1 {
+        if !self.nl_aware {
             self.consume_nl();
         }
-        self.0.get(0)
+        self.queue.get(0)
     }
 
     pub fn next(&mut self) -> Option<Token> {
-        if !self.1 {
+        if !self.nl_aware {
             self.consume_nl();
         }
-        let out = self.0.pop_front();
+        let out = self.queue.pop_front();
         if out.is_some() {
-            self.2 = false;
+            if let Some(Token {
+                ty: TokenType::NL, ..
+            }) = out
+            {
+                self.nl_last = true;
+            } else {
+                self.nl_last = false;
+            }
         }
 
         out
     }
 
     pub fn test(&mut self, t: TokenType) -> bool {
-        if !self.1 {
+        if !self.nl_aware {
             self.consume_nl();
         }
-        if let Some(l) = self.0.get(0) {
+        if let Some(l) = self.queue.get(0) {
             l.ty == t
         } else {
             false
         }
     }
 
-    pub fn assert(&mut self, t: TokenType) -> Result<(), String> {
-        if !self.1 {
+    pub fn assert(&mut self, t: TokenType) -> Result<(), SrcError> {
+        if !self.nl_aware {
             self.consume_nl();
         }
 
-        if let Some(l) = self.0.pop_front() {
+        if let Some(l) = self.queue.pop_front() {
             if l.ty == t {
-                self.2 = false;
+                if t == TokenType::NL {
+                    self.nl_last = true;
+                } else {
+                    self.nl_last = false;
+                }
                 Ok(())
             } else {
-                Err(format!("Expected '{}', found '{}'", t.name(), l.ty.name()))
+                Err(SrcError::new(
+                    self.file.clone(),
+                    l.pos,
+                    l.end(),
+                    format!("expected '{}', found '{}'", t.name(), l.ty.name()),
+                ))
             }
         } else {
-            Err(format!("Expected '{}', found EOF", t.name()))
+            Err(SrcError::new(
+                self.file.clone(),
+                self.eof,
+                self.eof,
+                format!("expected '{}', found end of file", t.name()),
+            ))
         }
     }
 
-    pub fn ident_tok(&mut self) -> Result<(String, (u32, u32)), String> {
-        if !self.1 {
+    pub fn ident_tok(&mut self) -> Result<(String, (u32, u32)), SrcError> {
+        if !self.nl_aware {
             self.consume_nl();
         }
 
-        if let Some(l) = self.0.pop_front() {
+        if let Some(l) = self.queue.pop_front() {
             if let Token {
                 ty: TokenType::Ident(s),
                 pos,
             } = l
             {
-                self.2 = false;
+                self.nl_last = false;
                 Ok((s, pos))
             } else {
-                self.0.push_front(l.clone());
-                Err(format!(
-                    "Expected identifier, found '{}' {:?}",
-                    l.ty.name(),
-                    self
+                self.queue.push_front(l.clone());
+                Err(SrcError::new(
+                    self.file.clone(),
+                    l.pos,
+                    l.end(),
+                    format!("expected identifier, found '{}'", l.ty.name()),
                 ))
             }
         } else {
-            Err(format!("Expected identifier, found EOF"))
+            Err(SrcError::new(
+                self.file.clone(),
+                self.eof,
+                self.eof,
+                "expected identifier, found end of file".to_string(),
+            ))
         }
     }
 
-    pub fn ident(&mut self) -> Result<String, String> {
+    pub fn ident(&mut self) -> Result<String, SrcError> {
         let (s, _) = self.ident_tok()?;
         Ok(s)
     }
 
     pub fn nl_aware(&mut self) {
-        self.1 = true;
-        if self.2 {
-            self.0.push_front(Token {
+        self.nl_aware = true;
+        if self.nl_last {
+            self.queue.push_front(Token {
                 ty: TokenType::NL,
                 pos: (0, 0),
             });
-            self.2 = false;
+            self.nl_last = false;
         }
     }
 
     pub fn nl_ignore(&mut self) {
-        self.1 = false;
+        self.nl_aware = false;
+        self.nl_last = false;
     }
 
     // there's not much that can checked in the lexer, but here's what is covered here
@@ -209,7 +273,7 @@ impl TokenStream {
         for Token {
             ty,
             pos: (row, col),
-        } in self.0.iter()
+        } in self.queue.iter()
         {
             match ty {
                 TokenType::Ident(s) => {
@@ -223,7 +287,7 @@ impl TokenStream {
                     if first != '_' && !first.is_alphabetic() {
                         success = false;
                         SrcError::new(
-                            file,
+                            file.clone(),
                             (*row, *col),
                             (*row, *col),
                             "identifiers must start with an alphabetic character or _".to_string(),
@@ -239,7 +303,7 @@ impl TokenStream {
                         {
                             success = false;
                             SrcError::new(
-                                file,
+                                file.clone(),
                                 (*row, *col + i as u32),
                                 (*row, *col + i as u32),
                                 "identifiers must only contain alphanumeric characters or _"
@@ -262,7 +326,7 @@ impl TokenStream {
                         if backslash && !"0nrf\\".contains(c) {
                             success = false;
                             SrcError::new(
-                                file,
+                                file.clone(),
                                 (*row, *col + i as u32 - 1),
                                 (*row, *col + i as u32),
                                 "invalid string escape sequence".to_string(),
@@ -280,8 +344,13 @@ impl TokenStream {
                     Some(_) => {}
                     None => {
                         success = false;
-                        SrcError::new(file, (*row, *col), (*row, *col), "unmatched )".to_string())
-                            .print();
+                        SrcError::new(
+                            file.clone(),
+                            (*row, *col),
+                            (*row, *col),
+                            "unmatched )".to_string(),
+                        )
+                        .print();
                     }
                 },
                 TokenType::LBrace => {
@@ -291,8 +360,13 @@ impl TokenStream {
                     Some(_) => {}
                     None => {
                         success = false;
-                        SrcError::new(file, (*row, *col), (*row, *col), "unmatched ]".to_string())
-                            .print();
+                        SrcError::new(
+                            file.clone(),
+                            (*row, *col),
+                            (*row, *col),
+                            "unmatched ]".to_string(),
+                        )
+                        .print();
                     }
                 },
                 TokenType::LCurly => {
@@ -302,8 +376,13 @@ impl TokenStream {
                     Some(_) => {}
                     None => {
                         success = false;
-                        SrcError::new(file, (*row, *col), (*row, *col), "unmatched }".to_string())
-                            .print();
+                        SrcError::new(
+                            file.clone(),
+                            (*row, *col),
+                            (*row, *col),
+                            "unmatched }".to_string(),
+                        )
+                        .print();
                     }
                 },
                 _ => {}
@@ -312,17 +391,35 @@ impl TokenStream {
 
         while let Some((row, col)) = paren_stack.pop_front() {
             success = false;
-            SrcError::new(file, (*row, *col), (*row, *col), "unmatched (".to_string()).print();
+            SrcError::new(
+                file.clone(),
+                (*row, *col),
+                (*row, *col),
+                "unmatched (".to_string(),
+            )
+            .print();
         }
 
         while let Some((row, col)) = brace_stack.pop_front() {
             success = false;
-            SrcError::new(file, (*row, *col), (*row, *col), "unmatched [".to_string()).print();
+            SrcError::new(
+                file.clone(),
+                (*row, *col),
+                (*row, *col),
+                "unmatched [".to_string(),
+            )
+            .print();
         }
 
         while let Some((row, col)) = curly_stack.pop_front() {
             success = false;
-            SrcError::new(file, (*row, *col), (*row, *col), "unmatched {".to_string()).print();
+            SrcError::new(
+                file.clone(),
+                (*row, *col),
+                (*row, *col),
+                "unmatched {".to_string(),
+            )
+            .print();
         }
 
         success
@@ -336,11 +433,15 @@ pub struct Token {
 }
 
 impl Token {
-    fn new(t: TokenType, row: u32, col: u32) -> Self {
+    pub fn new(t: TokenType, row: u32, col: u32) -> Self {
         Self {
             ty: t,
             pos: (row, col),
         }
+    }
+
+    pub fn end(&self) -> (u32, u32) {
+        (self.pos.0, self.pos.1 + self.ty.name().len() as u32 - 1)
     }
 }
 
@@ -569,7 +670,7 @@ impl Lexer {
                     let val = match chars.next() {
                         Some('\n') => {
                             SrcError::new(
-                                file,
+                                file.clone(),
                                 (row, col),
                                 (row, col),
                                 "unclosed char literal".to_string(),
@@ -582,13 +683,19 @@ impl Lexer {
                         Some(c) => c,
                         _ => {
                             SrcError::new(
-                                file,
+                                file.clone(),
                                 (row, col),
                                 (row, col),
                                 "unexpected end of file".to_string(),
                             )
                             .print();
-                            return Err(TokenStream(tokens, false, false));
+                            return Err(TokenStream::new(
+                                tokens,
+                                false,
+                                false,
+                                (row, col),
+                                file.clone(),
+                            ));
                         }
                     };
 
@@ -598,7 +705,7 @@ impl Lexer {
                         let escape = match chars.next() {
                             Some('\n') => {
                                 SrcError::new(
-                                    file,
+                                    file.clone(),
                                     (row, col),
                                     (row, col),
                                     "unclosed char literal".to_string(),
@@ -611,13 +718,19 @@ impl Lexer {
                             Some(c) => c,
                             _ => {
                                 SrcError::new(
-                                    file,
+                                    file.clone(),
                                     (row, col),
                                     (row, col),
                                     "unexpected end of file".to_string(),
                                 )
                                 .print();
-                                return Err(TokenStream(tokens, false, false));
+                                return Err(TokenStream::new(
+                                    tokens,
+                                    false,
+                                    false,
+                                    (row, col),
+                                    file.clone(),
+                                ));
                             }
                         };
 
@@ -636,7 +749,7 @@ impl Lexer {
                             '0' => char::from_u32(0).unwrap(),
                             '\n' => {
                                 SrcError::new(
-                                    file,
+                                    file.clone(),
                                     (row, col),
                                     (row, col),
                                     "expected escape character, found newline".to_string(),
@@ -649,7 +762,7 @@ impl Lexer {
                             _ => {
                                 fail = true;
                                 SrcError::new(
-                                    file,
+                                    file.clone(),
                                     (row, col),
                                     (row, col),
                                     "invalid character escape character".to_string(),
@@ -782,7 +895,7 @@ impl Lexer {
         if self.in_string {
             fail = true;
             SrcError::new(
-                file,
+                file.clone(),
                 (row, col),
                 (row, col),
                 "unclosed string literal, expected \"".to_string(),
@@ -793,9 +906,21 @@ impl Lexer {
         }
 
         if fail {
-            Err(TokenStream(tokens, false, false))
+            Err(TokenStream::new(
+                tokens,
+                false,
+                false,
+                (row, col),
+                file.clone(),
+            ))
         } else {
-            Ok(TokenStream(tokens, false, false))
+            Ok(TokenStream::new(
+                tokens,
+                false,
+                false,
+                (row, col),
+                file.clone(),
+            ))
         }
     }
 

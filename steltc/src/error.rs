@@ -3,15 +3,16 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::path::PathBuf;
 
-pub struct SrcError<'a> {
-    file: &'a PathBuf,
+#[derive(Debug)]
+pub struct SrcError {
+    file: PathBuf,
     start: (u32, u32),
     end: (u32, u32),
     msg: String,
 }
 
-impl<'a> SrcError<'a> {
-    pub fn new(file: &'a PathBuf, start: (u32, u32), end: (u32, u32), msg: String) -> Self {
+impl<'a> SrcError {
+    pub fn new(file: PathBuf, start: (u32, u32), end: (u32, u32), msg: String) -> Self {
         SrcError {
             file,
             start,

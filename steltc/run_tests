@@ -18,7 +18,7 @@ for f in os.listdir("./tests"):
     n += 1
 
     comp_start = time.time()
-    if os.system(f"cargo run -q --release -- tests/{f}/main.st") != 0:
+    if os.system(f"./target/release/stelt tests/{f}/main.st") != 0:
         error(f"{f} failed to compile")
         continue
     comp_end = time.time()

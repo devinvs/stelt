@@ -67,8 +67,8 @@ fn parse_str(s: &str, file: &PathBuf) -> Program {
     // Parse
     let program = match Program::parse(&mut tokens) {
         Ok(p) => p,
-        Err(e) => {
-            eprintln!("{e}");
+        Err(p) => {
+            // TODO: check program
             std::process::exit(1);
         }
     };

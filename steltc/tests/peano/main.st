@@ -17,26 +17,26 @@ add(nat.Succ(x), y) = nat.Succ(x + y)
 # x * 1 == x
 # (1+x)*y == y+x*y
 mul: (nat, nat) -> nat
-mul(nat.Zero, _) = nat.Zero
-mul(_, nat.Zero) = nat.Zero
+mul(nat.Zero, _) = nat.Zero()
+mul(_, nat.Zero) = nat.Zero()
 mul(nat.Succ(nat.Zero), y) = y
 mul(x, nat.Succ(nat.Zero)) = x
 mul(nat.Succ(x), y) = y + x*y
 
 zero: nat
-zero = nat.Zero
+zero = nat.Zero()
 
 one: nat
-one = nat.Succ(nat.Zero)
+one = nat.Succ(nat.Zero())
 
 two: nat
-two = nat.Succ(nat.Succ(nat.Zero))
+two = nat.Succ(nat.Succ(nat.Zero()))
 
 three: nat
-three = nat.Succ(nat.Succ(nat.Succ(nat.Zero)))
+three = nat.Succ(nat.Succ(nat.Succ(nat.Zero())))
 
 four: nat
-four = nat.Succ(nat.Succ(nat.Succ(nat.Succ(nat.Zero))))
+four = nat.Succ(nat.Succ(nat.Succ(nat.Succ(nat.Zero()))))
 
 main: () -> ()
 main() = {

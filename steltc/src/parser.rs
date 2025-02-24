@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::path::PathBuf;
 
+use crate::error::SrcError;
 use crate::lexer::Lexer;
 use crate::lexer::Token;
 use crate::lexer::TokenStream;
@@ -41,230 +41,359 @@ lazy_static! {
 }
 
 impl ParseTree {
-    pub fn parse(t: &mut TokenStream) -> Result<Self, String> {
+    pub fn parse(t: &mut TokenStream) -> Result<Self, Self> {
         Self::parse_with(t, PRELUDE.clone())
     }
 
-    pub fn parse_with(t: &mut TokenStream, mut me: Self) -> Result<Self, String> {
+    // parse what we can, accumulate errors, recover as necessary
+    pub fn parse_with(t: &mut TokenStream, mut me: Self) -> Result<Self, Self> {
+        let mut fail = false;
+
         loop {
-            // This is wrong but we are going to roll with it for now
-            let is_pub = if t.consume(TokenType::Pub).is_some() {
-                Vis::Public
-            } else {
-                Vis::Private
-            };
-
-            match t.peek() {
-                Some(Token {
-                    ty: TokenType::Alias,
-                    ..
-                }) => {
-                    t.assert(TokenType::Alias)?;
-                    t.assert(TokenType::Type)?;
-
-                    let name = t.ident()?;
-
-                    t.assert(TokenType::Assign)?;
-
-                    let ty = Type::parse(t)?;
-
-                    me.type_aliases.insert(name, ty);
-                }
-                Some(Token {
-                    ty: TokenType::Impl,
-                    ..
-                }) => {
-                    t.assert(TokenType::Impl)?;
-                    let name = t.ident()?;
-
-                    let gen_args = parse_genargs(t)?;
-                    let mut args = vec![];
-                    t.assert(TokenType::LParen)?;
-                    while let Ok(ty) = QualType::parse(t) {
-                        args.push(ty);
-                        if t.consume(TokenType::Comma).is_none() {
-                            break;
-                        }
+            match me.parse_stmt(t) {
+                Ok(()) => {
+                    // every single stmt must be followed by a newline or eof
+                    // newline
+                    t.nl_aware();
+                    if t.consume(TokenType::NL).is_some() {
+                        t.nl_ignore();
+                        continue;
                     }
-                    t.assert(TokenType::RParen)?;
+                    t.nl_ignore();
 
-                    let mut funcs = vec![];
-                    while t.peek().map(|t| &t.ty) == Some(&TokenType::Ident(name.clone())) {
-                        let name = t.ident()?;
-                        let func = FunctionDef::parse(t, name, &me.imports)?;
-                        funcs.push(func);
+                    // end of file
+                    if t.peek().is_none() {
+                        break;
                     }
 
-                    me.impls.push(Impl {
-                        fn_name: name,
-                        gen_args,
-                        args,
-                        body: funcs,
-                    });
-                }
-                Some(Token {
-                    ty: TokenType::Typefn,
-                    ..
-                }) => {
-                    t.assert(TokenType::Typefn)?;
-
-                    let name = t.ident()?;
-
-                    let mut args = vec![];
-                    t.assert(TokenType::LParen)?;
-                    while let Ok(id) = t.ident() {
-                        args.push(id);
-                        if t.consume(TokenType::Comma).is_none() {
-                            break;
-                        }
-                    }
-                    t.assert(TokenType::RParen)?;
-                    t.assert(TokenType::Assign)?;
-
-                    let ty = Type::parse(t)?;
-
-                    me.typefuns.insert(
-                        name.clone(),
-                        (
-                            is_pub,
-                            TypeFun {
-                                name,
-                                vars: args,
-                                ty,
-                            },
+                    // not followed by eof or newline, emit error and
+                    // attempt recovery
+                    let l = t.next().unwrap();
+                    SrcError::new(
+                        t.file(),
+                        l.pos,
+                        l.end(),
+                        format!(
+                            "expected newline at end of statement, found '{}'",
+                            l.ty.name()
                         ),
-                    );
-                }
-                Some(Token {
-                    ty: TokenType::Import,
-                    ..
-                }) => {
-                    t.assert(TokenType::Import)?;
-                    let mut namespace = t.ident()?;
+                    )
+                    .print();
 
-                    while t.consume(TokenType::Slash).is_some() {
-                        namespace.push_str("/");
-                        namespace.push_str(&t.ident()?);
-                    }
-
-                    me.imports.insert(namespace);
-                }
-                Some(Token {
-                    ty: TokenType::From,
-                    ..
-                }) => {
-                    t.assert(TokenType::From)?;
-                    let mut ns = t.ident()?;
-                    while t.consume(TokenType::Slash).is_some() {
-                        ns.push_str("/");
-                        ns.push_str(&t.ident()?);
-                    }
-
-                    me.imports.insert(ns.clone());
-                    t.assert(TokenType::Import)?;
-
-                    loop {
-                        let item = t.ident()?;
-
-                        if t.consume(TokenType::As).is_some() {
-                            let alias = t.ident()?;
-                            me.aliases.insert(alias.clone(), format!("{ns}/{item}"));
-                        } else {
-                            me.aliases.insert(item.clone(), format!("{ns}/{item}"));
-                        }
-
-                        if !t.consume(TokenType::Comma).is_some() {
-                            break;
-                        }
+                    if me.recover(t).is_err() {
+                        break;
                     }
                 }
-                Some(Token {
-                    ty: TokenType::Extern,
-                    ..
-                }) => {
-                    t.assert(TokenType::Extern)?;
+                Err(e) => {
+                    e.print();
+                    fail = true;
 
-                    let name = t.ident()?;
-                    t.assert(TokenType::Colon)?;
-
-                    let ty = Type::parse(t)?;
-                    me.typedecls
-                        .insert(name.clone(), (is_pub, QualType(vec![], ty)));
-                    me.external.insert(name);
-                }
-                Some(Token {
-                    ty: TokenType::Type,
-                    ..
-                }) => {
-                    // Either a typedecl or datadecl
-                    t.assert(TokenType::Type)?;
-
-                    let name = t.ident()?;
-                    let args = parse_genargs(t)?;
-
-                    t.assert(TokenType::Assign)?;
-                    let ty = DataDecl::parse(t, name.clone(), args)?;
-                    me.types.insert(name, (is_pub, ty));
-                }
-                Some(Token {
-                    ty: TokenType::Ident(_),
-                    ..
-                }) => {
-                    let name = t.ident()?;
-
-                    match t.peek() {
-                        Some(Token {
-                            ty: TokenType::LParen,
-                            ..
-                        }) => {
-                            let func = FunctionDef::parse(t, name, &me.imports)?;
-                            if let Some(f) = me.funcs.get_mut(&func.name) {
-                                f.push(func);
-                            } else {
-                                me.funcs.insert(func.name.clone(), vec![func]);
-                            }
-                        }
-                        Some(Token {
-                            ty: TokenType::Colon,
-                            ..
-                        }) => {
-                            t.assert(TokenType::Colon)?;
-                            let ty = QualType::parse(t)?;
-                            me.typedecls.insert(name, (is_pub, ty));
-                        }
-                        Some(Token {
-                            ty: TokenType::Assign,
-                            ..
-                        }) => {
-                            let expr = Expression::parse(t)?.extract_ns(&me.imports);
-                            me.defs.insert(name, expr);
-                        }
-                        _ => panic!("ahh"),
+                    if me.recover(t).is_err() {
+                        break;
                     }
                 }
-                Some(a) => return Err(format!("Unexpected token in declaration: '{:#?}'", a)),
-                None => break,
             }
-
-            // every single item must be followed by a newline
-            t.nl_aware();
-            if t.consume(TokenType::NL).is_none() {
-                break; // TODO: maybe panic here, idk
-            }
-            t.nl_ignore();
         }
 
-        Ok(me)
+        if fail {
+            Err(me)
+        } else {
+            Ok(me)
+        }
+    }
+
+    // attempt to recover after an error. This is super basic.
+    // basically skip to the next line until parsing starts working again.
+    // we miss the errors inbetween, but probably get print more errors altogether
+    // we fail when we hit eof
+    fn recover(&mut self, t: &mut TokenStream) -> Result<(), ()> {
+        loop {
+            // break on end of file
+            if t.peek().is_none() {
+                return Err(());
+            }
+
+            // consume tokens until we hit a newline
+            t.nl_aware();
+            loop {
+                match t.next() {
+                    None => return Err(()),
+                    Some(Token {
+                        ty: TokenType::NL, ..
+                    }) => break,
+                    _ => {}
+                }
+            }
+            t.nl_ignore();
+
+            // attempt to parse another statement
+            match self.parse_stmt(t) {
+                Ok(()) => return Ok(()),
+                _ => {}
+            }
+        }
+    }
+
+    // parse a single statement, mutating the tree as necessary
+    // invariant: if you return an error, the tree must not be altered
+    fn parse_stmt(&mut self, t: &mut TokenStream) -> Result<(), SrcError> {
+        // This is wrong but we are going to roll with it for now
+        let is_pub = if t.consume(TokenType::Pub).is_some() {
+            Vis::Public
+        } else {
+            Vis::Private
+        };
+
+        match t.peek() {
+            Some(Token {
+                ty: TokenType::Alias,
+                ..
+            }) => {
+                t.assert(TokenType::Alias)?;
+                t.assert(TokenType::Type)?;
+
+                let name = t.ident()?;
+
+                t.assert(TokenType::Assign)?;
+
+                let ty = Type::parse(t)?;
+
+                self.type_aliases.insert(name, ty);
+                Ok(())
+            }
+            Some(Token {
+                ty: TokenType::Impl,
+                ..
+            }) => {
+                t.assert(TokenType::Impl)?;
+                let name = t.ident()?;
+
+                let gen_args = parse_genargs(t)?;
+                let mut args = vec![];
+                t.assert(TokenType::LParen)?;
+                while let Ok(ty) = QualType::parse(t) {
+                    args.push(ty);
+                    if t.consume(TokenType::Comma).is_none() {
+                        break;
+                    }
+                }
+                t.assert(TokenType::RParen)?;
+
+                let mut funcs = vec![];
+                while t.peek().map(|t| &t.ty) == Some(&TokenType::Ident(name.clone())) {
+                    let name = t.ident()?;
+                    let func = FunctionDef::parse(t, name, &self.imports)?;
+                    funcs.push(func);
+                }
+
+                self.impls.push(Impl {
+                    fn_name: name,
+                    gen_args,
+                    args,
+                    body: funcs,
+                });
+                Ok(())
+            }
+            Some(Token {
+                ty: TokenType::Typefn,
+                ..
+            }) => {
+                t.assert(TokenType::Typefn)?;
+
+                let name = t.ident()?;
+
+                let mut args = vec![];
+                t.assert(TokenType::LParen)?;
+                while let Ok(id) = t.ident() {
+                    args.push(id);
+                    if t.consume(TokenType::Comma).is_none() {
+                        break;
+                    }
+                }
+                t.assert(TokenType::RParen)?;
+                t.assert(TokenType::Assign)?;
+
+                let ty = Type::parse(t)?;
+
+                self.typefuns.insert(
+                    name.clone(),
+                    (
+                        is_pub,
+                        TypeFun {
+                            name,
+                            vars: args,
+                            ty,
+                        },
+                    ),
+                );
+                Ok(())
+            }
+            Some(Token {
+                ty: TokenType::Import,
+                ..
+            }) => {
+                t.assert(TokenType::Import)?;
+                let mut namespace = t.ident()?;
+
+                while t.consume(TokenType::Slash).is_some() {
+                    namespace.push_str("/");
+                    namespace.push_str(&t.ident()?);
+                }
+
+                self.imports.insert(namespace);
+                Ok(())
+            }
+            Some(Token {
+                ty: TokenType::From,
+                ..
+            }) => {
+                t.assert(TokenType::From)?;
+                let mut ns = t.ident()?;
+                while t.consume(TokenType::Slash).is_some() {
+                    ns.push_str("/");
+                    ns.push_str(&t.ident()?);
+                }
+
+                t.assert(TokenType::Import)?;
+
+                let mut aliases = vec![];
+
+                loop {
+                    let item = t.ident()?;
+
+                    if t.consume(TokenType::As).is_some() {
+                        let alias = t.ident()?;
+                        aliases.push((alias, item));
+                    } else {
+                        aliases.push((item.clone(), item.clone()))
+                    }
+
+                    if !t.consume(TokenType::Comma).is_some() {
+                        break;
+                    }
+                }
+
+                for (a, b) in aliases {
+                    self.aliases.insert(a, format!("{ns}/{b}"));
+                }
+
+                self.imports.insert(ns.clone());
+                Ok(())
+            }
+            Some(Token {
+                ty: TokenType::Extern,
+                ..
+            }) => {
+                t.assert(TokenType::Extern)?;
+
+                let name = t.ident()?;
+                t.assert(TokenType::Colon)?;
+
+                let ty = Type::parse(t)?;
+
+                self.typedecls
+                    .insert(name.clone(), (is_pub, QualType(vec![], ty)));
+                self.external.insert(name);
+                Ok(())
+            }
+            Some(Token {
+                ty: TokenType::Type,
+                ..
+            }) => {
+                // Either a typedecl or datadecl
+                t.assert(TokenType::Type)?;
+
+                let name = t.ident()?;
+                let args = parse_genargs(t)?;
+
+                t.assert(TokenType::Assign)?;
+                let ty = DataDecl::parse(t, name.clone(), args)?;
+
+                self.types.insert(name, (is_pub, ty));
+                Ok(())
+            }
+            Some(Token {
+                ty: TokenType::Ident(_),
+                ..
+            }) => {
+                let name = t.ident()?;
+
+                match t.peek() {
+                    Some(Token {
+                        ty: TokenType::LParen,
+                        ..
+                    }) => {
+                        let func = FunctionDef::parse(t, name, &self.imports)?;
+                        if let Some(f) = self.funcs.get_mut(&func.name) {
+                            f.push(func);
+                        } else {
+                            self.funcs.insert(func.name.clone(), vec![func]);
+                        }
+                        Ok(())
+                    }
+                    Some(Token {
+                        ty: TokenType::Colon,
+                        ..
+                    }) => {
+                        t.assert(TokenType::Colon)?;
+                        let ty = QualType::parse(t)?;
+                        self.typedecls.insert(name, (is_pub, ty));
+                        Ok(())
+                    }
+                    Some(Token {
+                        ty: TokenType::Assign,
+                        ..
+                    }) => {
+                        t.assert(TokenType::Assign)?;
+                        let expr = Expression::parse(t)?.extract_ns(&self.imports);
+                        self.defs.insert(name, expr);
+                        Ok(())
+                    }
+                    Some(_) => {
+                        let l = t.next().unwrap();
+                        Err(SrcError::new(
+                            t.file(),
+                            l.pos,
+                            l.end(),
+                            format!(
+                                "expected ':', '=', or '(' after identifer, found '{}'",
+                                l.ty.name()
+                            ),
+                        ))
+                    }
+                    None => Err(SrcError::new(
+                        t.file(),
+                        t.eof(),
+                        t.eof(),
+                        "unexpected end of file while parsing type".to_string(),
+                    )),
+                }
+            }
+            Some(_) => {
+                let l = t.next().unwrap();
+                Err(SrcError::new(
+                    t.file(),
+                    l.pos,
+                    l.end(),
+                    format!(
+                        "unexpected token while parsing statement: '{}'",
+                        l.ty.name()
+                    ),
+                ))
+            }
+            None => Ok(()),
+        }
     }
 }
 
-fn parse_genargs(t: &mut TokenStream) -> Result<Vec<String>, String> {
+fn parse_genargs(t: &mut TokenStream) -> Result<Vec<String>, SrcError> {
     if t.consume(TokenType::LArrow).is_some() {
         let mut args = vec![];
         while !t.test(TokenType::RArrow) {
-            // t.assert(TokenType::Quote)?;
-            args.push(t.ident()?);
-
+            match t.ident() {
+                Ok(i) => args.push(i),
+                Err(s) => return Err(s),
+            }
             if t.consume(TokenType::Comma).is_none() {
                 break;
             }
@@ -279,7 +408,7 @@ fn parse_genargs(t: &mut TokenStream) -> Result<Vec<String>, String> {
 }
 
 impl DataDecl {
-    fn parse(t: &mut TokenStream, name: String, args: Vec<String>) -> Result<Self, String> {
+    fn parse(t: &mut TokenStream, name: String, args: Vec<String>) -> Result<Self, SrcError> {
         let mut cons = Vec::new();
         let con = TypeCons::parse(t)?;
         cons.push(con);
@@ -294,7 +423,7 @@ impl DataDecl {
 }
 
 impl TypeCons {
-    fn parse(t: &mut TokenStream) -> Result<Self, String> {
+    fn parse(t: &mut TokenStream) -> Result<Self, SrcError> {
         let name = t.ident()?;
 
         let args = if t.test(TokenType::LParen) {
@@ -308,7 +437,7 @@ impl TypeCons {
 }
 
 impl FunctionDef {
-    fn parse(t: &mut TokenStream, name: String, ns: &HashSet<String>) -> Result<Self, String> {
+    fn parse(t: &mut TokenStream, name: String, ns: &HashSet<String>) -> Result<Self, SrcError> {
         // Force function def to start with open paren, but don't consume
         if !t.test(TokenType::LParen) {
             // Guaranteed to error
@@ -350,7 +479,7 @@ impl QualType {
     // an arrow, and then a type. We have to test to see
     // if we are parsing type constraints before we can
     // really know what we are parsing.
-    fn parse(t: &mut TokenStream) -> Result<Self, String> {
+    fn parse(t: &mut TokenStream) -> Result<Self, SrcError> {
         // Try to parse constraint: ident ( vars... ) =>
         if let Ok((i, pos)) = t.ident_tok() {
             if t.consume(TokenType::LParen).is_some() {
@@ -389,9 +518,20 @@ impl QualType {
 
                 Ok(QualType(cs, Type::parse(t)?))
             } else {
-                // we are not parsing a constraint list, parse as type
-                // we push the tokens back onto the lexer before parsing
-                t.0.push_front(Token {
+                // when we check the next char with consume in nl_ignore mode,
+                // the token stream can consume as many newlines as it wants
+                // and will keep track of if the last token was a newline in
+                // nl_last. however, these newlines are *after* the identifer,
+                // which we then push back on the queue if parsing constraints
+                // fail. Thus we keep track of nl_last, and push a newline as
+                // well if it is set
+                if t.nl_last {
+                    t.queue.push_front(Token {
+                        ty: TokenType::NL,
+                        pos,
+                    })
+                }
+                t.queue.push_front(Token {
                     ty: TokenType::Ident(i),
                     pos,
                 });
@@ -405,28 +545,7 @@ impl QualType {
 }
 
 impl Type {
-    pub fn from_str(s: &str, file: &PathBuf) -> Result<Self, String> {
-        let mut l = Lexer::default();
-        let tokens = l.lex(s, file);
-
-        let mut tokens = match tokens {
-            Ok(t) => {
-                if t.check(file) {
-                    t
-                } else {
-                    return Err("fail".to_string());
-                }
-            }
-            Err(t) => {
-                t.check(file);
-                return Err("fail".to_string());
-            }
-        };
-
-        Type::parse(&mut tokens)
-    }
-
-    fn parse(t: &mut TokenStream) -> Result<Self, String> {
+    fn parse(t: &mut TokenStream) -> Result<Self, SrcError> {
         let cont = Self::parse_tuple(t)?;
 
         if t.consume(TokenType::Arrow).is_some() {
@@ -438,7 +557,7 @@ impl Type {
         }
     }
 
-    fn parse_tuple(t: &mut TokenStream) -> Result<Self, String> {
+    fn parse_tuple(t: &mut TokenStream) -> Result<Self, SrcError> {
         if t.consume(TokenType::LParen).is_some() {
             if t.consume(TokenType::RParen).is_some() {
                 // Not a tuple, an empty type
@@ -464,7 +583,7 @@ impl Type {
         }
     }
 
-    fn parse_list(t: &mut TokenStream) -> Result<Self, String> {
+    fn parse_list(t: &mut TokenStream) -> Result<Self, SrcError> {
         if t.consume(TokenType::LBrace).is_some() {
             let inner = Self::parse(t)?;
 
@@ -479,7 +598,7 @@ impl Type {
         }
     }
 
-    fn parse_generic(t: &mut TokenStream) -> Result<Self, String> {
+    fn parse_generic(t: &mut TokenStream) -> Result<Self, SrcError> {
         let base = Self::parse_base(t)?;
 
         if t.consume(TokenType::LArrow).is_some() {
@@ -498,13 +617,20 @@ impl Type {
         }
     }
 
-    fn parse_base(t: &mut TokenStream) -> Result<Self, String> {
-        let Token { ty, pos: _pos } = match t.next() {
+    fn parse_base(t: &mut TokenStream) -> Result<Self, SrcError> {
+        let l = match t.next() {
             Some(a) => a,
-            None => return Err(format!("Unexpected EOF in type")),
+            None => {
+                return Err(SrcError::new(
+                    t.file(),
+                    t.eof(),
+                    t.eof(),
+                    "unexpected end of file while parsing type".to_string(),
+                ))
+            }
         };
 
-        Ok(match ty {
+        Ok(match l.ty {
             TokenType::Quote => Type::GenVar(t.ident()?),
             TokenType::Ident(mut i) => {
                 while t.consume(TokenType::Slash).is_some() {
@@ -524,7 +650,14 @@ impl Type {
             TokenType::I32 => Self::I32,
             TokenType::I64 => Self::I64,
             TokenType::Str => Self::Str,
-            a => return Err(format!("Unexpected token in type: '{}'", a.name())),
+            _ => {
+                return Err(SrcError::new(
+                    t.file(),
+                    l.pos,
+                    l.end(),
+                    format!("unexptected token while parsing type: '{}'", l.ty.name()),
+                ))
+            }
         })
     }
 }
@@ -562,7 +695,7 @@ impl Expression {
     //    + base is a little misleading, this includes
     //      ifelse, letin, etc
     //    + anything that has an unambiguous delimiting tokens
-    pub fn parse(t: &mut TokenStream) -> Result<Self, String> {
+    pub fn parse(t: &mut TokenStream) -> Result<Self, SrcError> {
         if t.consume(TokenType::LCurly).is_some() {
             let mut es = vec![];
 
@@ -585,7 +718,7 @@ impl Expression {
         }
     }
 
-    pub fn orexpr(t: &mut TokenStream) -> Result<Self, String> {
+    pub fn orexpr(t: &mut TokenStream) -> Result<Self, SrcError> {
         let and = Self::andexpr(t)?;
 
         if let Some(()) = t.consume(TokenType::Or) {
@@ -599,7 +732,7 @@ impl Expression {
         }
     }
 
-    fn andexpr(t: &mut TokenStream) -> Result<Self, String> {
+    fn andexpr(t: &mut TokenStream) -> Result<Self, SrcError> {
         let bitor = Self::eqexpr(t)?;
 
         if let Some(()) = t.consume(TokenType::And) {
@@ -613,7 +746,7 @@ impl Expression {
         }
     }
 
-    fn eqexpr(t: &mut TokenStream) -> Result<Self, String> {
+    fn eqexpr(t: &mut TokenStream) -> Result<Self, SrcError> {
         let rel = Self::relexpr(t)?;
 
         if let Some(()) = t.consume(TokenType::NotEqual) {
@@ -633,7 +766,7 @@ impl Expression {
         }
     }
 
-    fn relexpr(t: &mut TokenStream) -> Result<Self, String> {
+    fn relexpr(t: &mut TokenStream) -> Result<Self, SrcError> {
         let conc = Self::addexpr(t)?;
 
         if let Some(()) = t.consume(TokenType::LArrow) {
@@ -665,7 +798,7 @@ impl Expression {
         }
     }
 
-    fn addexpr(t: &mut TokenStream) -> Result<Self, String> {
+    fn addexpr(t: &mut TokenStream) -> Result<Self, SrcError> {
         let mul = Self::mulexpr(t)?;
 
         if let Some(()) = t.consume(TokenType::Plus) {
@@ -685,7 +818,7 @@ impl Expression {
         }
     }
 
-    fn mulexpr(t: &mut TokenStream) -> Result<Self, String> {
+    fn mulexpr(t: &mut TokenStream) -> Result<Self, SrcError> {
         let pow = Self::powexpr(t)?;
 
         if let Some(()) = t.consume(TokenType::Mul) {
@@ -711,7 +844,7 @@ impl Expression {
         }
     }
 
-    fn powexpr(t: &mut TokenStream) -> Result<Self, String> {
+    fn powexpr(t: &mut TokenStream) -> Result<Self, SrcError> {
         let unary = Self::unary(t)?;
 
         if let Some(()) = t.consume(TokenType::Pow) {
@@ -725,7 +858,7 @@ impl Expression {
         }
     }
 
-    fn unary(t: &mut TokenStream) -> Result<Self, String> {
+    fn unary(t: &mut TokenStream) -> Result<Self, SrcError> {
         if let Some(()) = t.consume(TokenType::Not) {
             let un = Self::unary(t)?;
             Ok(Self::Call(
@@ -743,12 +876,12 @@ impl Expression {
         }
     }
 
-    fn postfix(t: &mut TokenStream) -> Result<Self, String> {
+    fn postfix(t: &mut TokenStream) -> Result<Self, SrcError> {
         let primary = Self::primary(t)?;
         Self::postfix_post(t, primary)
     }
 
-    fn postfix_post(t: &mut TokenStream, primary: Expression) -> Result<Self, String> {
+    fn postfix_post(t: &mut TokenStream, primary: Expression) -> Result<Self, SrcError> {
         t.nl_aware();
 
         let pfix = if t.consume(TokenType::LParen).is_some() {
@@ -809,7 +942,7 @@ impl Expression {
                 Expression::Call(Box::new(func), Box::new(args))
             } else if t.consume(TokenType::Arrow).is_some() {
                 // parse lambda expression
-                let pat = primary.to_lambda_pattern();
+                let pat = primary.to_lambda_pattern()?;
                 let end = Self::parse(t)?;
 
                 Self::Lambda(pat, Box::new(end))
@@ -821,16 +954,20 @@ impl Expression {
         Self::postfix_post(t, pfix)
     }
 
-    fn primary(t: &mut TokenStream) -> Result<Self, String> {
-        let Token {
-            ty: next,
-            pos: _pos,
-        } = match t.next() {
+    fn primary(t: &mut TokenStream) -> Result<Self, SrcError> {
+        let l = match t.next() {
             Some(t) => t,
-            None => return Err("".to_string()),
+            None => {
+                return Err(SrcError::new(
+                    t.file(),
+                    t.eof(),
+                    t.eof(),
+                    "unexpected end of file while parsing type".to_string(),
+                ))
+            }
         };
 
-        match next {
+        match l.ty {
             TokenType::True => Ok(Expression::True),
             TokenType::False => Ok(Expression::False),
             // Let statement
@@ -956,10 +1093,15 @@ impl Expression {
                 Ok(Self::cons_from_es(&es))
             }
             // otherwise error
-            a => {
-                //panic!("PrimaryExpr: Expected identifier, constant, or expression, found: {:?}", a);
-                Err(format!("Expected expression, found '{}'", a.name()))
-            }
+            _ => Err(SrcError::new(
+                t.file(),
+                l.pos,
+                l.end(),
+                format!(
+                    "expected identifer, constant, or expression, found '{}'",
+                    l.ty.name()
+                ),
+            )),
         }
     }
 
@@ -980,16 +1122,26 @@ impl Expression {
         )
     }
 
-    fn to_lambda_pattern(&self) -> Pattern {
+    fn to_lambda_pattern(&self) -> Result<Pattern, SrcError> {
         match self {
-            Self::Identifier(s) => Pattern::Var(s.clone(), None),
+            Self::Identifier(s) => Ok(Pattern::Var(s.clone(), None)),
             Self::Tuple(es) => {
-                Pattern::Tuple(es.iter().map(|e| e.to_lambda_pattern()).collect(), None)
+                let mut out = vec![];
+
+                for e in es {
+                    out.push(e.to_lambda_pattern()?);
+                }
+
+                Ok(Pattern::Tuple(out, None))
             }
-            Self::Unit => Pattern::Unit(Some(Type::Unit)),
+            Self::Unit => Ok(Pattern::Unit(Some(Type::Unit))),
             Self::Call(f, args) => {
                 if let Expression::Identifier(s) = &**f {
-                    Pattern::Cons(s.clone(), Box::new(args.to_lambda_pattern()), None)
+                    Ok(Pattern::Cons(
+                        s.clone(),
+                        Box::new(args.to_lambda_pattern()?),
+                        None,
+                    ))
                 } else {
                     panic!("lambda what?")
                 }
@@ -1019,7 +1171,7 @@ impl Pattern {
         )
     }
 
-    fn parse(t: &mut TokenStream) -> Result<Pattern, String> {
+    fn parse(t: &mut TokenStream) -> Result<Pattern, SrcError> {
         let x = Self::parse_base(t)?;
 
         if t.consume(TokenType::Concat).is_some() {
@@ -1034,7 +1186,7 @@ impl Pattern {
         Ok(x)
     }
 
-    fn parse_tuple(t: &mut TokenStream) -> Result<Pattern, String> {
+    fn parse_tuple(t: &mut TokenStream) -> Result<Pattern, SrcError> {
         t.assert(TokenType::LParen)?;
         // We are either the unit type or the tuple type
 
@@ -1060,17 +1212,24 @@ impl Pattern {
         }
     }
 
-    fn parse_base(t: &mut TokenStream) -> Result<Pattern, String> {
+    fn parse_base(t: &mut TokenStream) -> Result<Pattern, SrcError> {
         if t.test(TokenType::LParen) {
             return Self::parse_tuple(t);
         }
 
-        let Token { ty, pos: _pos } = match t.next() {
+        let l = match t.next() {
             Some(a) => a,
-            None => panic!("unexpected token?"),
+            None => {
+                return Err(SrcError::new(
+                    t.file(),
+                    t.eof(),
+                    t.eof(),
+                    "unexpected end of file while parsing type".to_string(),
+                ))
+            }
         };
 
-        match ty {
+        match l.ty {
             TokenType::LBrace => {
                 t.assert(TokenType::RBrace)?;
                 Ok(Pattern::Cons(
@@ -1088,7 +1247,18 @@ impl Pattern {
                     ty: TokenType::Num(n),
                     ..
                 }) => Ok(Pattern::Num(-(n as i64), None)),
-                _ => Err("expected number".to_string()),
+                Some(l) => Err(SrcError::new(
+                    t.file(),
+                    l.pos,
+                    l.end(),
+                    format!("expected number after '-', found '{}'", l.ty.name()),
+                )),
+                None => Err(SrcError::new(
+                    t.file(),
+                    t.eof(),
+                    t.eof(),
+                    "unexpected end of file while parsing type".to_string(),
+                )),
             },
             TokenType::Ident(mut i) => {
                 if i == "_" {
@@ -1126,7 +1296,12 @@ impl Pattern {
                     }
                 }
             }
-            a => panic!("ahh, unexpected {a:?}"),
+            _ => Err(SrcError::new(
+                t.file(),
+                l.pos,
+                l.end(),
+                format!("unexpected token while parsing pattern '{}'", l.ty.name()),
+            )),
         }
     }
 }
