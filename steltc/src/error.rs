@@ -35,27 +35,51 @@ impl<'a> SrcError<'a> {
             .lines()
             .enumerate()
             .skip(pstart as usize)
-            .take((pend - pstart) as usize);
+            .take((pend - pstart + 1) as usize);
 
-        eprintln!("\x1b[1m\x1b[31merror:\x1b[37m {}\x1b[0m", self.msg);
         eprintln!(
             " \x1b[35m-->\x1b[0m {}:{}:{}",
             self.file.to_str().unwrap(),
-            self.start.0,
-            self.start.1
+            self.start.0 + 1,
+            self.start.1 + 1
         );
+
+        let mut init = false;
 
         for (row, txt) in lines {
             let txt = txt.unwrap();
-            let prow = row + 1;
+
+            let prow = if row as u32 <= self.end.0 && row as u32 >= self.start.0 {
+                format!("{:digs$}", row + 1)
+            } else {
+                let digs = digs + 1;
+                format!("{:digs$}", "")
+            };
 
             if row == self.start.0 as usize {
-                eprintln!("\x1b[35m{prow:digs$} |\x1b[0m {txt}");
+                let (start, end) = txt.split_at(self.start.1 as usize);
+                eprint!("\x1b[35m{prow} |\x1b[0m {start}");
+
+                if self.start.0 == self.end.0 {
+                    let (start, end) = end.split_at((self.end.1 - self.start.1 + 1) as usize);
+                    eprintln!("\x1b[4m\x1b[31m{start}\x1b[0m{end}\x1b[0m");
+                } else {
+                    eprintln!("\x1b[4m\x1b[31m{end}\x1b[0m");
+                    init = true;
+                }
             } else if row == self.end.0 as usize {
-                eprintln!("\x1b[35m{prow:digs$} |\x1b[0m {txt}");
+                let (start, end) = txt.split_at(self.end.1 as usize + 1);
+                eprintln!("\x1b[35m{prow} |\x1b[0m \x1b[4m\x1b[31m{start}\x1b[0m{end}");
+                init = false;
             } else {
-                eprintln!("\x1b[35m{prow:digs$} |\x1b[0m {txt}");
+                if init {
+                    eprintln!("\x1b[35m{prow} |\x1b[0m \x1b[4m\x1b[31m{txt}\x1b[0m");
+                } else {
+                    eprintln!("\x1b[35m{prow} |\x1b[0m {txt}");
+                }
             }
         }
+        eprintln!("\x1b[1m\x1b[31merror:\x1b[37m {}\x1b[0m", self.msg);
+        eprintln!("");
     }
 }

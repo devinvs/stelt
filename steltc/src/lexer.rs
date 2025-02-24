@@ -195,8 +195,136 @@ impl TokenStream {
         self.1 = false;
     }
 
-    pub fn check(&self) -> bool {
-        true
+    // there's not much that can checked in the lexer, but here's what is covered here
+    // - matching parens, braces, curlies
+    // - idents don't have invalid characters
+    // - strings don't have invalid escape sequences
+    pub fn check(&self, file: &PathBuf) -> bool {
+        let mut success = true;
+
+        let mut paren_stack = VecDeque::new();
+        let mut brace_stack = VecDeque::new();
+        let mut curly_stack = VecDeque::new();
+
+        for Token {
+            ty,
+            pos: (row, col),
+        } in self.0.iter()
+        {
+            match ty {
+                TokenType::Ident(s) => {
+                    // Token rules:
+                    // - must start with alphabet or _
+                    // - must contain only alphanumeric or _
+                    // - can end with ! or ?
+                    let mut cs = s.chars();
+
+                    let first = cs.next().unwrap();
+                    if first != '_' && !first.is_alphabetic() {
+                        success = false;
+                        SrcError::new(
+                            file,
+                            (*row, *col),
+                            (*row, *col),
+                            "identifiers must start with an alphabetic character or _".to_string(),
+                        )
+                        .print();
+                    }
+
+                    for (i, c) in s.chars().enumerate() {
+                        if c != '_'
+                            && !c.is_alphanumeric()
+                            && !(i == s.len() - 1 && (c == '!' || c == '?'))
+                        {
+                            success = false;
+                            SrcError::new(
+                                file,
+                                (*row, *col + i as u32),
+                                (*row, *col + i as u32),
+                                "identifiers must only contain alphanumeric characters or _"
+                                    .to_string(),
+                            )
+                            .print();
+                        }
+                    }
+                }
+                TokenType::String(s) => {
+                    let mut backslash = false;
+
+                    for (i, c) in s.chars().enumerate() {
+                        if !backslash && c == '\\' {
+                            backslash = true;
+                            continue;
+                        }
+
+                        // TODO: fix for multiline strings
+                        if backslash && !"0nrf\\".contains(c) {
+                            success = false;
+                            SrcError::new(
+                                file,
+                                (*row, *col + i as u32 - 1),
+                                (*row, *col + i as u32),
+                                "invalid string escape sequence".to_string(),
+                            )
+                            .print();
+                        }
+
+                        backslash = false;
+                    }
+                }
+                TokenType::LParen => {
+                    paren_stack.push_front((row, col));
+                }
+                TokenType::RParen => match paren_stack.pop_front() {
+                    Some(_) => {}
+                    None => {
+                        success = false;
+                        SrcError::new(file, (*row, *col), (*row, *col), "unmatched )".to_string())
+                            .print();
+                    }
+                },
+                TokenType::LBrace => {
+                    brace_stack.push_front((row, col));
+                }
+                TokenType::RBrace => match brace_stack.pop_front() {
+                    Some(_) => {}
+                    None => {
+                        success = false;
+                        SrcError::new(file, (*row, *col), (*row, *col), "unmatched ]".to_string())
+                            .print();
+                    }
+                },
+                TokenType::LCurly => {
+                    curly_stack.push_front((row, col));
+                }
+                TokenType::RCurly => match brace_stack.pop_front() {
+                    Some(_) => {}
+                    None => {
+                        success = false;
+                        SrcError::new(file, (*row, *col), (*row, *col), "unmatched }".to_string())
+                            .print();
+                    }
+                },
+                _ => {}
+            }
+        }
+
+        while let Some((row, col)) = paren_stack.pop_front() {
+            success = false;
+            SrcError::new(file, (*row, *col), (*row, *col), "unmatched (".to_string()).print();
+        }
+
+        while let Some((row, col)) = brace_stack.pop_front() {
+            success = false;
+            SrcError::new(file, (*row, *col), (*row, *col), "unmatched [".to_string()).print();
+        }
+
+        while let Some((row, col)) = curly_stack.pop_front() {
+            success = false;
+            SrcError::new(file, (*row, *col), (*row, *col), "unmatched {".to_string()).print();
+        }
+
+        success
     }
 }
 
@@ -405,7 +533,7 @@ impl Lexer {
             // while also transforming escape sequences
             if self.in_string {
                 match c {
-                    '"' => {
+                    '"' if stack.chars().last() != Some('\\') => {
                         self.push_token(&mut tokens, &mut stack, row, col);
                         self.in_string = false;
                     }
@@ -414,6 +542,7 @@ impl Lexer {
                         stack.push(c);
                         row += 1;
                         col = 0;
+                        continue;
                     }
                     _ => stack.push(c),
                 }
@@ -637,6 +766,7 @@ impl Lexer {
                     tokens.push_back(Token::new(TokenType::NL, row, col));
                     row += 1;
                     col = 0;
+                    continue;
                 }
                 ' ' | '\t' => {
                     self.push_token(&mut tokens, &mut stack, row, col);
@@ -675,7 +805,7 @@ impl Lexer {
         row: u32,
         mut col: u32,
     ) {
-        col -= stack.len() as u32;
+        col = col.saturating_sub(stack.len() as u32);
         if !stack.is_empty() {
             if self.in_string {
                 tokens.push_back(Token::new(TokenType::String(stack.clone()), row, col));

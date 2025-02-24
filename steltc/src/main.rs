@@ -52,14 +52,14 @@ fn parse_str(s: &str, file: &PathBuf) -> Program {
     let mut lexer = Lexer::default();
     let mut tokens = match lexer.lex(s, file) {
         Ok(t) => {
-            if t.check() {
+            if t.check(file) {
                 t
             } else {
                 std::process::exit(1);
             }
         }
         Err(t) => {
-            t.check();
+            t.check(file);
             std::process::exit(1);
         }
     };

@@ -411,14 +411,14 @@ impl Type {
 
         let mut tokens = match tokens {
             Ok(t) => {
-                if t.check() {
+                if t.check(file) {
                     t
                 } else {
                     return Err("fail".to_string());
                 }
             }
             Err(t) => {
-                t.check();
+                t.check(file);
                 return Err("fail".to_string());
             }
         };
