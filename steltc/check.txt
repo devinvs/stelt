@@ -1,0 +1,6 @@
+things that the compiler should probably check for but it doesn't yet:
+
+- recursive definitions (a = b, b = a)
+- definitions after type declarations
+- no overwrite funcs/types/etc
+- type/genargs/typefn/impl/import ident names have different rules that require extra validation

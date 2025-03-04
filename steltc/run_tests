@@ -11,14 +11,14 @@ def error(s):
 def success(s):
     print("\x1b[32m" + s + "\x1b[0m")
 
-os.system(f"cargo build --release")
+os.system(f"cargo build")
 n = 0
 s = 0
 for f in os.listdir("./tests"):
     n += 1
 
     comp_start = time.time()
-    if os.system(f"./target/release/stelt tests/{f}/main.st") != 0:
+    if os.system(f"./target/debug/stelt tests/{f}/main.st") != 0:
         error(f"{f} failed to compile")
         continue
     comp_end = time.time()

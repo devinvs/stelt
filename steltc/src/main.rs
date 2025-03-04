@@ -67,7 +67,7 @@ fn parse_str(s: &str, file: &PathBuf) -> Program {
     // Parse
     let program = match Program::parse(&mut tokens) {
         Ok(p) => p,
-        Err(p) => {
+        Err(_p) => {
             // TODO: check program
             std::process::exit(1);
         }
@@ -142,6 +142,13 @@ fn compile(path: PathBuf, outdir: PathBuf) -> Vec<PathBuf> {
             Ok(_) => {}
             Err(e) => {
                 eprintln!("{e}");
+                std::process::exit(1);
+            }
+        }
+        match mir.check() {
+            Ok(_) => {}
+            Err(_) => {
+                eprintln!("check failed in mir for {name}");
                 std::process::exit(1);
             }
         }

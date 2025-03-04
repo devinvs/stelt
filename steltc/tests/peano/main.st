@@ -23,26 +23,16 @@ mul(nat.Succ(nat.Zero), y) = y
 mul(x, nat.Succ(nat.Zero)) = x
 mul(nat.Succ(x), y) = y + x*y
 
-zero: nat
-zero = nat.Zero()
+from_num: u32 -> nat
+from_num(0) = nat.Zero
+from_num(x) = nat.Succ(from_num(x-1))
 
-one: nat
-one = nat.Succ(nat.Zero())
-
-two: nat
-two = nat.Succ(nat.Succ(nat.Zero()))
-
-three: nat
-three = nat.Succ(nat.Succ(nat.Succ(nat.Zero())))
-
-four: nat
-four = nat.Succ(nat.Succ(nat.Succ(nat.Succ(nat.Zero()))))
+to_num: nat -> nat
+to_num(nat.Zero) = 0
+to_num(nat.Succ(x)) = 1 + to_num(x)
 
 main: () -> ()
 main() = {
-	assert two == one+one
-	assert one == one+zero
-	assert three == one+two
-	assert four == two*two
-	assert two*two*two == four+four
+	assert add(from_num(12), from_num(7)) == to_num(12+7)
+	assert mul(from_num(12), from_num(7)) == to_num(12*7)
 }

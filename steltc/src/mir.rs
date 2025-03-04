@@ -192,6 +192,31 @@ impl MIRTree {
         }
     }
 
+    pub fn check(&self) -> Result<(), ()> {
+        let mut failed = false;
+
+        // the only check right now is an exhaustiveness check on patterns
+        for (name, body) in self.funcs.iter() {
+            if !body.exhaustive(name, &self.types) {
+                eprintln!("{name} failed exhaustiveness check");
+                failed = true;
+            }
+        }
+
+        for (name, body) in self.defs.iter() {
+            if !body.exhaustive(name, &self.types) {
+                eprintln!("{name} failed exhaustiveness check");
+                failed = true;
+            }
+        }
+
+        if failed {
+            Err(())
+        } else {
+            Ok(())
+        }
+    }
+
     pub fn with_concrete_types(
         mut self,
         impl_map: &HashMap<String, Vec<(String, Type)>>,
@@ -737,6 +762,20 @@ impl MIRExpression {
             a => (a, vec![]),
         }
     }
+
+    fn exhaustive(&self, name: &str, ts: &Vec<(String, (Vis, DataDecl))>) -> bool {
+        match self {
+            Self::Match(e, ps, _) => {
+                e.ty()
+                    .exhaustive(name, &ps.iter().map(|(p, _)| p).collect::<Vec<_>>(), ts)
+            }
+            Self::List(es, _) => es.iter().map(|e| e.exhaustive(name, ts)).any(|b| b),
+            Self::Tuple(es, _) => es.iter().map(|e| e.exhaustive(name, ts)).any(|b| b),
+            Self::Call(m, n, _) => m.exhaustive(name, ts) || n.exhaustive(name, ts),
+            Self::Lambda1(_, e, _) => e.exhaustive(name, ts),
+            _ => true,
+        }
+    }
 }
 
 impl Pattern {
@@ -801,6 +840,74 @@ impl Pattern {
 }
 
 impl Type {
+    fn exhaustive(
+        &self,
+        fname: &str,
+        ps: &Vec<&Pattern>,
+        ts: &Vec<(String, (Vis, DataDecl))>,
+    ) -> bool {
+        // this has already passed type checking, which means we only need to make sure that all
+        // patterns are matched or there is an any/var pattern
+        for p in ps.iter() {
+            match p {
+                Pattern::Any(_) => return true,
+                Pattern::Unit(_) => return true,
+                Pattern::Var(_, _) => return true,
+                _ => {}
+            }
+        }
+
+        // the structure already matches recursively, and its not any of our passing cases
+        match self {
+            Type::Bool => {
+                let out = ps.contains(&&Pattern::True) && ps.contains(&&Pattern::False);
+
+                if !out {
+                    eprintln!("unmatched boolean pattern");
+                }
+
+                out
+            }
+            Type::Ident(tident) => {
+                let td = &ts.iter().find(|(n, _)| tident == n).unwrap().1 .1;
+                td.exhaustive(fname, ps, ts)
+            }
+            Type::Generic(subs, t) => {
+                // I'm 90% that t should be an ident, might need to rework the AST for this one
+                let tident = match t.as_ref() {
+                    Type::Ident(s) => s.clone(),
+                    _ => panic!("wait, generics can be on unnamed types? (i hope not)"),
+                };
+                let td = &ts.iter().find(|(n, _)| &tident == n).unwrap().1 .1;
+                let td = td.substitute(tident, subs);
+
+                td.exhaustive(fname, ps, ts)
+            }
+            Type::Tuple(its) => {
+                let mut fail = false;
+                for (i, t) in its.iter().enumerate() {
+                    let ps = ps
+                        .iter()
+                        .map(|p| match p {
+                            Pattern::Tuple(ips, _) => &ips[i],
+                            _ => panic!("type checker is not soud, panic"),
+                        })
+                        .collect::<Vec<_>>();
+                    fail = fail || !t.exhaustive(fname, &ps, ts);
+                }
+
+                !fail
+            }
+            Type::ForAll(_, _, t) => t.exhaustive(fname, ps, ts),
+            Type::Arrow(_, _) => panic!("cannot match on function (yet)"),
+            Type::Box(t) => t.exhaustive(fname, ps, ts),
+            t => {
+                eprintln!("type {t:?} not matched exhaustively");
+                false
+            }
+        }
+    }
+
     fn extract_vars(self, types: &HashSet<String>, cons: Vec<Constraint>) -> Type {
         let vars = self.type_vars(types);
 
@@ -1037,6 +1144,43 @@ impl Type {
 }
 
 impl DataDecl {
+    fn exhaustive(
+        &self,
+        fname: &str,
+        ps: &Vec<&Pattern>,
+        ts: &Vec<(String, (Vis, DataDecl))>,
+    ) -> bool {
+        // group all patterns by cons name
+        let mut pmap: HashMap<String, Vec<&Pattern>> = HashMap::new();
+
+        for p in ps.into_iter() {
+            match p {
+                Pattern::Cons(name, p, _) => {
+                    if pmap.contains_key(name) {
+                        pmap.get_mut(name).unwrap().push(p);
+                    } else {
+                        pmap.insert(name.clone(), vec![p]);
+                    }
+                }
+                _ => panic!("prob the type checkers fault"),
+            }
+        }
+        let mut fail = false;
+
+        // recursively map through each constructor and their inner argument
+        // types to check against all patterns for that constructor
+        for tc in self.2.iter() {
+            if let Some(ps) = pmap.get(&tc.name) {
+                fail = fail || !tc.args.exhaustive(fname, ps, ts);
+            } else {
+                eprintln!("pattern for {} missing", tc.name);
+                fail = true;
+            }
+        }
+
+        !fail
+    }
+
     fn substitute(&self, name: String, vals: &Vec<Type>) -> Self {
         match self {
             DataDecl(_, args, cons) => {
